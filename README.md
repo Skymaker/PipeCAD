@@ -7,6 +7,8 @@ Programa de CAD 3D en un único archivo HTML para diseñar instalaciones con tub
 
 Abre `index.html` en un navegador moderno (necesita conexión a internet para cargar Three.js desde el CDN). Pulsa **?** o **F1** para ver la ayuda.
 
+Enlace: https://skymaker.github.io/PipeCAD/
+
 ## Funciones
 
 - **Dibujo 3D por polilínea**: los codos de 90° y 45° se insertan solos al cambiar de dirección; empezar o terminar sobre un tubo crea una Te (o Te reducida).
