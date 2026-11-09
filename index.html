@@ -198,8 +198,8 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
         <option value="real">Cotas: longitud real</option>
         <option value="axis">Cotas: a ejes</option>
         <option value="mark">Cotas: marca de pieza</option>
-        <option value="none">Sin cotas</option>
       </select>
+      <button id="b-labels" class="on" role="switch" aria-checked="true" title="Mostrar u ocultar rótulos (L)">Rótulos: sí</button>
       <button id="b-theme" title="Tema">Tema: auto</button>
       <button id="b-help" title="Ayuda (F1)">?</button>
     </div>
@@ -247,7 +247,9 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
         <li>Elige el diámetro (Ø20 / 32 / 40) y pulsa <b>Tubo</b> (D).</li>
         <li>Haz clic en el plano para empezar y ve marcando puntos. Los codos se colocan solos al girar 90° o 45°.</li>
         <li>Para derivar, empieza o termina sobre un tubo: se inserta una Te (o Te reducida si el Ø es menor).</li>
-        <li>Con <b>Seleccionar</b> (S) arrastra los puntos azules o los accesorios para alargar o acortar.</li>
+        <li>Con <b>Seleccionar</b> (S) arrastra los puntos azules o los accesorios para alargar o acortar. Al seleccionar un accesorio aparecen tres anillos para girarlo; los tubos que dejen de encajar se separan.</li>
+        <li>Con <b>Accesorio</b> (A) colócalo suelto, en el extremo de un tubo o sobre un tubo: se inserta partiéndolo, sin duplicar tubos.</li>
+        <li>Para unir dos tubos alineados en uno solo, selecciona uno y pulsa <b>Unir</b> en sus propiedades (o selecciona el manguito y quítalo).</li>
         <li>Revisa la pestaña <b>Despiece</b>, expórtalo a CSV o imprímelo.</li>
       </ol>
       <h4>Medidas</h4>
@@ -263,7 +265,8 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
         <tr><td><kbd>Mayús</kbd></td><td>Tubo: tramos verticales o inclinados</td></tr>
         <tr><td><kbd>0-9</kbd> <kbd>Enter</kbd></td><td>Tubo: longitud exacta a ejes (negativa = sentido contrario)</td></tr>
         <tr><td><kbd>Enter</kbd> <kbd>Esc</kbd> doble clic</td><td>Terminar el tramo</td></tr>
-        <tr><td><kbd>R</kbd> <kbd>E</kbd> <kbd>W</kbd></td><td>Accesorio: girar 45° en planta · volcar 90° sobre X · sobre Y</td></tr>
+        <tr><td><kbd>R</kbd> <kbd>E</kbd> <kbd>W</kbd></td><td>Girar el accesorio (al colocarlo o seleccionado): 45° en planta · 90° sobre X · 90° sobre Y</td></tr>
+        <tr><td><kbd>L</kbd></td><td>Mostrar / ocultar rótulos</td></tr>
         <tr><td><kbd>Supr</kbd></td><td>Borrar selección</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></td><td>Deshacer / rehacer</td></tr>
         <tr><td><kbd>F</kbd></td><td>Encuadrar todo</td></tr>
@@ -364,12 +367,14 @@ class Model {
   removeSegment(id) {
     const s = this.segments.get(id); if (!s) return;
     this.segments.delete(id);
-    for (const n of [s.a, s.b]) if (!this.segmentsOf(n).length) this.nodes.delete(n);
+    // los nodos que quedan sin tubos desaparecen, salvo los accesorios declarados (quedan con bocas libres)
+    for (const n of [s.a, s.b]) if (!this.segmentsOf(n).length && !this.nodes.get(n)?.fit) this.nodes.delete(n);
   }
   removeNode(id) { for (const s of this.segmentsOf(id)) this.removeSegment(s.id); this.nodes.delete(id); }
   moveNode(id, pos) { this.nodes.get(id).pos = pos.slice(0, 3).map(r3); }
   // Si el nodo une dos tramos alineados del mismo Ø, los convierte en uno solo (prolongación).
   mergeThrough(nid) {
+    if (this.nodes.get(nid)?.fit) return false; // un accesorio colocado a propósito no se elimina
     const ss = this.segmentsOf(nid);
     if (ss.length !== 2 || ss[0].d !== ss[1].d) return false;
     const P = v3(this.nodes.get(nid).pos);
@@ -401,7 +406,7 @@ class Model {
     if (json.config) merge(cfg, json.config);
     this.name = json.name || 'Proyecto sin título';
     this.config = cfg;
-    this.nodes = new Map(json.nodes.map(n => [n.id, { id: n.id, pos: [...n.pos] }]));
+    this.nodes = new Map(json.nodes.map(n => [n.id, { id: n.id, pos: [...n.pos], ...(n.fit ? { fit: structuredClone(n.fit) } : {}) }]));
     this.segments = new Map(json.segments.map(s => [s.id, { id: s.id, a: s.a, b: s.b, d: s.d }]));
     this.nextId = json.nextId || 1;
   }
@@ -503,11 +508,12 @@ function analyze(model) {
       if (len > 1e-6) dir.divideScalar(len);
       return { segId: s.id, d: s.d, dir, len, z: 0, socket: 0 };
     });
-    const info = classifyNode(ports, cfg);
+    const info = n.fit ? classifyExplicit(n.fit, ports, cfg) : classifyNode(ports, cfg);
     const isFitting = FITTING_KINDS.includes(info.kind);
     for (const p of ports) p.socket = isFitting ? cfg.fittings[p.d].socket : 0;
-    const d = ports.length ? Math.max(...ports.map(p => p.d)) : 20;
-    nodes.set(id, { id, pos: P, ports, d, isFitting, ...info });
+    const ds = n.fit ? n.fit.ports.map(p => p.d) : ports.map(p => p.d);
+    const d = ds.length ? Math.max(...ds) : 20;
+    nodes.set(id, { id, pos: P, ports, d, isFitting, open: [], explicit: false, ...info });
   }
 
   for (const s of model.segments.values()) {
@@ -527,6 +533,176 @@ function analyze(model) {
     segs.set(s.id, { id: s.id, a: s.a, b: s.b, d: s.d, Le, Lr, zA, zB, free, dir, kindA: A.kind, kindB: B.kind, errors, warnings });
   }
   return { nodes, segs };
+}
+
+/* =====================================================================
+   ACCESORIOS DECLARADOS: bocas libres, orientación, inserción, giro y unión
+   ===================================================================== */
+// 18 direcciones permitidas: 6 de ejes + 12 diagonales a 45° en planos principales
+const DIRS18 = [];
+for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+  const nz = (x !== 0) + (y !== 0) + (z !== 0);
+  if (nz === 1 || nz === 2) DIRS18.push(new THREE.Vector3(x, y, z).normalize());
+}
+const r6 = x => Math.round(x * 1e6) / 1e6;
+const cleanDir = v => v.set(...[v.x, v.y, v.z].map(c => Math.abs(c) < 1e-6 ? 0 : c)).normalize();
+const vkey = v => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+const fitPorts = fit => fit.ports.map(p => ({ dir: v3(p.dir).normalize(), d: p.d }));
+const storeFit = ports => ({ ports: ports.map(p => ({ dir: p.dir.toArray().map(r6), d: p.d })) });
+
+// Plantillas de accesorio en su orientación de partida
+function fittingTemplate(key, d) {
+  const X = [1, 0, 0], NX = [-1, 0, 0], Y = [0, 1, 0], D45 = [Math.SQRT1_2, Math.SQRT1_2, 0];
+  const [k, B, S] = key.split('-'), big = +B, small = +S;
+  const t = {
+    elbow90: [{ dir: X, d }, { dir: Y, d }],
+    elbow45: [{ dir: NX, d }, { dir: D45, d }],
+    tee: [{ dir: X, d }, { dir: NX, d }, { dir: Y, d }],
+    coupling: [{ dir: X, d }, { dir: NX, d }],
+    red: [{ dir: X, d: big }, { dir: NX, d: small }],
+    ter: [{ dir: X, d: big }, { dir: NX, d: big }, { dir: Y, d: small }],
+  }[k] || [];
+  return t.map(p => ({ dir: new THREE.Vector3(...p.dir).normalize(), d: p.d }));
+}
+
+// Accesorio declarado en un nodo: los tubos deben entrar por sus bocas; las demás quedan libres.
+function classifyExplicit(fit, ports, cfg) {
+  const tpl = fitPorts(fit).map(p => ({ ...p, len: 1, z: 0 }));
+  const info = classifyNode(tpl, cfg);
+  if (!FITTING_KINDS.includes(info.kind)) { ports.forEach(p => { p.z = 0; }); return { kind: 'invalid', errors: ['Accesorio con bocas no válidas'], open: [], explicit: true }; }
+  const used = new Set(), errors = [];
+  for (const p of ports) {
+    const i = tpl.findIndex((t, k) => !used.has(k) && near(t.dir.dot(p.dir), 1));
+    if (i < 0) { p.z = 0; errors.push('Un tubo no entra por ninguna boca del accesorio: gíralo o separa el tubo'); continue; }
+    used.add(i); p.z = tpl[i].z; if (tpl[i].role) p.role = tpl[i].role;
+    if (tpl[i].d !== p.d) errors.push(`Boca de Ø${tpl[i].d} con un tubo de Ø${p.d}`);
+  }
+  const open = tpl.filter((t, k) => !used.has(k)).map(t => ({ dir: t.dir, d: t.d, z: t.z, socket: cfg.fittings[t.d].socket, role: t.role }));
+  return { kind: info.kind, variant: info.variant, errors, open, explicit: true };
+}
+// Cota Z de cada boca de una plantilla
+function portZs(ports, cfg) { const f = ports.map(p => ({ dir: p.dir.clone(), d: p.d, len: 1, z: 0 })); classifyNode(f, cfg); return f.map(p => p.z); }
+
+// Todas las orientaciones de una plantilla que dejan sus bocas en direcciones permitidas
+function orientations(tpl) {
+  const out = new Map();
+  const add = dirs => { if (dirs.every(isAllowedDir)) { const k = dirs.map(vkey).join(';'); if (!out.has(k)) out.set(k, dirs); } };
+  const p0 = tpl[0].dir, i1 = tpl.findIndex(p => Math.abs(p.dir.dot(p0)) < 1 - 1e-6);
+  if (i1 < 0) { // bocas alineadas (manguito, reductor): basta orientar el eje
+    for (const a of DIRS18) { const q = new THREE.Quaternion().setFromUnitVectors(p0, a); add(tpl.map(p => cleanDir(p.dir.clone().applyQuaternion(q)))); }
+  } else {
+    const p1 = tpl[i1].dir, c = p0.dot(p1);
+    const frame = (a, b) => { const e1 = a.clone().normalize(), e2 = b.clone().addScaledVector(e1, -b.dot(e1)).normalize(); return new THREE.Matrix4().makeBasis(e1, e2, e1.clone().cross(e2)); };
+    const inv = frame(p0, p1).invert();
+    for (const a of DIRS18) for (const b of DIRS18) {
+      if (!near(a.dot(b), c)) continue;
+      const M = frame(a, b).multiply(inv);
+      add(tpl.map(p => cleanDir(p.dir.clone().transformDirection(M))));
+    }
+  }
+  return [...out.values()];
+}
+// Orientación que encaja con las conexiones exigidas y se parece más a la preferida
+function chooseOrientation(tpl, cons, pref, relaxD = false) {
+  let best = null, bestScore = -Infinity;
+  for (const dirs of orientations(tpl)) {
+    const used = new Set(); let ok = true, sameD = 0;
+    for (const c of cons) {
+      const i = dirs.findIndex((dd, k) => !used.has(k) && near(dd.dot(c.dir), 1) && (relaxD || tpl[k].d === c.d));
+      if (i < 0) { ok = false; break; }
+      used.add(i); if (tpl[i].d === c.d) sameD++;
+    }
+    if (!ok || (relaxD && cons.length && !sameD)) continue;
+    const score = dirs.reduce((s, dd, k) => s + dd.dot(pref[k]), 0);
+    if (score > bestScore) { bestScore = score; best = dirs; }
+  }
+  return best && best.map((dir, k) => ({ dir, d: tpl[k].d }));
+}
+// Coloca un accesorio: en el espacio, sobre un nodo (lo sustituye) o dentro de un tubo (lo parte en dos).
+function placeFitting(m, target, ports) {
+  let nid;
+  if (target.type === 'plane') nid = m.addNode(target.pos.toArray());
+  else if (target.type === 'node') nid = target.id;
+  else nid = m.splitSegment(target.id, target.pos.toArray());
+  m.nodes.get(nid).fit = storeFit(ports);
+  if (target.type === 'seg') { // reductor dentro de un tubo: el tramo del lado de la boca menor cambia de Ø
+    const P = v3(m.nodes.get(nid).pos);
+    for (const s of m.segmentsOf(nid)) {
+      const u = v3(m.nodes.get(s.a === nid ? s.b : s.a).pos).sub(P).normalize();
+      const port = ports.find(p => near(p.dir.dot(u), 1));
+      if (port && port.d !== s.d) s.d = port.d;
+    }
+  }
+  return nid;
+}
+// Bocas actuales de un accesorio (declarado o deducido de sus tubos)
+function currentPorts(m, an, nodeId) {
+  const node = m.nodes.get(nodeId);
+  return node.fit ? fitPorts(node.fit) : an.nodes.get(nodeId).ports.map(p => ({ dir: p.dir.clone(), d: p.d }));
+}
+// Plan de giro: nuevas bocas y tubos que dejan de estar conectados
+function planRotation(m, an, nodeId, axis, angle) {
+  const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  const ports = currentPorts(m, an, nodeId).map(p => ({ dir: cleanDir(p.dir.applyQuaternion(q)), d: p.d }));
+  const valid = ports.every(p => isAllowedDir(p.dir));
+  const used = new Set(), detach = [];
+  for (const p of an.nodes.get(nodeId).ports) {
+    const i = ports.findIndex((t, k) => !used.has(k) && t.d === p.d && near(t.dir.dot(p.dir), 1));
+    if (i >= 0) used.add(i); else detach.push(p);
+  }
+  return { ports, valid, detach };
+}
+// Separa un tubo de un nodo: su extremo queda en el fondo de la embocadura (conserva su longitud real)
+function detachPort(m, nodeId, pos, p) {
+  const s = m.segments.get(p.segId);
+  const nn = m.addNode(pos.clone().addScaledVector(p.dir, p.z).toArray());
+  if (s.a === nodeId) s.a = nn; else s.b = nn;
+}
+function rotateFitting(m, nodeId, axis, angle) {
+  const an = analyze(m), n = an.nodes.get(nodeId);
+  const plan = planRotation(m, an, nodeId, axis, angle);
+  if (!plan.valid) throw new Error('Con ese giro alguna boca quedaría en diagonal espacial');
+  for (const p of plan.detach) detachPort(m, nodeId, n.pos, p);
+  m.nodes.get(nodeId).fit = storeFit(plan.ports);
+  return plan.detach.length;
+}
+// Borra un accesorio dejando sus tubos sueltos (con su longitud real)
+function deleteFitting(m, nodeId) {
+  const n = analyze(m).nodes.get(nodeId);
+  for (const p of n.ports) detachPort(m, nodeId, n.pos, p);
+  m.nodes.delete(nodeId);
+}
+// Unión de dos tubos alineados del mismo Ø en uno solo
+function joinPlan(m, s, o) {
+  if (s.d !== o.d) return null;
+  const A = v3(m.nodes.get(s.a).pos), u = v3(m.nodes.get(s.b).pos).sub(A).normalize();
+  const onLine = id => { const v = v3(m.nodes.get(id).pos).sub(A); return v.addScaledVector(u, -v.dot(u)).length() < 0.5; };
+  if (!onLine(o.a) || !onLine(o.b)) return null;
+  const t = id => v3(m.nodes.get(id).pos).sub(A).dot(u);
+  const [s0, s1] = [s.a, s.b].sort((x, y) => t(x) - t(y)), [o0, o1] = [o.a, o.b].sort((x, y) => t(x) - t(y));
+  let inner, far;
+  if (t(o0) >= t(s1) - 0.5) { inner = [s1, o0]; far = [s0, o1]; }
+  else if (t(o1) <= t(s0) + 0.5) { inner = [o1, s0]; far = [o0, s1]; }
+  else return null; // se solapan
+  const ids = [...new Set(inner)];
+  for (const n of ids) {
+    if (m.segmentsOf(n).some(g => g.id !== s.id && g.id !== o.id)) return null;  // hay otro tubo (p. ej. una Te)
+    const f = m.nodes.get(n).fit; if (f && f.ports.length !== 2) return null;      // solo se quitan manguitos
+  }
+  return { inner: ids, far, gap: Math.max(0, t(inner[1]) - t(inner[0])), shared: ids.length === 1 };
+}
+function joinCandidates(m, segId) {
+  const s = m.segments.get(segId), out = [];
+  for (const o of m.segments.values()) { if (o.id === segId) continue; const p = joinPlan(m, s, o); if (p) out.push({ id: o.id, ...p }); }
+  return out.sort((a, b) => a.gap - b.gap);
+}
+function joinSegments(m, sId, oId) {
+  const s = m.segments.get(sId), o = m.segments.get(oId);
+  const plan = s && o && joinPlan(m, s, o);
+  if (!plan) throw new Error('Esos tubos no se pueden unir (deben estar alineados, tener el mismo Ø y no tener otra derivación entre ellos)');
+  s.a = plan.far[0]; s.b = plan.far[1]; m.segments.delete(oId);
+  for (const n of plan.inner) if (!m.segmentsOf(n).length) m.nodes.delete(n);
+  return sId;
 }
 
 /* =====================================================================
@@ -674,7 +850,7 @@ function buildExample(m) {
    ===================================================================== */
 const model = new Model();
 let analysis = analyze(model);
-const state = { selected: null, dims: 'both', ortho: false, tool: 'select', d: 20, snap: 10, planeZ: 0, fit: 'elbow90', moveEnd: null };
+const state = { selected: null, dims: 'both', labelsOn: true, ortho: false, tool: 'select', d: 20, snap: 10, planeZ: 0, fit: 'elbow90', moveEnd: null };
 
 const viewport = $('#viewport');
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -729,7 +905,12 @@ function makeMaterials() {
   mats.ghostSnap = ghost(cssVar('--ok'), .8);
   mats.ghostBad = ghost(cssVar('--err'), .5);
   mats.handle = new THREE.MeshBasicMaterial({ color: new THREE.Color(cssVar('--sel')), transparent: true, opacity: .55, depthTest: false, depthWrite: false });
+  const ring = c => new THREE.MeshBasicMaterial({ color: new THREE.Color(c), transparent: true, opacity: .9, depthTest: false, depthWrite: false });
+  mats.gizmox = ring('#e5484d'); mats.gizmoy = ring('#30a46c'); mats.gizmoz = ring('#3e7bfa');
+  mats.gizmoPick = new THREE.MeshBasicMaterial({ visible: false });
 }
+const GIZMO_RING = new THREE.TorusGeometry(1, 0.035, 8, 72);
+const GIZMO_PICK = new THREE.TorusGeometry(1, 0.16, 6, 48);
 function cylinder(start, dir, length, radius, mat, pick) {
   const m = new THREE.Mesh(UNIT_CYL, mat);
   m.scale.set(radius, length, radius);
@@ -753,7 +934,6 @@ function sync(map, id, sig, build) {
 function clearCache() {
   for (const map of [cache.seg, cache.node]) { for (const c of map.values()) for (const o of c.objs) o.parent?.remove(o); map.clear(); }
 }
-const vkey = v => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
 
 function buildGrid() {
   gridGroup.clear();
@@ -801,14 +981,15 @@ function rebuild(live = false) {
   // Accesorios
   for (const n of analysis.nodes.values()) {
     const isSel = sel && sel.type === 'node' && sel.id === n.id;
-    const sig = [n.kind, vkey(n.pos), isSel, n.d, ...n.ports.map(p => `${vkey(p.dir)}:${p.d}:${p.z}:${p.socket}:${F[p.d].od}`)].join('|');
+    const allPorts = [...n.ports, ...n.open];
+    const sig = [n.kind, vkey(n.pos), isSel, n.d, n.errors.length, n.open.length, ...allPorts.map(p => `${vkey(p.dir)}:${p.d}:${p.z}:${p.socket}:${F[p.d].od}`)].join('|');
     sync(cache.node, n.id, sig, () => {
       const pick = { type: 'node', id: n.id };
       if (n.kind === 'invalid' || n.kind === 'isolated') { sphere(n.pos, (cssFitOd(F, n.d) / 2) * 1.25, isSel ? mats.sel : mats.err, pick); return; }
       if (n.kind === 'end') { sphere(n.pos, n.d * 0.6, isSel ? mats.sel : mats.endpoint, pick); return; }
-      const mat = isSel ? mats.sel : mats.fitting;
+      const mat = isSel ? mats.sel : n.errors.length ? mats.err : mats.fitting;
       let rMax = 0;
-      for (const p of n.ports) {
+      for (const p of allPorts) {
         const r = F[p.d].od / 2; rMax = Math.max(rMax, r);
         if (p.z > 0) cylinder(n.pos, p.dir, p.z, r * 0.94, mat, pick);                                   // cuerpo
         cylinder(n.pos.clone().addScaledVector(p.dir, p.z), p.dir, p.socket, r, mat, pick);              // embocadura
@@ -829,6 +1010,20 @@ function rebuild(live = false) {
   };
   if (sel?.type === 'seg' && analysis.segs.has(sel.id)) { const g = analysis.segs.get(sel.id); addHandle(g.a, g.id); addHandle(g.b, g.id); }
   if (sel?.type === 'node') addHandle(sel.id, null);
+  // Gizmo de giro: tres anillos (X rojo, Y verde, Z azul) alrededor del accesorio seleccionado
+  const gn = sel?.type === 'node' && analysis.nodes.get(sel.id);
+  if (gn && (gn.isFitting || gn.explicit) && state.tool === 'select') {
+    const R = cssFitOd(F, gn.d) * 1.5;
+    for (const [axis, rx, ry] of [['x', 0, Math.PI / 2], ['y', Math.PI / 2, 0], ['z', 0, 0]]) {
+      for (const pickRing of [false, true]) {
+        const m = new THREE.Mesh(pickRing ? GIZMO_PICK : GIZMO_RING, pickRing ? mats.gizmoPick : mats['gizmo' + axis]);
+        m.rotation.set(rx, ry, 0); m.position.copy(gn.pos); m.renderOrder = 11;
+        m.userData.baseR = R; m.userData.minPx = 38; m.scale.setScalar(R);
+        m.userData.gizmo = { axis, nodeId: gn.id };
+        handles.add(m);
+      }
+    }
+  }
 
   if (!live) buildGrid();
   requestRender();
@@ -934,11 +1129,7 @@ const ndc = new THREE.Vector2();
 const mouse = { x: 0, y: 0, shift: false };
 const SNAP_PX = 14;
 // 18 direcciones permitidas: 6 de ejes + 12 diagonales a 45° en planos principales
-const ALL_DIRS = [];
-for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
-  const nz = (x !== 0) + (y !== 0) + (z !== 0);
-  if (nz === 1 || nz === 2) ALL_DIRS.push(new THREE.Vector3(x, y, z).normalize());
-}
+const ALL_DIRS = DIRS18;
 function setRay(e) {
   const r = renderer.domElement.getBoundingClientRect();
   mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
@@ -1011,15 +1202,22 @@ function ovDot(pos, r, mat) {
 
 // ---------- herramientas
 const TOOL_HINTS = {
-  select: 'Seleccionar: clic en un tubo o accesorio · arrastra los puntos azules o los accesorios para alargar/acortar',
+  select: 'Seleccionar: clic en un tubo o accesorio · arrastra los puntos azules o los accesorios para alargar/acortar · anillos o R/E/W para girar un accesorio',
   draw: 'Tubo: clic para empezar (en el plano, en un extremo o sobre un tubo para crear una Te) · Mayús: tramos verticales/inclinados · escribe un número para la longitud exacta · Enter, Esc o doble clic: terminar',
-  place: 'Accesorio: clic para colocar · R: girar 45° en planta · E: volcar 90° sobre X · W: volcar 90° sobre Y',
+  place: 'Accesorio: clic en el plano, en el extremo de un tubo o sobre un tubo (lo parte e inserta el accesorio) · R: girar 45° en planta · E / W: volcar 90°',
 };
 function setTool(t) {
   finishDraw(true); state.tool = t;
   $$('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   renderer.domElement.style.cursor = t === 'select' ? '' : 'crosshair';
-  overlay.clear(); setTip(''); status(TOOL_HINTS[t]); requestRender();
+  overlay.clear(); setTip(''); status(TOOL_HINTS[t]); rebuild();
+}
+function setLabels(on) {
+  state.labelsOn = on; store.set('pipecad-labels', on ? '1' : '0');
+  $('#labels').style.display = on ? '' : 'none';
+  const b = $('#b-labels'); b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); b.textContent = 'Rótulos: ' + (on ? 'sí' : 'no');
+  $('#s-dims').disabled = !on;
+  requestRender();
 }
 function setDiameter(d) { state.d = d; $$('[data-d]').forEach(b => b.classList.toggle('on', +b.dataset.d === d)); refreshPreview(); }
 function refreshPreview() { if (state.tool === 'draw') updateDraw(); else if (state.tool === 'place') updatePlace(); }
@@ -1034,6 +1232,15 @@ function existingPorts(t) {
 }
 // ¿Qué accesorio resultaría al añadir un tubo en dirección dir en el destino t?
 function trial(t, dir, d) {
+  if (t.type === 'node') { // accesorio declarado: solo se conecta por una boca libre
+    const node = analysis.nodes.get(t.id);
+    if (node.explicit) {
+      const op = node.open.find(o => near(o.dir.dot(dir), 1));
+      if (!op) return { ok: false, msg: 'El accesorio no tiene una boca libre en esa dirección' };
+      if (op.d !== d) return { ok: false, msg: `La boca del accesorio es de Ø${op.d}` };
+      return { ok: true, kind: node.kind, z: op.z, msg: '' };
+    }
+  }
   const ports = existingPorts(t), np = { dir, d, len: 1, z: 0 }; ports.push(np);
   const info = classifyNode(ports, model.config);
   const ok = info.kind !== 'invalid';
@@ -1099,32 +1306,36 @@ function updateDraw() {
   const S = draw.start.pos;
   ovDot(S, dotR, mats.ghostSnap);
   let best = null;
+  const startNode = draw.start.type === 'node' ? analysis.nodes.get(draw.start.id) : null;
   for (const n of ALL_DIRS) {
     if ((Math.abs(n.z) > 1e-6) !== mouse.shift) continue;
-    const tr = trial(draw.start, n, d); if (!tr.ok) continue;
+    // desde una boca libre de un accesorio se usa el Ø de esa boca
+    const dd = startNode?.explicit ? (startNode.open.find(o => near(o.dir.dot(n), 1))?.d ?? d) : d;
+    const tr = trial(draw.start, n, dd); if (!tr.ok) continue;
     let t = rayLineParam(S, n), dist;
     if (t === null) { t = draw.cand?.len || state.snap * 10; dist = pxDist(S) + 5; }
     else { if (t <= 0) continue; dist = pxDist(S.clone().addScaledVector(n, t)); }
-    if (!best || dist < best.dist) best = { n, t, dist, tr };
+    if (!best || dist < best.dist) best = { n, t, dist, tr, dd };
   }
-  if (!best) { draw.cand = null; setTip('Ninguna dirección válida desde aquí' + (mouse.shift ? ' · suelta Mayús' : ' · prueba con Mayús')); requestRender(); return; }
+  if (!best) { draw.cand = null; setTip(startNode?.explicit && !startNode.open.length ? 'El accesorio no tiene bocas libres' : 'Ninguna dirección válida desde aquí' + (mouse.shift ? ' · suelta Mayús' : ' · prueba con Mayús')); requestRender(); return; }
+  const dUse = best.dd;
   let len = Math.max(state.snap, Math.round(best.t / state.snap) * state.snap);
   let end = { type: 'plane', pos: S.clone().addScaledVector(best.n, len) };
   const mags = magnetTargets(draw.start, S, best.n);
   let mag = mags.find(c => Math.abs(c.t - len) < 0.5);
   if (!mag) { let bp = SNAP_PX; for (const c of mags) { const px = pxDist(c.pos); if (px < bp) { bp = px; mag = c; } } }
   if (mag) { end = mag; len = mag.t; }
-  const endTr = end.type === 'plane' ? { ok: true, z: 0 } : trial(end, best.n.clone().negate(), d);
-  draw.cand = { dir: best.n.clone(), len, end, ok: endTr.ok, msg: endTr.msg };
-  ovCyl(S, best.n, len, d / 2, endTr.ok ? mats.ghost : mats.ghostBad);
+  const endTr = end.type === 'plane' ? { ok: true, z: 0 } : trial(end, best.n.clone().negate(), dUse);
+  draw.cand = { dir: best.n.clone(), len, end, ok: endTr.ok, msg: endTr.msg, d: dUse };
+  ovCyl(S, best.n, len, dUse / 2, endTr.ok ? mats.ghost : mats.ghostBad);
   ovDot(end.pos, dotR, end.type === 'plane' ? mats.ghost : mats.ghostSnap);
   const Lr = len - best.tr.z - endTr.z;
-  setTip(`Ø${d} · ejes <b>${fmt(len)}</b> · real ${fmt(Lr)}${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
+  setTip(`Ø${dUse} · ejes <b>${fmt(len)}</b> · real ${fmt(Lr)}${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
   requestRender();
 }
 function addTube(st, en, d) {
-  const freeA = st.type === 'node' && model.segmentsOf(st.id).length === 1;
-  const freeB = en.type === 'node' && model.segmentsOf(en.id).length === 1;
+  const free = t => t.type === 'node' && model.segmentsOf(t.id).length === 1 && !model.nodes.get(t.id).fit;
+  const freeA = free(st), freeB = free(en);
   const resolve = t => t.type === 'plane' ? model.addNode(t.pos.toArray()) : t.type === 'node' ? t.id : model.splitSegment(t.id, t.pos.toArray());
   const a = resolve(st), b = resolve(en);
   model.addSegment(a, b, d);
@@ -1144,7 +1355,9 @@ function commitDraw(c) {
   if (!c) return;
   if (!c.ok) { status('✘ ' + c.msg); return; }
   try {
-    const b = model.transact('Dibujar tubo', () => addTube(draw.start, c.end, state.d));
+    const d = c.d || state.d;
+    const b = model.transact('Dibujar tubo', () => addTube(draw.start, c.end, d));
+    if (d !== state.d) setDiameter(d);
     if (c.end.type !== 'plane' || !model.nodes.has(b)) finishDraw(false, 'Tubo conectado');
     else { draw.start = { type: 'node', id: b, pos: v3(model.nodes.get(b).pos) }; updateDraw(); }
   } catch (err) { status('✘ ' + err.message); }
@@ -1152,15 +1365,15 @@ function commitDraw(c) {
 function typedLength(v) {
   const c = draw.cand;
   if (!c) { status('Mueve el ratón para indicar la dirección y vuelve a escribir la longitud'); return; }
-  const dir = c.dir.clone();
+  const dir = c.dir.clone(), d = c.d || state.d;
   if (v < 0) {
     dir.negate(); v = -v;
-    const tr = trial(draw.start, dir, state.d); if (!tr.ok) { status('✘ Dirección contraria no válida: ' + tr.msg); return; }
+    const tr = trial(draw.start, dir, d); if (!tr.ok) { status('✘ Dirección contraria no válida: ' + tr.msg); return; }
   }
   const S = draw.start.pos;
   const en = magnetTargets(draw.start, S, dir).find(x => Math.abs(x.t - v) < 0.5) || { type: 'plane', pos: S.clone().addScaledVector(dir, v) };
-  const tr = en.type === 'plane' ? { ok: true } : trial(en, dir.clone().negate(), state.d);
-  commitDraw({ dir, len: v, end: en, ok: tr.ok, msg: tr.msg });
+  const tr = en.type === 'plane' ? { ok: true } : trial(en, dir.clone().negate(), d);
+  commitDraw({ dir, len: v, end: en, ok: tr.ok, msg: tr.msg, d });
 }
 function finishDraw(silent, msg) {
   const was = !!draw.start;
@@ -1183,43 +1396,49 @@ $('#len-box').addEventListener('blur', () => { $('#len-box').style.display = 'no
 
 // ---------- FASE 5: colocación manual de accesorios
 const placeRot = new THREE.Quaternion();
-const place = { pos: null, ports: null, ok: false };
-function fittingTemplate(key, d) {
-  const X = [1, 0, 0], NX = [-1, 0, 0], Y = [0, 1, 0], D45 = [Math.SQRT1_2, Math.SQRT1_2, 0];
-  const [k, B, S] = key.split('-'), big = +B, small = +S;
-  switch (k) {
-    case 'elbow90': return [{ dir: X, d }, { dir: Y, d }];
-    case 'elbow45': return [{ dir: NX, d }, { dir: D45, d }];
-    case 'tee': return [{ dir: X, d }, { dir: NX, d }, { dir: Y, d }];
-    case 'coupling': return [{ dir: X, d }, { dir: NX, d }];
-    case 'red': return [{ dir: X, d: big }, { dir: NX, d: small }];
-    case 'ter': return [{ dir: X, d: big }, { dir: NX, d: big }, { dir: Y, d: small }];
-  }
-  return [];
-}
-const cleanDir = v => v.set(...[v.x, v.y, v.z].map(c => Math.abs(c) < 1e-9 ? 0 : c)).normalize();
+const place = { target: null, ports: null, ok: false, msg: '' };
 function updatePlace() {
   overlay.clear();
-  const p = planePoint(); place.pos = p; if (!p) { setTip(''); requestRender(); return; }
-  const F = model.config.fittings;
-  const ports = fittingTemplate(state.fit, state.d).map(q => ({ d: q.d, dir: cleanDir(new THREE.Vector3(...q.dir).applyQuaternion(placeRot)) }));
-  const fake = ports.map(q => ({ dir: q.dir.clone(), d: q.d, len: 1, z: 0 }));
-  const info = classifyNode(fake, model.config);
-  const ok = info.kind !== 'invalid' && ports.every(q => isAllowedDir(q.dir));
-  ports.forEach((q, i) => { q.len = Math.ceil((fake[i].z + F[q.d].socket + 60) / 10) * 10; ovCyl(p, q.dir, q.len, q.d / 2, ok ? mats.ghost : mats.ghostBad); });
-  ovDot(p, Math.max(...ports.map(q => F[q.d].od)) / 2, ok ? mats.ghost : mats.ghostBad);
-  place.ports = ports; place.ok = ok;
-  setTip(esc($('#s-fit').selectedOptions[0].textContent) + (/^(red|ter)/.test(state.fit) ? '' : ' Ø' + state.d) + (ok ? '' : '<br>✘ Orientación no permitida (diagonal espacial)'));
+  const t = pickTarget(); place.target = t;
+  if (!t) { setTip(''); requestRender(); return; }
+  const F = model.config.fittings, cfg = model.config;
+  // sobre un tubo o un extremo se usa el Ø de lo que ya hay (salvo en reductores y Tes reducidas)
+  let dAuto = state.d;
+  if (t.type === 'seg') dAuto = analysis.segs.get(t.id).d;
+  else if (t.type === 'node') { const ds = new Set(analysis.nodes.get(t.id).ports.map(p => p.d)); if (ds.size === 1) dAuto = [...ds][0]; }
+  const tpl = fittingTemplate(state.fit, dAuto);
+  const pref = tpl.map(p => cleanDir(p.dir.clone().applyQuaternion(placeRot)));
+  let ports = null, where = '', msg = '';
+  if (t.type === 'plane') {
+    if (pref.every(isAllowedDir)) ports = pref.map((dir, k) => ({ dir, d: tpl[k].d }));
+    else msg = 'Orientación no permitida (diagonal espacial)';
+  } else if (t.type === 'seg') {
+    const g = analysis.segs.get(t.id);
+    where = ' · se inserta en el tubo';
+    if (!tpl.some((p, i) => tpl.some((q, j) => i < j && near(p.dir.dot(q.dir), -1)))) msg = 'Un codo no se puede insertar en mitad de un tubo recto';
+    else {
+      ports = chooseOrientation(tpl, [{ dir: g.dir, d: g.d }, { dir: g.dir.clone().negate(), d: g.d }], pref, state.fit.startsWith('red'));
+      if (!ports) msg = `No encaja en un tubo de Ø${g.d}`;
+    }
+  } else {
+    const n = analysis.nodes.get(t.id);
+    where = n.kind === 'end' ? ' · en el extremo del tubo' : n.isFitting || n.explicit ? ' · sustituye a ' + kindLabel(n).toLowerCase() : '';
+    ports = chooseOrientation(tpl, n.ports.map(p => ({ dir: p.dir, d: p.d })), pref);
+    if (!ports) msg = 'No encaja con los tubos de este punto';
+  }
+  place.ports = ports; place.ok = !!ports; place.msg = msg;
+  const show = ports || pref.map((dir, k) => ({ dir, d: tpl[k].d }));
+  const zs = portZs(show, cfg);
+  show.forEach((q, i) => ovCyl(t.pos, q.dir, zs[i] + F[q.d].socket, F[q.d].od / 2, place.ok ? mats.ghost : mats.ghostBad));
+  ovDot(t.pos, Math.max(...show.map(q => F[q.d].od)) / 2, place.ok ? mats.ghost : mats.ghostBad);
+  setTip(esc($('#s-fit').selectedOptions[0].textContent) + (/^(red|ter)/.test(state.fit) ? '' : ' Ø' + dAuto) + where + (place.ok ? '' : '<br>✘ ' + esc(msg)));
   requestRender();
 }
 function placeClick() {
   updatePlace();
-  if (!place.pos || !place.ok) { status('✘ No se puede colocar con esta orientación'); return; }
-  model.transact('Colocar accesorio', () => {
-    const c = model.addNode(place.pos.toArray());
-    for (const q of place.ports) model.addSegment(c, model.addNode(place.pos.clone().addScaledVector(q.dir, q.len).toArray()), q.d);
-  });
-  status('Accesorio colocado con tramos cortos en sus bocas: prolóngalos con la herramienta Tubo o arrastrando sus extremos');
+  if (!place.ok) { status('✘ ' + (place.msg || 'No se puede colocar aquí')); return; }
+  model.transact('Colocar accesorio', () => placeFitting(model, place.target, place.ports));
+  status(place.target.type === 'seg' ? 'Accesorio insertado: el tubo queda partido en dos' : 'Accesorio colocado · dibuja tubos desde sus bocas libres o gíralo con los anillos');
 }
 function rotatePlace(k) {
   const axis = k === 'r' ? new THREE.Vector3(0, 0, 1) : k === 'e' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
@@ -1230,7 +1449,10 @@ function rotatePlace(k) {
 // ---------- FASE 6: puntos de arrastre (alargar / contraer)
 let pending = null, drag = null, dragQueued = false;
 function pickGrab() {
-  const hh = ray.intersectObjects(handles.children, false)[0];
+  const hits = ray.intersectObjects(handles.children, false);
+  const g = hits.find(h => h.object.userData.gizmo);
+  if (g) return { gizmo: g.object.userData.gizmo };
+  const hh = hits.find(h => h.object.userData.handle);
   if (hh) return hh.object.userData.handle;
   const p = pickAny();
   return p?.type === 'node' ? { nodeId: p.id, segId: null } : null;
@@ -1240,8 +1462,60 @@ viewport.addEventListener('pointerdown', e => {
   setRay(e);
   const h = pickGrab(); if (!h) return;
   e.stopPropagation(); // la cámara no gira mientras se arrastra
+  if (h.gizmo) { startRotate(h.gizmo); return; }
   pending = { ...h, x: e.clientX, y: e.clientY };
 }, { capture: true });
+
+// ---------- giro de accesorios (gizmo de anillos y teclas R / E / W)
+const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+let rot = null;
+function startRotate(g) {
+  const n = analysis.nodes.get(g.nodeId), axis = AXES[g.axis], c = toScreen(n.pos);
+  const a = Math.atan2(-(mouse.y - c.y), mouse.x - c.x);
+  rot = { nodeId: n.id, axisName: g.axis, axis, c, prev: a, acc: 0, angle: 0, sign: camera.position.clone().sub(n.pos).dot(axis) >= 0 ? 1 : -1 };
+  controls.enabled = false; renderer.domElement.style.cursor = 'grabbing';
+  updateRotate();
+}
+function rotationPreview(nodeId, axis, angle) {
+  overlay.clear();
+  const n = analysis.nodes.get(nodeId), F = model.config.fittings;
+  const plan = planRotation(model, analysis, nodeId, axis, angle);
+  const zs = portZs(plan.ports, model.config);
+  plan.ports.forEach((p, i) => ovCyl(n.pos, p.dir, zs[i] + F[p.d].socket, F[p.d].od / 2 * 1.05, plan.valid ? mats.ghost : mats.ghostBad));
+  for (const p of plan.detach) ovCyl(n.pos.clone().addScaledVector(p.dir, p.z), p.dir, Math.min(p.len - p.z, 150), p.d / 2 * 1.3, mats.ghostBad);
+  requestRender();
+  return plan;
+}
+function updateRotate() {
+  const a = Math.atan2(-(mouse.y - rot.c.y), mouse.x - rot.c.x);
+  let d = a - rot.prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+  rot.acc += d; rot.prev = a;
+  const step = Math.PI / 4;
+  rot.angle = Math.round(rot.acc * rot.sign / step) * step;
+  const deg = Math.round(THREE.MathUtils.radToDeg(rot.angle));
+  if (!rot.angle) { overlay.clear(); setTip(`Giro sobre ${rot.axisName.toUpperCase()}: arrastra alrededor del anillo`); requestRender(); return; }
+  const plan = rotationPreview(rot.nodeId, rot.axis, rot.angle);
+  setTip(`Giro <b>${deg}°</b> sobre ${rot.axisName.toUpperCase()}` + (!plan.valid ? '<br>✘ alguna boca quedaría en diagonal espacial'
+    : plan.detach.length ? `<br>se separará${plan.detach.length > 1 ? 'n' : ''} ${plan.detach.length} tubo${plan.detach.length > 1 ? 's' : ''} (en rojo)` : ''));
+}
+function commitRotation(nodeId, axis, angle) {
+  try {
+    const k = model.transact('Girar accesorio', () => rotateFitting(model, nodeId, axis, angle));
+    status(`Accesorio girado ${Math.round(THREE.MathUtils.radToDeg(angle))}°` + (k ? ` · ${k} tubo${k > 1 ? 's' : ''} separado${k > 1 ? 's' : ''}` : ''));
+  } catch (err) { status('✘ ' + err.message); }
+}
+function endRotate() {
+  controls.enabled = true; renderer.domElement.style.cursor = ''; setTip(''); overlay.clear();
+  const r = rot; rot = null;
+  if (r.angle) commitRotation(r.nodeId, r.axis, r.angle); else requestRender();
+}
+// Teclas con un accesorio seleccionado: R = 45° en planta (Z), E = 90° sobre X, W = 90° sobre Y
+function rotateSelectedKey(k) {
+  const s = state.selected, n = s?.type === 'node' && analysis.nodes.get(s.id);
+  if (!n || !(n.isFitting || n.explicit)) return false;
+  commitRotation(n.id, AXES[{ r: 'z', e: 'x', w: 'y' }[k]], k === 'r' ? Math.PI / 4 : Math.PI / 2);
+  return true;
+}
 function startDrag(e) {
   const n = analysis.nodes.get(pending.nodeId);
   let segId = pending.segId;
@@ -1287,10 +1561,12 @@ function endDrag() {
   else { rebuild(); renderProps(); }
 }
 addEventListener('pointermove', e => {
+  if (rot) { setRay(e); updateRotate(); return; }
   if (pending && !drag && Math.hypot(e.clientX - pending.x, e.clientY - pending.y) > 4) startDrag(e);
   if (drag) { setRay(e); if (!dragQueued) { dragQueued = true; requestAnimationFrame(applyDrag); } }
 });
 addEventListener('pointerup', e => {
+  if (rot) { endRotate(); return; }
   if (drag) { setRay(e); applyDrag(); endDrag(); }
   else if (pending) { if (!pending.segId) select({ type: 'node', id: pending.nodeId }); }
   pending = null;
@@ -1307,7 +1583,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   select(pickAny());
 });
 renderer.domElement.addEventListener('pointermove', e => {
-  if (drag) return;
+  if (drag || rot) return;
   setRay(e);
   const p = planePoint();
   if (p) $('#st-xyz').textContent = `X ${fmt(p.x, 0)}  Y ${fmt(p.y, 0)}  Z ${fmt(p.z, 0)}`;
@@ -1325,14 +1601,18 @@ function select(pick) { state.selected = pick; rebuild(); renderProps(); }
 
 function deleteSelection() {
   const s = state.selected; if (!s) return;
+  const n = s.type === 'node' && analysis.nodes.get(s.id);
+  const isEnd = n && n.kind === 'end' && !n.explicit;
   model.transact('Borrar', () => {
-    let touched;
+    let touched = [];
     if (s.type === 'seg') { const g = model.segments.get(s.id); touched = [g.a, g.b]; model.removeSegment(s.id); }
-    else { touched = model.segmentsOf(s.id).map(g => g.a === s.id ? g.b : g.a); model.removeNode(s.id); }
-    // al quitar una derivación, la Te que queda alineada se convierte en tubo continuo
-    for (const n of touched) if (model.nodes.has(n)) model.mergeThrough(n);
+    else if (isEnd) { touched = model.segmentsOf(s.id).map(g => g.a === s.id ? g.b : g.a); model.removeNode(s.id); }
+    else deleteFitting(model, s.id); // el accesorio se quita y sus tubos quedan sueltos
+    // al quitar una derivación de una Te deducida, el tramo alineado vuelve a ser un tubo continuo
+    for (const id of touched) if (model.nodes.has(id)) model.mergeThrough(id);
   });
-  state.selected = null; status(s.type === 'seg' ? 'Tubo borrado' : 'Accesorio y sus tubos borrados');
+  state.selected = null;
+  status(s.type === 'seg' ? 'Tubo borrado' : isEnd ? 'Tubo borrado' : 'Accesorio borrado; sus tubos quedan sueltos');
 }
 addEventListener('keydown', e => {
   if (e.target.matches('input,select,textarea') || $('#help').open) return;
@@ -1349,6 +1629,8 @@ addEventListener('keydown', e => {
   else if (k === 'd') setTool('draw');
   else if (k === 'a') setTool('place');
   else if (state.tool === 'place' && ['r', 'e', 'w'].includes(k)) rotatePlace(k);
+  else if (state.tool === 'select' && ['r', 'e', 'w'].includes(k)) rotateSelectedKey(k);
+  else if (k === 'l') setLabels(!state.labelsOn);
   else if (k === 'f') fitAll();
 });
 addEventListener('keyup', e => { if (e.key === 'Shift') { mouse.shift = false; refreshPreview(); } });
@@ -1371,7 +1653,8 @@ function renderProps() {
       <h4>Herramientas</h4>
       <p class="hint"><b>S</b> Seleccionar · <b>D</b> Tubo · <b>A</b> Accesorio</p>
       <p class="hint">Tubo: clic en el plano, en un extremo o sobre un tubo (crea Te). Los codos se ponen solos al cambiar de dirección. Mayús para subir/bajar. Escribe un número para fijar la longitud (negativo = sentido contrario).</p>
-      <p class="hint">Accesorio: R gira 45° en planta; E y W lo vuelcan 90°.</p>
+      <p class="hint">Accesorio: clic en el plano, en el extremo de un tubo o sobre un tubo (se inserta partiéndolo). R gira 45° en planta; E y W lo vuelcan 90°. Al seleccionar un accesorio aparecen anillos para girarlo.</p>
+      <p class="hint"><b>L</b> muestra u oculta los rótulos.</p>
       <h4>Vista</h4>
       <p class="hint">Rueda: zoom · Botón izquierdo: girar · Botón derecho: desplazar · F: encuadrar · Supr: borrar · Ctrl+Z / Ctrl+Y: deshacer / rehacer</p>`;
     return;
@@ -1400,7 +1683,15 @@ function renderProps() {
         ${row('Dirección', dirName(g.dir))}
         ${row('Marca de pieza', state.cut?.marks.get(g.id) || '—')}
       </table>${msgs(g.errors, g.warnings)}
-      ${g.Lr > model.config.barLength ? '<p><button id="p-split">Dividir con manguitos</button></p>' : ''}`;
+      ${g.Lr > model.config.barLength ? '<p><button id="p-split">Dividir con manguitos</button></p>' : ''}
+      ${(() => {
+        const js = joinCandidates(model, g.id);
+        return js.length ? `<h4>Unir en un solo tubo</h4><div class="btns">${js.map(j => `<button class="p-join" data-o="${j.id}">Con ${j.id} · ${j.shared ? 'quita el manguito' : 'cierra ' + fmt(j.gap) + ' mm'}</button>`).join('')}</div>` : '';
+      })()}`;
+    $$('.p-join', el).forEach(b => b.onclick = () => {
+      try { model.transact('Unir tubos', () => joinSegments(model, g.id, b.dataset.o)); state.selected = { type: 'seg', id: g.id }; renderProps(); status(`Tubos unidos en ${g.id}`); }
+      catch (err) { status('✘ ' + err.message); }
+    });
     if ($('#p-split')) $('#p-split').onclick = () => { const k = model.transact('Dividir tramo largo', () => splitLongSegment(model, g.id)); status(`Tramo dividido con ${k} manguito${k === 1 ? '' : 's'}`); };
     $('#p-move').value = state.moveEnd.end;
     $('#p-move').onchange = e => { state.moveEnd.end = e.target.value; };
@@ -1417,13 +1708,25 @@ function renderProps() {
     for (const id of ['#p-le', '#p-lr']) $(id).onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
   } else {
     const n = analysis.nodes.get(s.id);
-    const ports = n.ports.map(p => `<tr><td>${p.segId}</td><td>Ø${p.d}${p.role === 'branch' ? ' (derivación)' : ''}</td><td class="num">${fmt(p.z)}</td><td class="num">${fmt(p.socket)}</td><td>${dirName(p.dir)}</td></tr>`).join('');
+    const prow = (p, tramo) => `<tr><td>${tramo}</td><td>Ø${p.d}${p.role === 'branch' ? ' (deriv.)' : ''}</td><td class="num">${fmt(p.z)}</td><td class="num">${fmt(p.socket)}</td><td>${dirName(p.dir)}</td></tr>`;
+    const ports = n.ports.map(p => prow(p, p.segId)).join('') + n.open.map(p => prow(p, '<i>libre</i>')).join('');
+    const isFit = n.isFitting || n.explicit;
+    // manguito entre dos tubos alineados: se puede quitar y unirlos
+    const ss = model.segmentsOf(n.id);
+    const canJoin = ss.length === 2 && !!joinPlan(model, ss[0], ss[1]);
     el.innerHTML = `<h3>${esc(kindLabel(n))} <span class="hint">(${n.id})</span></h3>
       <table>${row('Posición (eje)', `X ${fmt(n.pos.x)} · Y ${fmt(n.pos.y)} · Z ${fmt(n.pos.z)}`)}</table>
       <h4>Bocas</h4>
       <table><tr><th>Tramo</th><th>Ø</th><th class="num">Z</th><th class="num">Embocad.</th><th>Hacia</th></tr>${ports}</table>
       ${msgs(n.errors)}
-      <p class="hint">Arrastra el ${n.kind === 'end' ? 'extremo' : 'accesorio'} para alargar o acortar el tubo en la dirección del movimiento; lo que hay detrás se desplaza con él.</p>`;
+      ${canJoin ? '<div class="btns"><button id="p-join-node">Quitar manguito y unir los tubos</button></div>' : ''}
+      ${isFit ? `<h4>Girar</h4><p class="hint">Arrastra uno de los anillos (rojo = eje X, verde = Y, azul = Z) en pasos de 45°, o pulsa <b>R</b> (45° en planta), <b>E</b> (90° sobre X) o <b>W</b> (90° sobre Y). Los tubos que dejen de coincidir con una boca se separan y conservan su longitud.</p>` : ''}
+      <p class="hint">${n.ports.length ? `Arrastra el ${n.kind === 'end' ? 'extremo' : 'accesorio'} para alargar o acortar el tubo en la dirección del movimiento; lo que hay detrás se desplaza con él.` : 'Dibuja tubos desde sus bocas libres con la herramienta Tubo.'}
+      Supr: ${n.kind === 'end' ? 'borra el tubo' : 'quita el accesorio y deja los tubos sueltos'}.</p>`;
+    if ($('#p-join-node')) $('#p-join-node').onclick = () => {
+      try { const id = model.transact('Unir tubos', () => joinSegments(model, ss[0].id, ss[1].id)); select({ type: 'seg', id }); status('Manguito quitado: tubos unidos'); }
+      catch (err) { status('✘ ' + err.message); }
+    };
   }
 }
 
@@ -1534,7 +1837,7 @@ function snapshotCanvas() {
   const g = c.getContext('2d'); g.drawImage(src, 0, 0);
   const vr = viewport.getBoundingClientRect();
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  for (const el of $$('#labels .dim')) {
+  for (const el of state.labelsOn ? $$('#labels .dim') : []) {
     if (el.style.display === 'none') continue;
     const r = el.getBoundingClientRect();
     if (r.right < vr.left || r.left > vr.right || r.bottom < vr.top || r.top > vr.bottom) continue;
@@ -1730,6 +2033,77 @@ function runTests() {
     const n = DIAMETERS.reduce((x, d) => x + cut.byD[d].pieces.length, 0);
     return all(n === 11 || `${n} piezas`, cut.marks.size === 11 || 'marcas', cut.byD[40].bars.length >= cut.byD[40].lower || 'barras < mínimo');
   });
+  const tubeModel = (len, d) => { const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([len, 0, 0]); const s = m.addSegment(a, b, d); return { m, a, b, s }; };
+  test('Te suelta: 3 bocas libres, sin tubos', () => {
+    const m = new Model(); const n = placeFitting(m, { type: 'plane', pos: new THREE.Vector3(0, 0, 0) }, fittingTemplate('tee', 20));
+    const an = analyze(m).nodes.get(n);
+    return all(an.kind === 'tee' || an.kind, an.open.length === 3 || `${an.open.length} bocas libres`, m.segments.size === 0 || 'hay tubos');
+  });
+  test('Insertar Te en un tubo: lo parte en dos, sin duplicar', () => {
+    const { m, s } = tubeModel(2000, 20); const an0 = analyze(m);
+    const ports = chooseOrientation(fittingTemplate('tee', 20), [{ dir: an0.segs.get(s).dir, d: 20 }, { dir: an0.segs.get(s).dir.clone().negate(), d: 20 }], fittingTemplate('tee', 20).map(p => p.dir));
+    const n = placeFitting(m, { type: 'seg', id: s, pos: new THREE.Vector3(1000, 0, 0) }, ports); const an = analyze(m);
+    const Ls = [...an.segs.values()].map(g => Math.round(g.Lr)).join(',');
+    return all(an.segs.size === 2 || `${an.segs.size} tubos`, Ls === '989,989' || 'Lr ' + Ls, an.nodes.get(n).kind === 'tee' || 'no es Te', an.nodes.get(n).open.length === 1 || 'bocas libres');
+  });
+  test('Un codo no encaja en mitad de un tubo recto', () => {
+    const tpl = fittingTemplate('elbow90', 20), X = new THREE.Vector3(1, 0, 0);
+    return chooseOrientation(tpl, [{ dir: X, d: 20 }, { dir: X.clone().negate(), d: 20 }], tpl.map(p => p.dir)) === null || 'encajó';
+  });
+  test('Reductor insertado en tubo Ø32: el otro lado pasa a Ø20', () => {
+    const { m, s } = tubeModel(2000, 32); const tpl = fittingTemplate('red-32-20');
+    const X = new THREE.Vector3(1, 0, 0), ports = chooseOrientation(tpl, [{ dir: X, d: 32 }, { dir: X.clone().negate(), d: 32 }], tpl.map(p => p.dir), true);
+    placeFitting(m, { type: 'seg', id: s, pos: new THREE.Vector3(1000, 0, 0) }, ports);
+    const an = analyze(m); const ds = [...an.segs.values()].map(g => g.d).sort().join(',');
+    const errs = [...an.nodes.values()].filter(n => n.errors.length).length;
+    return all(ds === '20,32' || 'Ø ' + ds, errs === 0 || 'errores');
+  });
+  test('Accesorio en el extremo de un tubo: se acopla sin tubos nuevos', () => {
+    const { m, b } = tubeModel(1000, 20); const an0 = analyze(m), tpl = fittingTemplate('elbow90', 20);
+    const ports = chooseOrientation(tpl, an0.nodes.get(b).ports.map(p => ({ dir: p.dir, d: p.d })), tpl.map(p => p.dir));
+    placeFitting(m, { type: 'node', id: b, pos: an0.nodes.get(b).pos }, ports); const an = analyze(m);
+    return all(m.segments.size === 1 || 'tubos', an.nodes.get(b).kind === 'elbow90' || 'no es codo', eq([...an.segs.values()][0].Lr, 989, 'Lr'));
+  });
+  test('Girar codo 90° sobre X: separa el tubo que deja de encajar y conserva su longitud', () => {
+    const t = build({ a: [1000, 0, 0], o: [0, 0, 0], c: [0, 1000, 0] }, [['o', 'a', 20], ['o', 'c', 20]]);
+    const k = rotateFitting(t.m, t.node('o').id, new THREE.Vector3(1, 0, 0), Math.PI / 2); const an = analyze(t.m);
+    const n = an.nodes.get(t.node('o').id);
+    return all(k === 1 || `${k} separados`, n.ports.length === 1 || 'conectados', n.open.length === 1 && near(n.open[0].dir.z, 1) || 'boca libre no apunta a +Z',
+      eq(an.segs.get(t.seg('oc').id).Lr, 989, 'Lr tubo separado'), eq(an.segs.get(t.seg('oa').id).Lr, 989, 'Lr tubo conectado'));
+  });
+  test('Girar Te 180° sobre su eje: el tramo principal sigue conectado', () => {
+    const t = build({ a: [-1000, 0, 0], o: [0, 0, 0], c: [1000, 0, 0], d: [0, 1000, 0] }, [['a', 'o', 20], ['o', 'c', 20], ['o', 'd', 20]]);
+    const k = rotateFitting(t.m, t.node('o').id, new THREE.Vector3(1, 0, 0), Math.PI); const n = analyze(t.m).nodes.get(t.node('o').id);
+    return all(k === 1 || `${k} separados`, n.ports.length === 2 || 'principal', near(n.open[0].dir.y, -1) || 'derivación no apunta a −Y');
+  });
+  test('Giro que deja una diagonal espacial se rechaza', () => {
+    const t = build({ a: [1000, 1000, 0], o: [0, 0, 0], c: [-1000, 0, 0] }, [['o', 'a', 20], ['o', 'c', 20]]);
+    try { rotateFitting(t.m, t.node('o').id, new THREE.Vector3(1, 0, 0), Math.PI / 4); return 'no se rechazó'; } catch { return true; }
+  });
+  test('Borrar un codo deja los tubos sueltos con su longitud', () => {
+    const t = build({ a: [1000, 0, 0], o: [0, 0, 0], c: [0, 1000, 0] }, [['o', 'a', 20], ['o', 'c', 20]]);
+    deleteFitting(t.m, t.node('o').id); const an = analyze(t.m);
+    return all(an.segs.size === 2 || 'tubos', [...an.segs.values()].every(g => near(g.Lr, 989)) || 'longitudes');
+  });
+  test('Unir dos tubos a través de un manguito', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [2000, 0, 0] }, [['a', 'b', 20], ['b', 'c', 20]]);
+    joinSegments(t.m, t.seg('ab').id, t.seg('bc').id); const an = analyze(t.m);
+    return all(an.segs.size === 1 || 'tubos', eq([...an.segs.values()][0].Le, 2000, 'Le'), an.nodes.size === 2 || 'nodos');
+  });
+  test('Unir dos tubos alineados separados por un hueco', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [1200, 0, 0], d: [2000, 0, 0] }, [['a', 'b', 32], ['c', 'd', 32]]);
+    const c = joinCandidates(t.m, t.seg('ab').id);
+    joinSegments(t.m, t.seg('ab').id, t.seg('cd').id); const an = analyze(t.m);
+    return all(c.length === 1 && near(c[0].gap, 200) || 'candidato', an.segs.size === 1 || 'tubos', eq([...an.segs.values()][0].Le, 2000, 'Le'));
+  });
+  test('No se unen tubos con una derivación entre ellos ni de distinto Ø', () => {
+    const t = build({ a: [-1000, 0, 0], o: [0, 0, 0], c: [1000, 0, 0], d: [0, 1000, 0] }, [['a', 'o', 20], ['o', 'c', 20], ['o', 'd', 20]]);
+    const t2 = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [2000, 0, 0] }, [['a', 'b', 32], ['b', 'c', 20]]);
+    return all(joinCandidates(t.m, t.seg('ao').id).length === 0 || 'Te', joinCandidates(t2.m, t2.seg('ab').id).length === 0 || 'distinto Ø');
+  });
+  test('Orientaciones: un codo 90° tiene 24 orientaciones válidas', () => {
+    const n = orientations(fittingTemplate('elbow90', 20)).length; return n >= 24 || `${n}`;
+  });
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
     const bad = [...an.nodes.values()].filter(n => n.errors.length).map(n => n.id).concat([...an.segs.values()].filter(s => s.errors.length).map(s => s.id));
@@ -1810,7 +2184,12 @@ model.on((m, live) => {
   store.set('pipecad-autosave', JSON.stringify(model.toJSON()));
 });
 
-state.dims = store.get('pipecad-dims') || 'both'; $('#s-dims').value = state.dims;
+{ // preferencias de rótulos (el antiguo «Sin cotas» pasa a ser el interruptor apagado)
+  const savedDims = store.get('pipecad-dims') || 'both';
+  state.dims = savedDims === 'none' ? 'both' : savedDims; $('#s-dims').value = state.dims;
+  setLabels(store.get('pipecad-labels') !== '0' && savedDims !== 'none');
+}
+$('#b-labels').onclick = () => setLabels(!state.labelsOn);
 makeControls();
 new ResizeObserver(resize).observe(viewport);
 makeMaterials();

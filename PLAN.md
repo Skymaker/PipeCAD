@@ -152,6 +152,17 @@ Cada fase termina con algo funcional y verificable en el navegador.
 | 8–10 | ✅ Hechas. Despiece por Ø con regla `ΣL + kerf·(n−1) ≤ barra` (Best-Fit Decreasing + vaciado de barras), marcas de pieza (también como cotas en 3D), esquema gráfico de barras con cortes y retal, mínimo teórico, división automática de tramos > barra con manguitos (barras enteras + resto ≥ 300 mm). Exportación CSV (`;`, coma decimal, UTF-8 con BOM), impresión/PDF con imagen de la vista, PNG con cotas. Configuración editable dentro del proyecto (barra, corte, tubo visto mínimo, cotas Z, embocaduras, Ø exterior, reductores, Tes reducidas, nombre). 31/31 pruebas. |
 | 11 | ✅ Hecha. Redibujado incremental por firmas (solo se regenera lo que cambia) y formateadores numéricos cacheados: con 624 tramos el arrastre pasa de 36 a 4 ms por fotograma, un cambio completo de 88 a 37 ms, y la vista se mantiene a 60 fps. Ayuda rápida (botón «?» / F1, se abre sola la primera vez). Proyecto de ejemplo y pruebas integradas (pestaña Pruebas o `?test`). |
 
+### Ampliaciones posteriores
+
+| Cambio | Estado |
+|---|---|
+| Accesorios declarados en el modelo (`node.fit`): pueden tener bocas libres y existir sin tubos. Los accesorios deducidos al dibujar siguen funcionando igual. | ✅ |
+| Gizmo de giro (anillos X/Y/Z en pasos de 45°) y teclas R/E/W sobre el accesorio seleccionado. Los tubos que dejan de coincidir con una boca se separan y conservan su longitud real. Giros que dejan una boca en diagonal espacial se rechazan. | ✅ |
+| Herramienta Accesorio: sin tramos cortos; se coloca suelto, en el extremo de un tubo o insertado en un tubo (lo parte en dos, sin duplicar). Usa el Ø del tubo; el reductor cambia el Ø del tramo del lado menor. | ✅ |
+| Unir tubos alineados del mismo Ø en uno solo (a través de un manguito o cerrando un hueco). | ✅ |
+| Interruptor de rótulos (botón y tecla L). | ✅ |
+| Borrar un accesorio deja sus tubos sueltos. 44/44 pruebas. | ✅ |
+
 ## 5. Orden y entregas
 
 Fases 0–4 → visor con modelo y accesorios correctos (base de cálculo).

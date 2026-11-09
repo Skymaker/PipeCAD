@@ -10,7 +10,9 @@ Abre `index.html` en un navegador moderno (necesita conexión a internet para ca
 ## Funciones
 
 - **Dibujo 3D por polilínea**: los codos de 90° y 45° se insertan solos al cambiar de dirección; empezar o terminar sobre un tubo crea una Te (o Te reducida).
-- **Accesorios**: codo 90°, codo 45°, Te, Te reducida, manguito y manguito reductor; también se pueden colocar sueltos.
+- **Accesorios**: codo 90°, codo 45°, Te, Te reducida, manguito y manguito reductor. Se pueden colocar sueltos, en el extremo de un tubo o insertados en un tubo (lo parten en dos), y girar con un gizmo de anillos; los tubos que dejan de encajar se separan.
+- **Unir tubos** alineados en uno solo, quitando el manguito o cerrando el hueco.
+- **Rótulos** de cotas o marcas de pieza que se pueden ocultar con un interruptor.
 - **Puntos de arrastre** para alargar y acortar tubos; lo conectado detrás se desplaza en bloque.
 - **Medidas a eje**: la longitud real de corte se calcula descontando la cota Z de cada accesorio (centro → tope de embocadura). Las cotas son editables.
 - **Despiece**: barras de 3000 mm, 2 mm por corte, optimizado para usar el mínimo de barras; división automática de tramos largos con manguitos.
