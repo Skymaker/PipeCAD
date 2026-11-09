@@ -162,6 +162,8 @@ Cada fase termina con algo funcional y verificable en el navegador.
 | Unir tubos alineados del mismo Ø en uno solo (a través de un manguito o cerrando un hueco). | ✅ |
 | Interruptor de rótulos (botón y tecla L). | ✅ |
 | Borrar un accesorio deja sus tubos sueltos. 44/44 pruebas. | ✅ |
+| Diagonales a 45°: el paso se aplica al avance en cada eje (250 + 250 → 353,553 a ejes), al dibujar, al arrastrar y al elegir un punto sobre un tubo, para que los tramos simétricos se encuentren. | ✅ |
+| Aviso de extremo suelto pegado a otro nodo (parece unido pero no lo está) y acción **Conectar**: alarga el tubo hasta el nodo o desplaza el accesorio a lo largo de su tubo hasta el cruce. Caso detectado en `Prueba.json`. 49/49 pruebas. | ✅ |
 
 ## 5. Orden y entregas
 

@@ -532,7 +532,27 @@ function analyze(model) {
     if (Lr > cfg.barLength) warnings.push(`Longitud real mayor que la barra (${cfg.barLength} mm): necesitará un manguito`);
     segs.set(s.id, { id: s.id, a: s.a, b: s.b, d: s.d, Le, Lr, zA, zB, free, dir, kindA: A.kind, kindB: B.kind, errors, warnings });
   }
-  return { nodes, segs };
+
+  // Extremos sueltos pegados a otro nodo (parecen conectados en 3D pero no lo están)
+  const loose = [], F = cfg.fittings;
+  for (const E of nodes.values()) {
+    if (E.kind !== 'end' || E.explicit) continue;
+    const p = E.ports[0], s = model.segments.get(p.segId), far = s.a === E.id ? s.b : s.a;
+    let best = null;
+    for (const N of nodes.values()) {
+      if (N.id === E.id || N.id === far) continue;
+      const dist = N.pos.distanceTo(E.pos);
+      const tol = F[p.d].od / 2 + F[N.d].od / 2 + F[N.d].socket;
+      if (dist < tol && (!best || dist < best.dist)) best = { nodeId: N.id, dist };
+    }
+    if (!best) continue;
+    const item = { endId: E.id, segId: p.segId, ...best };
+    loose.push(item);
+    const g = segs.get(p.segId);
+    g.loose = item;
+    g.warnings.push(`Extremo suelto a ${fmt(best.dist)} mm de ${best.nodeId} (${kindLabel(nodes.get(best.nodeId)).toLowerCase()}): parece unido pero no está conectado`);
+  }
+  return { nodes, segs, loose };
 }
 
 /* =====================================================================
@@ -691,6 +711,37 @@ function joinPlan(m, s, o) {
   }
   return { inner: ids, far, gap: Math.max(0, t(inner[1]) - t(inner[0])), shared: ids.length === 1 };
 }
+// Conecta un extremo suelto de un tubo a un nodo cercano:
+//  A) si el nodo está en la prolongación del tubo, el tubo se alarga/acorta hasta él;
+//  B) si el nodo tiene un solo tubo, se desplaza a lo largo de ese tubo hasta el cruce con la prolongación.
+function connectLoose(m, segId, endId, nodeId) {
+  const s = m.segments.get(segId);
+  if (!s || (s.a !== endId && s.b !== endId) || !m.nodes.has(nodeId)) throw new Error('El extremo ya no existe');
+  const farId = s.a === endId ? s.b : s.a;
+  const Fp = v3(m.nodes.get(farId).pos), Np = v3(m.nodes.get(nodeId).pos);
+  const v = v3(m.nodes.get(endId).pos).sub(Fp).normalize();
+  const reattach = () => { if (s.a === endId) s.a = nodeId; else s.b = nodeId; if (!m.segmentsOf(endId).length && !m.nodes.get(endId).fit) m.nodes.delete(endId); };
+  let how = null;
+  const w0 = Np.clone().sub(Fp), a = w0.dot(v);
+  if (a > 1 && w0.clone().addScaledVector(v, -a).length() < 0.5) { reattach(); how = 'extend'; }
+  else {
+    const others = m.segmentsOf(nodeId);
+    if (others.length === 1) {
+      const s2 = others[0], G = v3(m.nodes.get(s2.a === nodeId ? s2.b : s2.a).pos), w = Np.clone().sub(G).normalize();
+      const b = v.dot(w), D = 1 - b * b;
+      if (D > 1e-6) {
+        const r = Fp.clone().sub(G), d = v.dot(r), e = w.dot(r);
+        const ta = (b * e - d) / D, tc = (e - b * d) / D;
+        const X = Fp.clone().addScaledVector(v, ta), Y = G.clone().addScaledVector(w, tc);
+        if (ta > 1 && tc > 1 && X.distanceTo(Y) < 0.5) { m.moveNode(nodeId, X.toArray()); reattach(); how = 'move'; }
+      }
+    }
+  }
+  if (!how) throw new Error('No se puede conectar automáticamente: el tubo no está alineado con ninguna boca de ese accesorio');
+  const n = analyze(m).nodes.get(nodeId);
+  if (n.errors.length) throw new Error('No se puede conectar: ' + n.errors[0]);
+  return how;
+}
 function joinCandidates(m, segId) {
   const s = m.segments.get(segId), out = [];
   for (const o of m.segments.values()) { if (o.id === segId) continue; const p = joinPlan(m, s, o); if (p) out.push({ id: o.id, ...p }); }
@@ -734,6 +785,12 @@ function segAxis(m, segId, nodeId) {
 }
 // Medida a ejes mínima: los accesorios de ambos extremos se tocan.
 const minAxisLength = g => Math.max(g.Le - g.free, 1);
+// Ajuste de longitud a la rejilla: en diagonales a 45° se redondea el avance en cada eje (no la medida a ejes),
+// para que los extremos caigan en la rejilla y los tramos simétricos se encuentren (250 + 250 → 353,553 a ejes).
+function snapLen(t, dir, step, min = 1) {
+  const c = Math.max(Math.abs(dir.x), Math.abs(dir.y), Math.abs(dir.z));
+  return Math.max(min, Math.round(t * c / step)) * step / c;
+}
 function setSegmentLength(m, segId, newLe, moveNodeId) {
   const g = analyze(m).segs.get(segId);
   const min = minAxisLength(g);
@@ -1264,7 +1321,7 @@ function pickTarget() {
     const A = analysis.nodes.get(g.a).pos;
     let t = rayLineParam(A, g.dir);
     if (t !== null) {
-      t = Math.round(t / state.snap) * state.snap;
+      t = snapLen(t, g.dir, state.snap, 0);
       if (t > 0.5 && t < g.Le - 0.5) return { type: 'seg', id: g.id, pos: A.clone().addScaledVector(g.dir, t) };
       return nodeTarget(t <= 0.5 ? g.a : g.b);
     }
@@ -1319,7 +1376,7 @@ function updateDraw() {
   }
   if (!best) { draw.cand = null; setTip(startNode?.explicit && !startNode.open.length ? 'El accesorio no tiene bocas libres' : 'Ninguna dirección válida desde aquí' + (mouse.shift ? ' · suelta Mayús' : ' · prueba con Mayús')); requestRender(); return; }
   const dUse = best.dd;
-  let len = Math.max(state.snap, Math.round(best.t / state.snap) * state.snap);
+  let len = snapLen(best.t, best.n, state.snap);
   let end = { type: 'plane', pos: S.clone().addScaledVector(best.n, len) };
   const mags = magnetTargets(draw.start, S, best.n);
   let mag = mags.find(c => Math.abs(c.t - len) < 0.5);
@@ -1330,7 +1387,8 @@ function updateDraw() {
   ovCyl(S, best.n, len, dUse / 2, endTr.ok ? mats.ghost : mats.ghostBad);
   ovDot(end.pos, dotR, end.type === 'plane' ? mats.ghost : mats.ghostSnap);
   const Lr = len - best.tr.z - endTr.z;
-  setTip(`Ø${dUse} · ejes <b>${fmt(len)}</b> · real ${fmt(Lr)}${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
+  const cAx = Math.max(Math.abs(best.n.x), Math.abs(best.n.y), Math.abs(best.n.z));
+  setTip(`Ø${dUse} · ejes <b>${fmt(len)}</b>${cAx < 0.99 ? ` (${fmt(len * cAx)} + ${fmt(len * cAx)})` : ''} · real ${fmt(Lr)}${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
   requestRender();
 }
 function addTube(st, en, d) {
@@ -1544,7 +1602,7 @@ function startDrag(e) {
 function applyDrag() {
   dragQueued = false; if (!drag) return;
   const t = rayLineParam(drag.N0, drag.axis); if (t === null) return;
-  let Le = Math.round((drag.Le0 + t - drag.t0) / state.snap) * state.snap;
+  let Le = snapLen(drag.Le0 + t - drag.t0, drag.axis, state.snap, 0);
   const atMin = Le <= drag.min; if (atMin) Le = drag.min;
   if (Math.abs(Le - drag.lastLe) > 1e-9) {
     drag.lastLe = Le; const delta = Le - drag.Le0;
@@ -1683,11 +1741,13 @@ function renderProps() {
         ${row('Dirección', dirName(g.dir))}
         ${row('Marca de pieza', state.cut?.marks.get(g.id) || '—')}
       </table>${msgs(g.errors, g.warnings)}
+      ${g.loose ? `<div class="btns"><button id="p-connect">Conectar con ${g.loose.nodeId}</button></div>` : ''}
       ${g.Lr > model.config.barLength ? '<p><button id="p-split">Dividir con manguitos</button></p>' : ''}
       ${(() => {
         const js = joinCandidates(model, g.id);
         return js.length ? `<h4>Unir en un solo tubo</h4><div class="btns">${js.map(j => `<button class="p-join" data-o="${j.id}">Con ${j.id} · ${j.shared ? 'quita el manguito' : 'cierra ' + fmt(j.gap) + ' mm'}</button>`).join('')}</div>` : '';
       })()}`;
+    if ($('#p-connect')) $('#p-connect').onclick = () => doConnect(g.loose);
     $$('.p-join', el).forEach(b => b.onclick = () => {
       try { model.transact('Unir tubos', () => joinSegments(model, g.id, b.dataset.o)); state.selected = { type: 'seg', id: g.id }; renderProps(); status(`Tubos unidos en ${g.id}`); }
       catch (err) { status('✘ ' + err.message); }
@@ -1750,6 +1810,14 @@ function despieceHTML(cut) {
   return h;
 }
 
+function doConnect(item) {
+  try {
+    const how = model.transact('Conectar extremo', () => connectLoose(model, item.segId, item.endId, item.nodeId));
+    const g = analysis.segs.get(item.segId);
+    select({ type: 'seg', id: item.segId });
+    status(`${item.segId} conectado a ${item.nodeId}` + (how === 'move' ? ' (el accesorio se ha desplazado hasta el cruce)' : '') + (g ? ` · ejes ${fmt(g.Le)} · real ${fmt(g.Lr)}` : ''));
+  } catch (err) { status('✘ ' + err.message); }
+}
 function renderSummary() {
   const cut = state.cut, c = model.config;
   const issues = [];
@@ -1763,10 +1831,13 @@ function renderSummary() {
     <p class="hint">Barras de ${fmt(c.barLength, 0)} mm · ${fmt(c.kerf)} mm por corte · longitudes reales redondeadas al mm. Clic en una marca para localizar la pieza.</p>
     ${cut.oversize.length ? `<div class="msg warn">${cut.oversize.length} pieza${cut.oversize.length === 1 ? '' : 's'} más larga${cut.oversize.length === 1 ? '' : 's'} que la barra (${cut.oversize.map(p => p.mark).join(', ')}): no entran en el despiece.<br><button id="b-split-all" style="margin-top:4px">Dividir con manguitos</button></div>` : ''}
     ${cut.invalid.length ? `<div class="msg err">No incluidos por errores: ${cut.invalid.map(s => s.id).join(', ')}</div>` : ''}
+    ${analysis.loose.map((l, k) => `<div class="msg warn">Extremo suelto de ${l.segId} a ${fmt(l.dist)} mm de ${l.nodeId}: el despiece no es fiable hasta conectarlo.<br><button class="b-connect" data-k="${k}" style="margin-top:4px">Conectar</button></div>`).join('')}
     ${empty ? '<p class="hint">Dibuja tubos para obtener el despiece.</p>' : despieceHTML(cut)}
     <h4>Avisos (${issues.length})</h4>
     ${issues.length ? issues.map((i, k) => `<div class="msg ${i.cls} issue" data-k="${k}">${esc(i.pick.id)}: ${esc(i.t)}</div>`).join('') : '<div class="msg ok">Sin errores ni avisos.</div>'}`;
   $$('.issue', el).forEach(d => d.onclick = () => { select(issues[+d.dataset.k].pick); showTab('props'); });
+  const looseNow = analysis.loose;
+  $$('.b-connect', el).forEach(b => b.onclick = () => doConnect(looseNow[+b.dataset.k]));
   $$('[data-seg]', el).forEach(d => d.onclick = () => { select({ type: 'seg', id: d.dataset.seg }); showTab('props'); });
   $('#b-csv').onclick = exportCSV;
   $('#b-print').onclick = printCut;
@@ -2103,6 +2174,45 @@ function runTests() {
   });
   test('Orientaciones: un codo 90° tiene 24 orientaciones válidas', () => {
     const n = orientations(fittingTemplate('elbow90', 20)).length; return n >= 24 || `${n}`;
+  });
+  test('Rejilla en diagonales: 353 a ejes se ajusta a 250 + 250 (353,553)', () => {
+    const d = new THREE.Vector3(0, 1, 1).normalize();
+    return all(eq(snapLen(353, d, 10), 250 * Math.SQRT2, 'diagonal'), eq(snapLen(347, new THREE.Vector3(1, 0, 0), 10), 350, 'eje'));
+  });
+  // Arco izquierdo de Prueba.json: dos tubos de 350 a ejes que no se encuentran
+  const brokenArch = () => {
+    const m = new Model(), S = Math.SQRT1_2;
+    const fit = (pos, ports) => { const id = m.addNode(pos); m.nodes.get(id).fit = { ports: ports.map(([dir, d]) => ({ dir, d })) }; return id; };
+    const a = m.addNode([10, 0, 0]), b = m.addNode([10, 500, 0]);
+    const n42 = fit([200, 0, 0], [[[-1, 0, 0], 20], [[0, S, S], 20]]);
+    const n58 = fit([200, 247.487, 247.487], [[[0, -S, -S], 20], [[0, S, -S], 20]]);
+    const n41 = fit([200, 500, 0], [[[-1, 0, 0], 20], [[0, -S, S], 20]]);
+    const n60 = m.addNode([200, 252.513, 247.487]);
+    m.addSegment(a, n42, 20); const s59 = m.addSegment(n42, n58, 20); m.addSegment(n41, b, 20); const s61 = m.addSegment(n41, n60, 20);
+    return { m, n58, n60, s59, s61 };
+  };
+  test('Prueba.json: se detecta el extremo suelto junto al codo', () => {
+    const t = brokenArch(), an = analyze(t.m);
+    const l = an.loose.find(x => x.endId === t.n60);
+    return all(!!l || 'no detectado', l?.nodeId === t.n58 || 'nodo', near(l?.dist ?? 0, 5.026, 0.01) || 'distancia', an.segs.get(t.s61).warnings.length > 0 || 'sin aviso');
+  });
+  test('Prueba.json: Conectar desplaza el codo al cruce y cierra el arco', () => {
+    const t = brokenArch(); const how = connectLoose(t.m, t.s61, t.n60, t.n58); const an = analyze(t.m);
+    const n = an.nodes.get(t.n58);
+    return all(how === 'move' || how, !t.m.nodes.has(t.n60) || 'extremo sigue', n.open.length === 0 || 'boca libre', n.errors.length === 0 || n.errors[0],
+      eq(n.pos.y, 250, 'y cima'), eq(n.pos.z, 250, 'z cima'), eq(an.segs.get(t.s59).Lr, 250 * Math.SQRT2 - 22, 'Lr s59'), eq(an.segs.get(t.s61).Lr, 250 * Math.SQRT2 - 22, 'Lr s61'), an.loose.length === 0 || 'quedan sueltos');
+  });
+  test('Conectar alarga un tubo alineado con la boca libre', () => {
+    const m = new Model(); const a = m.addNode([0, 0, 0]), e = m.addNode([980, 0, 0]); const s = m.addSegment(a, e, 20);
+    const n = placeFitting(m, { type: 'plane', pos: new THREE.Vector3(1000, 0, 0) }, fittingTemplate('elbow90', 20).map(p => ({ dir: p.dir.clone().negate().applyAxisAngle(new THREE.Vector3(0, 0, 1), 0), d: 20 })));
+    const an0 = analyze(m); const l = an0.loose[0];
+    const how = connectLoose(m, s, e, n); const an = analyze(m);
+    return all(!!l || 'no detectado', how === 'extend' || how, eq(an.segs.get(s).Le, 1000, 'Le'), an.nodes.get(n).errors.length === 0 || 'errores');
+  });
+  test('Conectar se rechaza si el tubo no encaja en ninguna boca', () => {
+    const m = new Model(); const a = m.addNode([0, 100, 0]), e = m.addNode([990, 100, 0]); const s = m.addSegment(a, e, 20);
+    const n = placeFitting(m, { type: 'plane', pos: new THREE.Vector3(1000, 0, 0) }, fittingTemplate('coupling', 20));
+    try { connectLoose(m, s, e, n); return 'no se rechazó'; } catch { return true; }
   });
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
