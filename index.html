@@ -1,0 +1,1832 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PipeCAD</title>
+<style>
+/* ================= Tema ================= */
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --panel-2:#f7f8fa; --border:#d8dce2; --text:#1c2128; --muted:#66707c;
+  --accent:#2f6fde; --accent-soft:#e3ecfb; --accent-text:#ffffff; --hover:#eef1f5;
+  --viewport:#e8ecf1; --grid-major:#a9b2bd; --grid-minor:#d2d8df;
+  --ok:#2b8a53; --warn:#c77d00; --err:#d4373c;
+  --c20:#4f9fd6; --c32:#8e99a5; --c40:#d4954a; --fitting:#d9dde2; --sel:#2f6fde;
+  --label-bg:rgba(255,255,255,.88); --label-text:#1c2128;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181c; --panel:#1d2127; --panel-2:#22272e; --border:#323840; --text:#e2e6eb; --muted:#8b95a1;
+    --accent:#5b8ff0; --accent-soft:#24324a; --hover:#2a3038;
+    --viewport:#20252b; --grid-major:#4b5560; --grid-minor:#2e343b;
+    --ok:#4cbf7d; --warn:#e8a33a; --err:#f0616a;
+    --c20:#5aaee6; --c32:#a3aeba; --c40:#e2a660; --fitting:#c9ced5; --sel:#6f9ff5;
+    --label-bg:rgba(29,33,39,.9); --label-text:#e2e6eb;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15181c; --panel:#1d2127; --panel-2:#22272e; --border:#323840; --text:#e2e6eb; --muted:#8b95a1;
+  --accent:#5b8ff0; --accent-soft:#24324a; --hover:#2a3038;
+  --viewport:#20252b; --grid-major:#4b5560; --grid-minor:#2e343b;
+  --ok:#4cbf7d; --warn:#e8a33a; --err:#f0616a;
+  --c20:#5aaee6; --c32:#a3aeba; --c40:#e2a660; --fitting:#c9ced5; --sel:#6f9ff5;
+  --label-bg:rgba(29,33,39,.9); --label-text:#e2e6eb;
+  color-scheme: dark;
+}
+
+/* ================= Layout ================= */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#app{display:grid;grid-template-rows:auto 1fr auto;height:100vh}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--border)}
+.brand{font-weight:700;letter-spacing:.3px;margin-right:8px}
+.brand span{color:var(--accent)}
+.group{display:flex;align-items:center;gap:3px;padding-right:8px;margin-right:2px;border-right:1px solid var(--border)}
+.group:last-child{border-right:0}
+button,select{font:inherit;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;min-height:28px}
+button:hover:not(:disabled),select:hover{background:var(--hover)}
+button:disabled{opacity:.45;cursor:default}
+button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+main{display:grid;grid-template-columns:1fr 340px;min-height:0}
+#viewport{position:relative;background:var(--viewport);min-width:0;min-height:0;overflow:hidden}
+#viewport canvas{display:block;outline:none}
+#labels{position:absolute;inset:0;pointer-events:none}
+.dim{background:var(--label-bg);color:var(--label-text);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px;white-space:nowrap;transform:translateY(-14px);text-align:center;line-height:1.25}
+.dim small{color:var(--muted);display:block;font-size:10px}
+.dim.err{border-color:var(--err);color:var(--err)}
+.dim.warn{border-color:var(--warn)}
+#legend{position:absolute;left:10px;bottom:10px;background:var(--label-bg);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;display:flex;gap:10px;pointer-events:none}
+#legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+aside{background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.tabs{display:flex;border-bottom:1px solid var(--border)}
+.tabs button{flex:1;border:0;border-radius:0;background:transparent;border-bottom:2px solid transparent;padding:8px 4px}
+.tabs button.on{border-bottom-color:var(--accent);color:var(--accent);background:transparent}
+.tabpane{display:none;padding:12px;overflow:auto;flex:1}
+.tabpane.on{display:block}
+h3{margin:2px 0 8px;font-size:14px}
+h4{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.hint{color:var(--muted)}
+.big{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.msg{padding:6px 8px;border-radius:6px;margin:4px 0;font-size:12px;border:1px solid var(--border)}
+.msg.err{border-color:var(--err);color:var(--err)}
+.msg.warn{border-color:var(--warn);color:var(--warn)}
+.msg.ok{border-color:var(--ok);color:var(--ok)}
+.issue{cursor:pointer}
+.issue:hover{background:var(--hover)}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+footer{display:flex;gap:16px;align-items:center;padding:4px 10px;background:var(--panel);border-top:1px solid var(--border);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
+footer #st-msg{flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+footer #st-xyz{font-variant-numeric:tabular-nums}
+.lbl{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:4px}
+input[type=text],input[type=number]{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 6px;min-height:28px}
+td input,td select{width:100%}
+#tip{position:absolute;pointer-events:none;background:var(--label-bg);color:var(--label-text);border:1px solid var(--border);border-radius:5px;padding:2px 7px;font-size:12px;white-space:nowrap;display:none;z-index:5}
+#len-box{position:absolute;display:none;width:120px;z-index:6;border-color:var(--accent)}
+#cdn-error{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:20px;color:var(--err)}
+@media (max-width:820px){
+  body{overflow:auto}
+  #app{height:auto;min-height:100vh}
+  main{grid-template-columns:1fr;grid-template-rows:60vh auto}
+  aside{border-left:0;border-top:1px solid var(--border);max-height:none}
+  header{padding:6px 16px}
+  .group{border-right:0}
+}
+/* despiece */
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.bar{display:flex;height:22px;border:1px solid var(--border);border-radius:3px;overflow:hidden;margin:6px 0 2px;background:repeating-linear-gradient(45deg,transparent 0 4px,var(--hover) 4px 8px)}
+.bar span{display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;overflow:hidden;white-space:nowrap;border-right:2px solid var(--text);min-width:0;text-shadow:0 0 2px rgba(0,0,0,.5)}
+.bar span.c20{background:var(--c20)} .bar span.c32{background:var(--c32)} .bar span.c40{background:var(--c40)}
+.bar em{min-width:0}
+.barinfo{font-size:11px;color:var(--muted);margin-bottom:6px}
+.pm,.pm-row{cursor:pointer}
+.pm:hover,.pm-row:hover{color:var(--accent)}
+table.cfg td{padding:2px 3px}
+#print{display:none}
+#help{max-width:min(860px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:16px 20px;position:relative}
+#help::backdrop{background:rgba(0,0,0,.35)}
+#help h2{margin:0 0 6px;font-size:17px}
+#help .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+#help ol{padding-left:18px;margin:4px 0}
+#help li{margin:3px 0}
+#help p{margin:4px 0}
+#help td{border:0;padding:3px 6px 3px 0}
+#help .close{position:absolute;top:10px;right:10px}
+kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--panel-2)}
+@media (max-width:700px){ #help .cols{grid-template-columns:1fr} }
+@media print{
+  html,body{height:auto;overflow:visible;background:#fff}
+  #app{display:none !important}
+  #print{display:block;color:#000;background:#fff;font-size:11px;
+    --c20:#4f9fd6;--c32:#8e99a5;--c40:#d4954a;--border:#999;--text:#000;--muted:#444;--hover:#e3e3e3;--accent:#000}
+  #print h1{font-size:18px;margin:0 0 4px}
+  #print img{max-width:100%;max-height:9cm;display:block;margin:8px 0;border:1px solid #999}
+  #print .bar,#print .bar span,#print .swatch{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print .bar,#print .barinfo,#print tr{break-inside:avoid}
+}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Pipe<span>CAD</span></div>
+    <div class="group">
+      <button id="b-new" title="Nuevo proyecto">Nuevo</button>
+      <button id="b-open" title="Abrir proyecto .json">Abrir</button>
+      <button id="b-save" title="Guardar proyecto .json">Guardar</button>
+      <button id="b-example" title="Cargar proyecto de ejemplo">Ejemplo</button>
+      <input id="file" type="file" accept=".json,application/json" hidden>
+    </div>
+    <div class="group">
+      <button id="b-undo" title="Deshacer (Ctrl+Z)">↶</button>
+      <button id="b-redo" title="Rehacer (Ctrl+Y)">↷</button>
+      <button id="b-del" title="Borrar selección (Supr)">Borrar</button>
+    </div>
+    <div class="group">
+      <button data-tool="select" title="Seleccionar y arrastrar (S)">Seleccionar</button>
+      <button data-tool="draw" title="Dibujar tubos (D)">Tubo</button>
+      <button data-tool="place" title="Colocar accesorio suelto (A)">Accesorio</button>
+      <select id="s-fit" title="Accesorio a colocar">
+        <option value="elbow90">Codo 90°</option>
+        <option value="elbow45">Codo 45°</option>
+        <option value="tee">Te 90°</option>
+        <option value="coupling">Manguito</option>
+        <option value="red-32-20">Reductor 32×20</option>
+        <option value="red-40-20">Reductor 40×20</option>
+        <option value="red-40-32">Reductor 40×32</option>
+        <option value="ter-32-20">Te reducida 32×20</option>
+        <option value="ter-40-20">Te reducida 40×20</option>
+        <option value="ter-40-32">Te reducida 40×32</option>
+      </select>
+    </div>
+    <div class="group">
+      <span class="lbl">Ø</span>
+      <button data-d="20" title="Diámetro 20 mm">20</button>
+      <button data-d="32" title="Diámetro 32 mm">32</button>
+      <button data-d="40" title="Diámetro 40 mm">40</button>
+    </div>
+    <div class="group">
+      <label class="lbl">Paso
+        <select id="s-snap"><option>1</option><option>5</option><option selected>10</option><option>50</option><option>100</option></select> mm</label>
+      <label class="lbl">Z plano <input id="i-planez" type="text" inputmode="decimal" value="0" style="width:64px"></label>
+    </div>
+    <div class="group">
+      <button data-view="top" title="Planta (vista desde arriba)">Planta</button>
+      <button data-view="front" title="Alzado (vista frontal)">Alzado</button>
+      <button data-view="side" title="Perfil (vista lateral)">Perfil</button>
+      <button data-view="iso" title="Isométrica">Iso</button>
+      <button id="b-fit" title="Encuadrar todo (F)">Encuadrar</button>
+      <button id="b-proj" title="Cambiar perspectiva / ortográfica">Perspectiva</button>
+      <button id="b-png" title="Guardar imagen PNG de la vista">PNG</button>
+    </div>
+    <div class="group">
+      <select id="s-dims" title="Cotas visibles">
+        <option value="both">Cotas: real + ejes</option>
+        <option value="real">Cotas: longitud real</option>
+        <option value="axis">Cotas: a ejes</option>
+        <option value="mark">Cotas: marca de pieza</option>
+        <option value="none">Sin cotas</option>
+      </select>
+      <button id="b-theme" title="Tema">Tema: auto</button>
+      <button id="b-help" title="Ayuda (F1)">?</button>
+    </div>
+  </header>
+  <main>
+    <div id="viewport">
+      <div id="labels"></div>
+      <div id="tip"></div>
+      <input id="len-box" type="text" inputmode="decimal" placeholder="longitud mm" autocomplete="off">
+      <div id="legend"><span><i style="background:var(--c20)"></i>Ø20</span><span><i style="background:var(--c32)"></i>Ø32</span><span><i style="background:var(--c40)"></i>Ø40</span></div>
+      <div id="cdn-error">No se pudo cargar Three.js desde internet.<br>Comprueba la conexión y recarga la página.</div>
+    </div>
+    <aside>
+      <div class="tabs">
+        <button data-tab="props" class="on">Propiedades</button>
+        <button data-tab="summary">Despiece</button>
+        <button data-tab="config">Config.</button>
+        <button data-tab="tests">Pruebas</button>
+      </div>
+      <div class="tabpane on" id="tab-props"></div>
+      <div class="tabpane" id="tab-summary"></div>
+      <div class="tabpane" id="tab-config"></div>
+      <div class="tabpane" id="tab-tests">
+        <h3>Pruebas del motor</h3>
+        <p class="hint">Comprueban el cálculo de accesorios y longitudes reales. También se ejecutan solas abriendo la página con <code>?test</code>.</p>
+        <button id="b-tests" class="primary">Ejecutar pruebas</button>
+        <div id="test-out"></div>
+      </div>
+    </aside>
+  </main>
+  <footer>
+    <span id="st-msg">Listo</span>
+    <span id="st-count"></span>
+    <span id="st-xyz">X — Y — Z 0</span>
+  </footer>
+</div>
+<div id="print"></div>
+<dialog id="help">
+  <form method="dialog"><button class="close" title="Cerrar">✕</button></form>
+  <h2>PipeCAD · ayuda rápida</h2>
+  <div class="cols">
+    <section>
+      <h4>Cómo trabajar</h4>
+      <ol>
+        <li>Elige el diámetro (Ø20 / 32 / 40) y pulsa <b>Tubo</b> (D).</li>
+        <li>Haz clic en el plano para empezar y ve marcando puntos. Los codos se colocan solos al girar 90° o 45°.</li>
+        <li>Para derivar, empieza o termina sobre un tubo: se inserta una Te (o Te reducida si el Ø es menor).</li>
+        <li>Con <b>Seleccionar</b> (S) arrastra los puntos azules o los accesorios para alargar o acortar.</li>
+        <li>Revisa la pestaña <b>Despiece</b>, expórtalo a CSV o imprímelo.</li>
+      </ol>
+      <h4>Medidas</h4>
+      <p><b>A ejes</b>: distancia entre los centros de los accesorios.<br>
+        <b>Real</b>: longitud de corte del tubo = a ejes − Z de cada accesorio (centro → tope de embocadura). Las cotas Z se ajustan en <b>Config.</b></p>
+      <h4>Despiece</h4>
+      <p>Barras de 3000 mm; cada corte resta 2 mm. Las piezas caben en una barra si su suma más 2 mm por cada corte entre ellas no supera la barra. Los tramos más largos que la barra se dividen con manguitos.</p>
+    </section>
+    <section>
+      <h4>Teclado</h4>
+      <table>
+        <tr><td><kbd>S</kbd> <kbd>D</kbd> <kbd>A</kbd></td><td>Seleccionar · Tubo · Accesorio</td></tr>
+        <tr><td><kbd>Mayús</kbd></td><td>Tubo: tramos verticales o inclinados</td></tr>
+        <tr><td><kbd>0-9</kbd> <kbd>Enter</kbd></td><td>Tubo: longitud exacta a ejes (negativa = sentido contrario)</td></tr>
+        <tr><td><kbd>Enter</kbd> <kbd>Esc</kbd> doble clic</td><td>Terminar el tramo</td></tr>
+        <tr><td><kbd>R</kbd> <kbd>E</kbd> <kbd>W</kbd></td><td>Accesorio: girar 45° en planta · volcar 90° sobre X · sobre Y</td></tr>
+        <tr><td><kbd>Supr</kbd></td><td>Borrar selección</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></td><td>Deshacer / rehacer</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Encuadrar todo</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Cancelar / volver a Seleccionar</td></tr>
+        <tr><td><kbd>F1</kbd></td><td>Esta ayuda</td></tr>
+      </table>
+      <h4>Ratón</h4>
+      <p>Botón izquierdo: girar la vista · derecho: desplazar · rueda: zoom hacia el cursor.</p>
+      <h4>Colores</h4>
+      <p><span class="swatch" style="background:var(--c20)"></span>Ø20 <span class="swatch" style="background:var(--c32)"></span>Ø32 <span class="swatch" style="background:var(--c40)"></span>Ø40 ·
+        <span class="swatch" style="background:var(--warn)"></span>aviso · <span class="swatch" style="background:var(--err)"></span>error</p>
+      <h4>Datos</h4>
+      <p>El proyecto se guarda solo en este navegador. Usa <b>Guardar</b> para tener el archivo <code>.json</code>.</p>
+    </section>
+  </div>
+</dialog>
+
+<script>
+  // Aviso si el módulo principal no llega a ejecutarse (sin conexión al CDN)
+  setTimeout(()=>{ if(!window.__pipecadReady){ document.getElementById('cdn-error').style.display='flex'; } }, 8000);
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z vertical (convención CAD). 1 unidad = 1 mm.
+
+/* =====================================================================
+   CATÁLOGO
+   ===================================================================== */
+const DIAMETERS = [20, 32, 40];
+// Cotas orientativas PVC presión encolar (mm). Z = centro del accesorio → tope de embocadura.
+const DEFAULT_CONFIG = {
+  barLength: 3000,   // longitud de barra
+  kerf: 2,           // material perdido por corte
+  minFree: 10,       // tubo visto mínimo entre accesorios
+  fittings: {
+    20: { socket: 16, od: 27, elbow90: 11, elbow45: 5,  tee: 11, coupling: 2 },
+    32: { socket: 22, od: 41, elbow90: 17, elbow45: 8,  tee: 17, coupling: 2 },
+    40: { socket: 26, od: 50, elbow90: 21, elbow45: 10, tee: 21, coupling: 2 },
+  },
+  reducers:   { '32-20': { big: 3, small: 10 }, '40-20': { big: 3, small: 14 }, '40-32': { big: 3, small: 6 } },
+  teeReduced: { '32-20': { run: 17, branch: 19 }, '40-20': { run: 21, branch: 23 }, '40-32': { run: 21, branch: 22 } },
+};
+const KIND_NAMES = {
+  end: 'Extremo libre', elbow90: 'Codo 90°', elbow45: 'Codo 45°', tee: 'Te 90°', teeReduced: 'Te reducida',
+  coupling: 'Manguito', reducer: 'Manguito reductor', invalid: 'Unión no válida', isolated: 'Nodo aislado',
+};
+const FITTING_KINDS = ['elbow90', 'elbow45', 'tee', 'teeReduced', 'coupling', 'reducer'];
+
+/* =====================================================================
+   UTILIDADES
+   ===================================================================== */
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const v3 = a => new THREE.Vector3(a[0], a[1], a[2]);
+const NF = {}; // formateadores cacheados (toLocaleString es muy lento en bucles)
+const fmt = (x, dec = 1) => (NF[dec] ||= new Intl.NumberFormat('es-ES', { maximumFractionDigits: dec })).format(Math.round(x * 10 ** dec) / 10 ** dec);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const near = (a, b, tol = 1e-3) => Math.abs(a - b) < tol;
+const r3 = x => Math.round(+x * 1000) / 1000;               // posiciones redondeadas a 0,001 mm
+const NF_RAW = new Intl.NumberFormat('es-ES', { useGrouping: false, maximumFractionDigits: 1 });
+const numStr = x => NF_RAW.format(Math.round(x * 10) / 10);
+const parseNum = s => { s = String(s).trim(); if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); return parseFloat(s); };
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
+};
+
+/* =====================================================================
+   FASE 2 — MODELO DE DATOS (grafo de nodos y tramos) + DESHACER
+   ===================================================================== */
+class Model {
+  constructor() {
+    this.listeners = new Set();
+    this.undoStack = []; this.redoStack = [];
+    this.reset();
+  }
+  reset() {
+    this.name = 'Proyecto sin título';
+    this.nodes = new Map();     // id → {id, pos:[x,y,z]}
+    this.segments = new Map();  // id → {id, a, b, d}
+    this.nextId = 1;
+    this.config = structuredClone(DEFAULT_CONFIG);
+  }
+  _id(prefix) { return prefix + (this.nextId++); }
+  addNode(pos) { const id = this._id('n'); this.nodes.set(id, { id, pos: pos.slice(0, 3).map(r3) }); return id; }
+  addSegment(a, b, d) {
+    if (a === b) throw new Error('Un tramo no puede empezar y terminar en el mismo nodo');
+    if (!this.nodes.has(a) || !this.nodes.has(b)) throw new Error('Nodo inexistente');
+    if (!DIAMETERS.includes(d)) throw new Error('Diámetro no permitido: ' + d);
+    const id = this._id('s'); this.segments.set(id, { id, a, b, d }); return id;
+  }
+  segmentsOf(nid) { const r = []; for (const s of this.segments.values()) if (s.a === nid || s.b === nid) r.push(s); return r; }
+  removeSegment(id) {
+    const s = this.segments.get(id); if (!s) return;
+    this.segments.delete(id);
+    for (const n of [s.a, s.b]) if (!this.segmentsOf(n).length) this.nodes.delete(n);
+  }
+  removeNode(id) { for (const s of this.segmentsOf(id)) this.removeSegment(s.id); this.nodes.delete(id); }
+  moveNode(id, pos) { this.nodes.get(id).pos = pos.slice(0, 3).map(r3); }
+  // Si el nodo une dos tramos alineados del mismo Ø, los convierte en uno solo (prolongación).
+  mergeThrough(nid) {
+    const ss = this.segmentsOf(nid);
+    if (ss.length !== 2 || ss[0].d !== ss[1].d) return false;
+    const P = v3(this.nodes.get(nid).pos);
+    const other = s => s.a === nid ? s.b : s.a;
+    const u1 = v3(this.nodes.get(other(ss[0])).pos).sub(P).normalize();
+    const u2 = v3(this.nodes.get(other(ss[1])).pos).sub(P).normalize();
+    if (!near(u1.dot(u2), -1)) return false;
+    const [s1, s2] = ss, o2 = other(s2);
+    if (s1.a === nid) s1.a = o2; else s1.b = o2;
+    this.segments.delete(s2.id); this.nodes.delete(nid);
+    return true;
+  }
+  splitSegment(id, pos) {
+    const s = this.segments.get(id); const n = this.addNode(pos);
+    const oldB = s.b; s.b = n; this.addSegment(n, oldB, s.d); return n;
+  }
+  // ---- serialización
+  toJSON() {
+    return {
+      format: 'pipecad', version: 1, name: this.name, nextId: this.nextId, config: this.config,
+      nodes: [...this.nodes.values()], segments: [...this.segments.values()],
+    };
+  }
+  load(json) {
+    if (!json || json.format !== 'pipecad') throw new Error('El archivo no es un proyecto PipeCAD');
+    if (json.version > 1) throw new Error('Versión de proyecto no soportada');
+    const cfg = structuredClone(DEFAULT_CONFIG);
+    const merge = (dst, src) => { for (const k in src) { if (src[k] && typeof src[k] === 'object' && dst[k] && typeof dst[k] === 'object') merge(dst[k], src[k]); else dst[k] = src[k]; } };
+    if (json.config) merge(cfg, json.config);
+    this.name = json.name || 'Proyecto sin título';
+    this.config = cfg;
+    this.nodes = new Map(json.nodes.map(n => [n.id, { id: n.id, pos: [...n.pos] }]));
+    this.segments = new Map(json.segments.map(s => [s.id, { id: s.id, a: s.a, b: s.b, d: s.d }]));
+    this.nextId = json.nextId || 1;
+  }
+  // ---- historial (instantáneas)
+  transact(label, fn) {
+    const before = JSON.stringify(this.toJSON());
+    let r;
+    try { r = fn(); } catch (e) { this.load(JSON.parse(before)); throw e; }
+    this.undoStack.push({ label, state: before });
+    if (this.undoStack.length > 300) this.undoStack.shift();
+    this.redoStack = [];
+    this.emit();
+    return r;
+  }
+  _swap(from, to) {
+    const e = from.pop(); if (!e) return null;
+    to.push({ label: e.label, state: JSON.stringify(this.toJSON()) });
+    this.load(JSON.parse(e.state)); this.emit(); return e.label;
+  }
+  undo() { return this._swap(this.undoStack, this.redoStack); }
+  redo() { return this._swap(this.redoStack, this.undoStack); }
+  // edición en vivo (arrastre): se modifica sin historial y al soltar se registra un único paso
+  beginLive() { return JSON.stringify(this.toJSON()); }
+  commitLive(before, label) {
+    this.undoStack.push({ label, state: before });
+    if (this.undoStack.length > 300) this.undoStack.shift();
+    this.redoStack = []; this.emit();
+  }
+  on(fn) { this.listeners.add(fn); }
+  emit(live = false) { for (const fn of this.listeners) fn(this, live); }
+}
+
+/* =====================================================================
+   FASE 3 — MOTOR DE ACCESORIOS
+   ===================================================================== */
+// Direcciones permitidas: ejes (6) y diagonales a 45° en planos principales (12).
+function isAllowedDir(v) {
+  const c = [Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)].filter(x => x > 1e-4);
+  if (c.length === 1) return true;
+  if (c.length === 2) return near(c[0], c[1], 1e-3);
+  return false;
+}
+
+function classifyNode(ports, cfg) {
+  const F = cfg.fittings;
+  const bad = msg => { ports.forEach(p => { p.z = 0; }); return { kind: 'invalid', errors: [msg] }; };
+  const n = ports.length;
+  if (n === 0) return { kind: 'isolated', errors: ['Nodo sin tubos'] };
+  if (ports.some(p => p.len < 1e-6)) return bad('Tramo de longitud nula');
+  if (n === 1) return { kind: 'end', errors: [] };
+
+  if (n === 2) {
+    const [p, q] = ports; const dot = p.dir.dot(q.dir);
+    if (near(dot, -1)) { // alineados
+      if (p.d === q.d) { p.z = q.z = F[p.d].coupling; return { kind: 'coupling', errors: [] }; }
+      const [big, small] = p.d > q.d ? [p, q] : [q, p];
+      const r = cfg.reducers[`${big.d}-${small.d}`];
+      if (!r) return bad(`No hay reductor ${big.d}×${small.d}`);
+      big.z = r.big; small.z = r.small;
+      return { kind: 'reducer', variant: `${big.d}×${small.d}`, errors: [] };
+    }
+    const ang = Math.round(THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(dot, -1, 1))));
+    if (p.d !== q.d) return bad('Cambio de diámetro en un giro: no existen codos reducidos (usa codo + reductor)');
+    if (near(dot, 0)) { p.z = q.z = F[p.d].elbow90; return { kind: 'elbow90', errors: [] }; }
+    if (near(dot, -Math.SQRT1_2)) { p.z = q.z = F[p.d].elbow45; return { kind: 'elbow45', errors: [] }; }
+    return bad(`Ángulo entre tubos de ${ang}°: solo se admiten giros de 90° o 45°`);
+  }
+
+  if (n === 3) {
+    let run = null, branch = null;
+    for (let i = 0; i < 3 && !run; i++) for (let j = i + 1; j < 3; j++) {
+      if (near(ports[i].dir.dot(ports[j].dir), -1)) { run = [ports[i], ports[j]]; branch = ports[3 - i - j]; break; }
+    }
+    if (!run) return bad('Te: dos de los tubos deben estar alineados');
+    if (!near(branch.dir.dot(run[0].dir), 0)) return bad('Te: la derivación debe ser perpendicular (no hay Te a 45°)');
+    if (run[0].d !== run[1].d) return bad('Te: los dos tubos alineados deben tener el mismo diámetro');
+    const D = run[0].d, d = branch.d;
+    if (d === D) { ports.forEach(p => { p.z = F[D].tee; }); return { kind: 'tee', errors: [] }; }
+    if (d > D) return bad('Te: la derivación no puede ser mayor que el tramo principal');
+    const r = cfg.teeReduced[`${D}-${d}`];
+    if (!r) return bad(`No hay Te reducida ${D}×${d}`);
+    run[0].z = run[1].z = r.run; branch.z = r.branch; branch.role = 'branch';
+    return { kind: 'teeReduced', variant: `${D}×${d}`, errors: [] };
+  }
+  return bad(`${n} tubos en un mismo punto: máximo 3 (Te)`);
+}
+
+function analyze(model) {
+  const cfg = model.config;
+  const adj = new Map([...model.nodes.keys()].map(k => [k, []]));
+  for (const s of model.segments.values()) { adj.get(s.a)?.push(s); adj.get(s.b)?.push(s); }
+
+  const nodes = new Map(), segs = new Map();
+  for (const [id, n] of model.nodes) {
+    const P = v3(n.pos);
+    const ports = adj.get(id).map(s => {
+      const other = model.nodes.get(s.a === id ? s.b : s.a);
+      const dir = v3(other.pos).sub(P); const len = dir.length();
+      if (len > 1e-6) dir.divideScalar(len);
+      return { segId: s.id, d: s.d, dir, len, z: 0, socket: 0 };
+    });
+    const info = classifyNode(ports, cfg);
+    const isFitting = FITTING_KINDS.includes(info.kind);
+    for (const p of ports) p.socket = isFitting ? cfg.fittings[p.d].socket : 0;
+    const d = ports.length ? Math.max(...ports.map(p => p.d)) : 20;
+    nodes.set(id, { id, pos: P, ports, d, isFitting, ...info });
+  }
+
+  for (const s of model.segments.values()) {
+    const A = nodes.get(s.a), B = nodes.get(s.b);
+    const Le = A.pos.distanceTo(B.pos);
+    const dir = B.pos.clone().sub(A.pos); if (Le > 1e-6) dir.divideScalar(Le);
+    const pa = A.ports.find(p => p.segId === s.id), pb = B.ports.find(p => p.segId === s.id);
+    const zA = pa.z, zB = pb.z;
+    const Lr = Le - zA - zB;
+    const free = Le - (zA + pa.socket) - (zB + pb.socket);
+    const errors = [], warnings = [];
+    if (Le < 1e-6) errors.push('Tramo de longitud nula');
+    else if (!isAllowedDir(dir)) errors.push('Dirección no permitida: solo ejes X/Y/Z y diagonales a 45° en los planos principales');
+    if (Le > 1e-6 && free < 0) errors.push(`Los accesorios se solapan ${fmt(-free)} mm: alarga el tramo`);
+    else if (Le > 1e-6 && (A.isFitting || B.isFitting) && free < cfg.minFree) warnings.push(`Tubo visto de ${fmt(free)} mm (mínimo ${cfg.minFree} mm)`);
+    if (Lr > cfg.barLength) warnings.push(`Longitud real mayor que la barra (${cfg.barLength} mm): necesitará un manguito`);
+    segs.set(s.id, { id: s.id, a: s.a, b: s.b, d: s.d, Le, Lr, zA, zB, free, dir, kindA: A.kind, kindB: B.kind, errors, warnings });
+  }
+  return { nodes, segs };
+}
+
+/* =====================================================================
+   FASE 6 — OPERACIONES DE ESTIRADO (puras sobre un Model)
+   ===================================================================== */
+// Nodos que se desplazan al cambiar la longitud del tramo segId moviendo su extremo nodeId.
+function movingSet(m, segId, nodeId) {
+  const s = m.segments.get(segId); const other = s.a === nodeId ? s.b : s.a;
+  const adj = new Map([...m.nodes.keys()].map(k => [k, []]));
+  for (const g of m.segments.values()) { adj.get(g.a).push(g); adj.get(g.b).push(g); }
+  const seen = new Set([nodeId]), stack = [nodeId];
+  while (stack.length) {
+    const n = stack.pop();
+    for (const g of adj.get(n)) {
+      if (g.id === segId) continue;
+      const o = g.a === n ? g.b : g.a;
+      if (!seen.has(o)) { seen.add(o); stack.push(o); }
+    }
+  }
+  if (!seen.has(other)) return { nodes: [...seen], loop: false };
+  // Circuito cerrado: se desplaza todo lo que queda del lado del extremo respecto al plano medio del tramo.
+  const A = v3(m.nodes.get(other).pos), N = v3(m.nodes.get(nodeId).pos);
+  const axis = N.clone().sub(A).normalize(), mid = A.clone().add(N).multiplyScalar(0.5);
+  return { nodes: [...m.nodes.values()].filter(n => v3(n.pos).sub(mid).dot(axis) > 1e-6).map(n => n.id), loop: true };
+}
+function segAxis(m, segId, nodeId) {
+  const s = m.segments.get(segId); const other = s.a === nodeId ? s.b : s.a;
+  return v3(m.nodes.get(nodeId).pos).sub(v3(m.nodes.get(other).pos)).normalize();
+}
+// Medida a ejes mínima: los accesorios de ambos extremos se tocan.
+const minAxisLength = g => Math.max(g.Le - g.free, 1);
+function setSegmentLength(m, segId, newLe, moveNodeId) {
+  const g = analyze(m).segs.get(segId);
+  const min = minAxisLength(g);
+  if (!(newLe >= min - 1e-6)) throw new Error(`La medida mínima a ejes de este tramo es ${fmt(min)} mm (real ${fmt(min - g.zA - g.zB)} mm)`);
+  const axis = segAxis(m, segId, moveNodeId), delta = newLe - g.Le;
+  for (const id of movingSet(m, segId, moveNodeId).nodes) {
+    const p = m.nodes.get(id).pos;
+    m.moveNode(id, [p[0] + axis.x * delta, p[1] + axis.y * delta, p[2] + axis.z * delta]);
+  }
+}
+
+/* =====================================================================
+   FASE 8 — DESPIECE Y OPTIMIZACIÓN DE CORTE
+   ===================================================================== */
+// Regla de corte: n piezas caben en una barra B si  ΣL + kerf·(n−1) ≤ B
+// (cada corte resta kerf; la última pieza no necesita corte si agota la barra).
+function packBars(pieces, B, k) {
+  const fits = (bar, L) => bar.sum + L + k * bar.items.length <= B + 1e-9;
+  const add = (bar, p) => { bar.items.push(p); bar.sum += p.L; };
+  const bestFit = (list, p) => {
+    let best = null, bestRest = Infinity;
+    for (const b of list) {
+      if (!fits(b, p.L)) continue;
+      const rest = B - (b.sum + p.L + k * b.items.length);
+      if (rest < bestRest) { bestRest = rest; best = b; }
+    }
+    return best;
+  };
+  // 1) Best-Fit Decreasing
+  const bars = [];
+  for (const p of [...pieces].sort((a, b) => b.L - a.L)) { const b = bestFit(bars, p); if (b) add(b, p); else bars.push({ items: [p], sum: p.L }); }
+  // 2) Mejora: intentar vaciar barras recolocando sus piezas en las demás
+  let improved = true;
+  while (improved && bars.length > 1) {
+    improved = false;
+    for (const victim of [...bars].sort((a, b) => a.sum - b.sum)) {
+      const others = bars.filter(b => b !== victim).map(b => ({ items: [...b.items], sum: b.sum, ref: b }));
+      let ok = true;
+      for (const p of [...victim.items].sort((a, b) => b.L - a.L)) { const t = bestFit(others, p); if (!t) { ok = false; break; } add(t, p); }
+      if (ok) { for (const o of others) { o.ref.items = o.items; o.ref.sum = o.sum; } bars.splice(bars.indexOf(victim), 1); improved = true; break; }
+    }
+  }
+  return bars.map(b => {
+    const items = [...b.items].sort((x, y) => y.L - x.L), n = items.length;
+    const R = B - b.sum - k * (n - 1);            // lo que queda tras separar las n piezas con n−1 cortes
+    return { items, sum: b.sum, cuts: R < 1e-9 ? n - 1 : n, retal: Math.max(0, R - k) };
+  }).sort((a, b) => b.sum - a.sum);
+}
+
+function computeCutlist(m, an) {
+  const B = m.config.barLength, k = m.config.kerf;
+  const res = { byD: {}, oversize: [], invalid: [], marks: new Map(), fittings: [] };
+  for (const d of DIAMETERS) {
+    const pieces = [];
+    for (const s of an.segs.values()) {
+      if (s.d !== d || s.Le < 1e-6) continue;
+      const L = Math.round(s.Lr);
+      if (s.errors.length || L <= 0) { res.invalid.push(s); continue; }
+      pieces.push({ segId: s.id, d, L, Le: s.Le });
+    }
+    pieces.sort((a, b) => b.L - a.L || a.segId.localeCompare(b.segId, undefined, { numeric: true }));
+    pieces.forEach((p, i) => { p.mark = `${d}-${String(i + 1).padStart(2, '0')}`; res.marks.set(p.segId, p.mark); });
+    const fitting = pieces.filter(p => p.L <= B);
+    res.oversize.push(...pieces.filter(p => p.L > B));
+    const sum = fitting.reduce((x, p) => x + p.L, 0);
+    const bars = packBars(fitting, B, k);
+    res.byD[d] = { pieces, bars, sum, util: bars.length ? sum / (bars.length * B) : 0, lower: Math.ceil(sum / B) };
+  }
+  const fm = new Map();
+  for (const n of an.nodes.values()) if (n.isFitting) {
+    const name = KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : ' Ø' + n.d);
+    fm.set(name, (fm.get(name) || 0) + 1);
+  }
+  res.fittings = [...fm].map(([name, n]) => ({ name, n })).sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }));
+  return res;
+}
+
+// Divide un tramo más largo que la barra con manguitos: barras enteras + un resto (mínimo minPiece).
+function splitLongSegment(m, segId, minPiece = 300) {
+  const g = analyze(m).segs.get(segId), B = m.config.barLength;
+  if (!g || g.Lr <= B) return 0;
+  const zc = m.config.fittings[g.d].coupling;
+  let k = 1; while (g.Lr - 2 * zc * k - k * B > B) k++;
+  const pieces = Array(k).fill(B);
+  const last = g.Lr - 2 * zc * k - k * B;
+  if (last < minPiece) pieces[k - 1] -= minPiece - last;
+  const A = v3(m.nodes.get(g.a).pos);
+  let c = g.zA, cur = segId;
+  for (const p of pieces) {
+    c += p + zc;
+    const n = m.splitSegment(cur, A.clone().addScaledVector(g.dir, c).toArray());
+    cur = [...m.segments.values()].find(s => s.a === n).id;
+    c += zc;
+  }
+  return k;
+}
+
+/* =====================================================================
+   PROYECTO DE EJEMPLO
+   ===================================================================== */
+function buildExample(m) {
+  m.reset(); m.name = 'Ejemplo';
+  const N = p => m.addNode(p);
+  const n1 = N([0, 0, 0]), n11 = N([1000, 0, 0]), n12 = N([1000, 0, -500]), n2 = N([2000, 0, 0]),
+        n3 = N([3500, 0, 0]), n4 = N([3500, 0, 1200]), n5 = N([3500, 1500, 1200]), n6 = N([3500, 2500, 1200]),
+        n7 = N([2000, 1000, 0]), n8 = N([2600, 1600, 0]), n9 = N([3200, 1600, 0]), n10 = N([4000, 1600, 0]);
+  const S = (a, b, d) => m.addSegment(a, b, d);
+  S(n1, n11, 40); S(n11, n12, 40); S(n11, n2, 40); S(n2, n3, 40); S(n3, n4, 40); S(n4, n5, 40); S(n5, n6, 32);
+  S(n2, n7, 32); S(n7, n8, 32); S(n8, n9, 32); S(n9, n10, 20);
+}
+
+/* =====================================================================
+   FASE 1 + 4 — ESCENA, CÁMARAS Y REPRESENTACIÓN
+   ===================================================================== */
+const model = new Model();
+let analysis = analyze(model);
+const state = { selected: null, dims: 'both', ortho: false, tool: 'select', d: 20, snap: 10, planeZ: 0, fit: 'elbow90', moveEnd: null };
+
+const viewport = $('#viewport');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+viewport.prepend(renderer.domElement);
+const labelRenderer = new CSS2DRenderer({ element: $('#labels') });
+
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f96, 1.6));
+const persp = new THREE.PerspectiveCamera(40, 1, 5, 500000);
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 500000);
+let camera = persp, orthoH = 4000;
+const headlight = new THREE.DirectionalLight(0xffffff, 1.4);
+headlight.position.set(0.3, 0.5, 1);
+persp.add(headlight.clone()); ortho.add(headlight.clone());
+scene.add(persp, ortho);
+
+const gridGroup = new THREE.Group(); scene.add(gridGroup);
+const axes = new THREE.AxesHelper(600); axes.position.z = 0.5; scene.add(axes);
+const world = new THREE.Group(); scene.add(world);     // geometría seleccionable
+const labels = new THREE.Group(); scene.add(labels);
+const handles = new THREE.Group(); scene.add(handles); // puntos de arrastre
+const overlay = new THREE.Group(); scene.add(overlay); // previsualizaciones de herramientas
+
+let controls;
+function makeControls() {
+  const target = controls ? controls.target.clone() : new THREE.Vector3();
+  if (controls) controls.dispose();
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.copy(target);
+  controls.screenSpacePanning = true;
+  controls.zoomToCursor = true;
+  controls.addEventListener('change', requestRender);
+  controls.update();
+}
+
+// ---------- geometría base compartida
+const UNIT_CYL = new THREE.CylinderGeometry(1, 1, 1, 32, 1, false);
+const UNIT_SPH = new THREE.SphereGeometry(1, 32, 16);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const mats = {};
+function makeMaterials() {
+  const std = (c, extra = {}) => new THREE.MeshStandardMaterial({ color: new THREE.Color(c), roughness: .55, metalness: .05, ...extra });
+  for (const d of DIAMETERS) { mats['tube' + d] = std(cssVar('--c' + d)); }
+  mats.fitting = std(cssVar('--fitting'));
+  mats.err = std(cssVar('--err'), { emissive: new THREE.Color(cssVar('--err')), emissiveIntensity: .25 });
+  mats.warn = std(cssVar('--warn'));
+  mats.sel = std(cssVar('--sel'), { emissive: new THREE.Color(cssVar('--sel')), emissiveIntensity: .35 });
+  mats.endpoint = std(cssVar('--muted'));
+  const ghost = (c, o) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c), transparent: true, opacity: o, depthWrite: false });
+  mats.ghost = ghost(cssVar('--accent'), .45);
+  mats.ghostSnap = ghost(cssVar('--ok'), .8);
+  mats.ghostBad = ghost(cssVar('--err'), .5);
+  mats.handle = new THREE.MeshBasicMaterial({ color: new THREE.Color(cssVar('--sel')), transparent: true, opacity: .55, depthTest: false, depthWrite: false });
+}
+function cylinder(start, dir, length, radius, mat, pick) {
+  const m = new THREE.Mesh(UNIT_CYL, mat);
+  m.scale.set(radius, length, radius);
+  m.quaternion.setFromUnitVectors(Y_AXIS, dir);
+  m.position.copy(start).addScaledVector(dir, length / 2);
+  m.userData.pick = pick; world.add(m); collect?.push(m); return m;
+}
+function sphere(pos, radius, mat, pick) {
+  const m = new THREE.Mesh(UNIT_SPH, mat);
+  m.scale.setScalar(radius); m.position.copy(pos); m.userData.pick = pick; world.add(m); collect?.push(m); return m;
+}
+// Redibujado incremental: cada tubo/nodo guarda una firma; solo se regenera lo que cambia.
+let collect = null;
+const cache = { seg: new Map(), node: new Map() };
+function sync(map, id, sig, build) {
+  const c = map.get(id);
+  if (c && c.sig === sig) { c.seen = true; return; }
+  if (c) for (const o of c.objs) o.parent?.remove(o);
+  collect = []; build(); map.set(id, { sig, objs: collect, seen: true }); collect = null;
+}
+function clearCache() {
+  for (const map of [cache.seg, cache.node]) { for (const c of map.values()) for (const o of c.objs) o.parent?.remove(o); map.clear(); }
+}
+const vkey = v => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+
+function buildGrid() {
+  gridGroup.clear();
+  const box = new THREE.Box3().setFromObject(world);
+  let half = 5000;
+  if (!box.isEmpty()) half = Math.max(5000, Math.ceil(Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) / 1000) * 1000 + 2000);
+  const size = half * 2;
+  const minor = new THREE.GridHelper(size, size / 100, cssVar('--grid-minor'), cssVar('--grid-minor'));
+  const major = new THREE.GridHelper(size, size / 1000, cssVar('--grid-major'), cssVar('--grid-major'));
+  for (const g of [minor, major]) { g.rotation.x = Math.PI / 2; g.material.transparent = true; g.material.depthWrite = false; gridGroup.add(g); }
+  minor.material.opacity = .6; major.position.z = 0.2;
+  gridGroup.position.z = state.planeZ;
+}
+
+function rebuild(live = false) {
+  handles.clear();
+  const sel = state.selected;
+  const F = model.config.fittings;
+  for (const map of [cache.seg, cache.node]) for (const c of map.values()) c.seen = false;
+
+  // Tubos
+  for (const s of analysis.segs.values()) {
+    if (s.Le < 1e-6) continue;
+    const A = analysis.nodes.get(s.a).pos;
+    const isSel = sel && sel.type === 'seg' && sel.id === s.id;
+    const status = s.errors.length ? 'err' : s.warnings.length ? 'warn' : '';
+    let text = '';
+    if (state.dims === 'both') text = `${fmt(s.Lr)}<small>ejes ${fmt(s.Le)}</small>`;
+    else if (state.dims === 'mark') text = `${state.cut?.marks.get(s.id) || '—'}<small>${fmt(s.Lr, 0)}</small>`;
+    else if (state.dims !== 'none') text = esc(fmt(state.dims === 'real' ? s.Lr : s.Le));
+    const sig = [s.d, vkey(A), vkey(s.dir), s.Le.toFixed(3), s.zA, s.zB, isSel, status, text].join('|');
+    sync(cache.seg, s.id, sig, () => {
+      const mat = isSel ? mats.sel : status === 'err' ? mats.err : status === 'warn' ? mats.warn : mats['tube' + s.d];
+      cylinder(A.clone().addScaledVector(s.dir, s.zA), s.dir, Math.max(s.Lr, 0.5), s.d / 2, mat, { type: 'seg', id: s.id });
+      if (text) {
+        const div = document.createElement('div');
+        div.className = 'dim' + (status ? ' ' + status : ''); div.innerHTML = text;
+        const lab = new CSS2DObject(div);
+        lab.position.copy(A).addScaledVector(s.dir, s.Le / 2);
+        labels.add(lab); collect.push(lab);
+      }
+    });
+  }
+
+  // Accesorios
+  for (const n of analysis.nodes.values()) {
+    const isSel = sel && sel.type === 'node' && sel.id === n.id;
+    const sig = [n.kind, vkey(n.pos), isSel, n.d, ...n.ports.map(p => `${vkey(p.dir)}:${p.d}:${p.z}:${p.socket}:${F[p.d].od}`)].join('|');
+    sync(cache.node, n.id, sig, () => {
+      const pick = { type: 'node', id: n.id };
+      if (n.kind === 'invalid' || n.kind === 'isolated') { sphere(n.pos, (cssFitOd(F, n.d) / 2) * 1.25, isSel ? mats.sel : mats.err, pick); return; }
+      if (n.kind === 'end') { sphere(n.pos, n.d * 0.6, isSel ? mats.sel : mats.endpoint, pick); return; }
+      const mat = isSel ? mats.sel : mats.fitting;
+      let rMax = 0;
+      for (const p of n.ports) {
+        const r = F[p.d].od / 2; rMax = Math.max(rMax, r);
+        if (p.z > 0) cylinder(n.pos, p.dir, p.z, r * 0.94, mat, pick);                                   // cuerpo
+        cylinder(n.pos.clone().addScaledVector(p.dir, p.z), p.dir, p.socket, r, mat, pick);              // embocadura
+      }
+      if (['elbow90', 'elbow45', 'tee', 'teeReduced'].includes(n.kind)) sphere(n.pos, rMax * 0.94, mat, pick);
+    });
+  }
+  // Eliminar lo que ya no existe
+  for (const map of [cache.seg, cache.node]) for (const [id, c] of map) if (!c.seen) { for (const o of c.objs) o.parent?.remove(o); map.delete(id); }
+
+  // Puntos de arrastre del elemento seleccionado
+  const addHandle = (nodeId, segId) => {
+    const n = analysis.nodes.get(nodeId); if (!n) return;
+    const m = new THREE.Mesh(UNIT_SPH, mats.handle);
+    m.userData.baseR = cssFitOd(F, n.d) / 2 * 1.35; m.userData.minPx = 7;
+    m.scale.setScalar(m.userData.baseR); m.position.copy(n.pos); m.renderOrder = 10;
+    m.userData.handle = { nodeId, segId }; handles.add(m);
+  };
+  if (sel?.type === 'seg' && analysis.segs.has(sel.id)) { const g = analysis.segs.get(sel.id); addHandle(g.a, g.id); addHandle(g.b, g.id); }
+  if (sel?.type === 'node') addHandle(sel.id, null);
+
+  if (!live) buildGrid();
+  requestRender();
+}
+const cssFitOd = (F, d) => (F[d] ? F[d].od : d * 1.3);
+
+// ---------- cámaras y vistas
+function resize() {
+  const w = viewport.clientWidth, h = viewport.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h); labelRenderer.setSize(w, h);
+  persp.aspect = w / h; persp.updateProjectionMatrix();
+  updateOrtho(); requestRender();
+}
+function updateOrtho() {
+  const a = viewport.clientWidth / Math.max(1, viewport.clientHeight);
+  ortho.left = -orthoH * a / 2; ortho.right = orthoH * a / 2; ortho.top = orthoH / 2; ortho.bottom = -orthoH / 2;
+  ortho.updateProjectionMatrix();
+}
+function viewDir() { return camera.position.clone().sub(controls.target).normalize(); }
+function fitAll(dir = viewDir()) {
+  const box = new THREE.Box3().setFromObject(world);
+  if (box.isEmpty()) box.set(new THREE.Vector3(-1500, -1500, 0), new THREE.Vector3(1500, 1500, 0));
+  // Base de la cámara para esa dirección de vista
+  const back = dir.clone().normalize();
+  const right = new THREE.Vector3(0, 0, 1).cross(back).normalize();
+  const up = back.clone().cross(right);
+  const c0 = box.getCenter(new THREE.Vector3());
+  const pts = [];
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const r = new THREE.Vector3(x, y, z).sub(c0); pts.push([r.dot(right), r.dot(up), r.dot(back)]);
+  }
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const xm = (Math.min(...xs) + Math.max(...xs)) / 2, ym = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const center = c0.clone().addScaledVector(right, xm).addScaledVector(up, ym);
+  const a = persp.aspect, margin = 0.88;
+  const tanV = Math.tan(THREE.MathUtils.degToRad(persp.fov / 2)) * margin, tanH = tanV * a;
+  let dist = 300;
+  for (const [x, y, z] of pts) dist = Math.max(dist, z + Math.abs(x - xm) / tanH, z + Math.abs(y - ym) / tanV);
+  controls.target.copy(center);
+  persp.position.copy(center).addScaledVector(back, dist);
+  const spanX = Math.max(...xs) - Math.min(...xs), spanY = Math.max(...ys) - Math.min(...ys);
+  orthoH = Math.max(spanY, spanX / a, 300) / margin;
+  ortho.zoom = 1; ortho.position.copy(center).addScaledVector(back, Math.max(dist, 50000)); updateOrtho();
+  controls.update(); requestRender();
+}
+const VIEWS = {
+  top: new THREE.Vector3(0, -0.0001, 1), front: new THREE.Vector3(0, -1, 0),
+  side: new THREE.Vector3(1, 0, 0), iso: new THREE.Vector3(1, -1, 0.9),
+};
+function setView(name) { fitAll(VIEWS[name].clone().normalize()); }
+function setProjection(isOrtho) {
+  if (isOrtho === state.ortho) return;
+  const t = controls.target.clone(), dir = viewDir();
+  if (isOrtho) {
+    const dist = persp.position.distanceTo(t);
+    orthoH = 2 * dist * Math.tan(THREE.MathUtils.degToRad(persp.fov / 2));
+    ortho.zoom = 1; ortho.position.copy(t).addScaledVector(dir, Math.max(dist, 50000)); updateOrtho();
+    camera = ortho;
+  } else {
+    const h = orthoH / ortho.zoom;
+    const dist = h / (2 * Math.tan(THREE.MathUtils.degToRad(persp.fov / 2)));
+    persp.position.copy(t).addScaledVector(dir, dist);
+    camera = persp;
+  }
+  state.ortho = isOrtho;
+  makeControls(); controls.target.copy(t); controls.update();
+  $('#b-proj').textContent = isOrtho ? 'Ortográfica' : 'Perspectiva';
+  requestRender();
+}
+
+// ---------- render bajo demanda
+let renderQueued = false;
+function requestRender() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(renderNow); } }
+// mm por píxel de pantalla en un punto (para que puntos de arrastre y marcadores tengan un tamaño mínimo visible)
+function mmPerPx(pos) {
+  const H = Math.max(1, viewport.clientHeight);
+  if (camera.isOrthographicCamera) return (ortho.top - ortho.bottom) / ortho.zoom / H;
+  return 2 * pos.distanceTo(camera.position) * Math.tan(THREE.MathUtils.degToRad(persp.fov / 2)) / H;
+}
+function renderNow() {
+  renderQueued = false;
+  for (const g of [handles, overlay]) for (const o of g.children) {
+    if (o.userData.minPx) o.scale.setScalar(Math.max(o.userData.baseR, o.userData.minPx * mmPerPx(o.position)));
+  }
+  renderer.render(scene, camera); labelRenderer.render(scene, camera);
+}
+
+// ---------- tema
+let themePref = store.get('pipecad-theme') || 'auto';
+function applyTheme() {
+  const t = themePref;
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  $('#b-theme').textContent = 'Tema: ' + ({ auto: 'auto', light: 'claro', dark: 'oscuro' }[t]);
+  renderer.setClearColor(new THREE.Color(cssVar('--viewport')));
+  makeMaterials(); clearCache(); rebuild();
+}
+
+/* =====================================================================
+   INTERACCIÓN: selección, coordenadas, teclado
+   ===================================================================== */
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const mouse = { x: 0, y: 0, shift: false };
+const SNAP_PX = 14;
+// 18 direcciones permitidas: 6 de ejes + 12 diagonales a 45° en planos principales
+const ALL_DIRS = [];
+for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+  const nz = (x !== 0) + (y !== 0) + (z !== 0);
+  if (nz === 1 || nz === 2) ALL_DIRS.push(new THREE.Vector3(x, y, z).normalize());
+}
+function setRay(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
+  if ('shiftKey' in e) mouse.shift = e.shiftKey;
+  ndc.set(mouse.x / r.width * 2 - 1, -(mouse.y / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+}
+function toScreen(v) { const p = v.clone().project(camera), c = renderer.domElement; return { x: (p.x + 1) / 2 * c.clientWidth, y: (1 - p.y) / 2 * c.clientHeight }; }
+const pxDist = v => { const s = toScreen(v); return Math.hypot(s.x - mouse.x, s.y - mouse.y); };
+// Parámetro t de la recta P + t·u más cercano al rayo del ratón (null si la recta se ve de punta)
+function rayLineParam(P, u) {
+  const o = ray.ray.origin, r = ray.ray.direction;
+  const w0 = P.clone().sub(o), b = u.dot(r), D = 1 - b * b;
+  if (D < 1e-5) return null;
+  return (b * r.dot(w0) - u.dot(w0)) / D;
+}
+// Punto del ratón sobre el plano de trabajo (horizontal a Z plano; vertical si la vista es lateral)
+function planePoint() {
+  const dir = ray.ray.direction, horiz = Math.abs(dir.z) > 0.15;
+  const plane = horiz ? new THREE.Plane(new THREE.Vector3(0, 0, 1), -state.planeZ)
+    : new THREE.Plane().setFromNormalAndCoplanarPoint(Math.abs(dir.x) > Math.abs(dir.y) ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0), controls.target);
+  const p = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(plane, p)) return null;
+  const s = state.snap; p.set(Math.round(p.x / s) * s, Math.round(p.y / s) * s, Math.round(p.z / s) * s);
+  if (horiz) p.z = state.planeZ;
+  return p;
+}
+function nearestNode(maxPx = SNAP_PX) {
+  let best = null, bd = maxPx;
+  for (const n of analysis.nodes.values()) { const d = pxDist(n.pos); if (d < bd) { bd = d; best = n; } }
+  return best;
+}
+// Tubo más cercano al ratón en pantalla (los tubos finos son difíciles de acertar con el rayo)
+function nearestSeg(maxPx = 8) {
+  let best = null, bd = maxPx;
+  for (const g of analysis.segs.values()) {
+    if (g.Le < 1e-6) continue;
+    const a = toScreen(analysis.nodes.get(g.a).pos), b = toScreen(analysis.nodes.get(g.b).pos);
+    const vx = b.x - a.x, vy = b.y - a.y, L2 = vx * vx + vy * vy;
+    const u = L2 ? Math.max(0, Math.min(1, ((mouse.x - a.x) * vx + (mouse.y - a.y) * vy) / L2)) : 0;
+    const d = Math.hypot(a.x + u * vx - mouse.x, a.y + u * vy - mouse.y);
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+// Elemento bajo el ratón: nodo, tubo o malla
+function pickAny() {
+  const n = nearestNode(10); if (n) return { type: 'node', id: n.id };
+  const g = nearestSeg(); if (g) return { type: 'seg', id: g.id };
+  const hit = ray.intersectObjects(world.children, false).find(h => h.object.userData.pick);
+  return hit ? hit.object.userData.pick : null;
+}
+function setTip(html) {
+  const t = $('#tip'); if (!html) { t.style.display = 'none'; return; }
+  t.innerHTML = html; t.style.display = 'block';
+  const W = viewport.clientWidth, H = viewport.clientHeight;
+  let x = mouse.x + 16, y = mouse.y + 16;
+  if (x + t.offsetWidth > W - 4) x = mouse.x - 16 - t.offsetWidth;
+  if (y + t.offsetHeight > H - 4) y = mouse.y - 16 - t.offsetHeight;
+  t.style.left = Math.max(4, x) + 'px'; t.style.top = Math.max(4, y) + 'px';
+}
+function ovCyl(start, dir, len, r, mat) {
+  const m = new THREE.Mesh(UNIT_CYL, mat); m.scale.set(r, Math.max(len, .5), r);
+  m.quaternion.setFromUnitVectors(Y_AXIS, dir); m.position.copy(start).addScaledVector(dir, len / 2); m.renderOrder = 5; overlay.add(m);
+}
+function ovDot(pos, r, mat) {
+  const m = new THREE.Mesh(UNIT_SPH, mat); m.scale.setScalar(r); m.position.copy(pos); m.renderOrder = 6;
+  m.userData.baseR = r; m.userData.minPx = 5; overlay.add(m);
+}
+
+// ---------- herramientas
+const TOOL_HINTS = {
+  select: 'Seleccionar: clic en un tubo o accesorio · arrastra los puntos azules o los accesorios para alargar/acortar',
+  draw: 'Tubo: clic para empezar (en el plano, en un extremo o sobre un tubo para crear una Te) · Mayús: tramos verticales/inclinados · escribe un número para la longitud exacta · Enter, Esc o doble clic: terminar',
+  place: 'Accesorio: clic para colocar · R: girar 45° en planta · E: volcar 90° sobre X · W: volcar 90° sobre Y',
+};
+function setTool(t) {
+  finishDraw(true); state.tool = t;
+  $$('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  renderer.domElement.style.cursor = t === 'select' ? '' : 'crosshair';
+  overlay.clear(); setTip(''); status(TOOL_HINTS[t]); requestRender();
+}
+function setDiameter(d) { state.d = d; $$('[data-d]').forEach(b => b.classList.toggle('on', +b.dataset.d === d)); refreshPreview(); }
+function refreshPreview() { if (state.tool === 'draw') updateDraw(); else if (state.tool === 'place') updatePlace(); }
+
+// ---------- FASE 5: dibujo de tubos (polilínea con accesorios automáticos)
+const draw = { start: null, hover: null, cand: null };
+// Bocas ya existentes en un destino (nodo o punto intermedio de un tubo)
+function existingPorts(t) {
+  if (t.type === 'node') return analysis.nodes.get(t.id).ports.map(p => ({ dir: p.dir.clone(), d: p.d, len: p.len, z: 0 }));
+  if (t.type === 'seg') { const g = analysis.segs.get(t.id); return [{ dir: g.dir.clone(), d: g.d, len: 1, z: 0 }, { dir: g.dir.clone().negate(), d: g.d, len: 1, z: 0 }]; }
+  return [];
+}
+// ¿Qué accesorio resultaría al añadir un tubo en dirección dir en el destino t?
+function trial(t, dir, d) {
+  const ports = existingPorts(t), np = { dir, d, len: 1, z: 0 }; ports.push(np);
+  const info = classifyNode(ports, model.config);
+  const ok = info.kind !== 'invalid';
+  const extend = ok && t.type === 'node' && ports.length === 2 && info.kind === 'coupling'; // prolonga un extremo libre
+  return { ok, kind: extend ? 'extend' : info.kind, z: extend ? 0 : np.z, msg: info.errors?.[0] || '' };
+}
+const nodeTarget = id => ({ type: 'node', id, pos: analysis.nodes.get(id).pos.clone() });
+// Convierte un punto en destino: nodo existente, punto interior de un tubo o punto libre
+function targetAt(p) {
+  for (const n of analysis.nodes.values()) if (n.pos.distanceTo(p) < 0.5) return nodeTarget(n.id);
+  for (const g of analysis.segs.values()) {
+    const A = analysis.nodes.get(g.a).pos, v = p.clone().sub(A), t = v.dot(g.dir);
+    if (t > 0.5 && t < g.Le - 0.5 && v.addScaledVector(g.dir, -t).length() < 0.5) return { type: 'seg', id: g.id, pos: A.clone().addScaledVector(g.dir, t) };
+  }
+  return { type: 'plane', pos: p };
+}
+function pickTarget() {
+  const n = nearestNode(); if (n) return nodeTarget(n.id);
+  const g = nearestSeg();
+  if (g) {
+    const A = analysis.nodes.get(g.a).pos;
+    let t = rayLineParam(A, g.dir);
+    if (t !== null) {
+      t = Math.round(t / state.snap) * state.snap;
+      if (t > 0.5 && t < g.Le - 0.5) return { type: 'seg', id: g.id, pos: A.clone().addScaledVector(g.dir, t) };
+      return nodeTarget(t <= 0.5 ? g.a : g.b);
+    }
+  }
+  const p = planePoint(); return p ? targetAt(p) : null;
+}
+// Nodos y tubos existentes que la recta S + t·n atraviesa (para conectar con precisión)
+function magnetTargets(start, S, n) {
+  const out = [];
+  for (const node of analysis.nodes.values()) {
+    if (start.type === 'node' && node.id === start.id) continue;
+    const v = node.pos.clone().sub(S), t = v.dot(n);
+    if (t > 1 && v.addScaledVector(n, -t).length() < 0.5) out.push({ type: 'node', id: node.id, pos: node.pos.clone(), t });
+  }
+  for (const g of analysis.segs.values()) {
+    if (start.type === 'seg' && g.id === start.id) continue;
+    if (start.type === 'node' && (g.a === start.id || g.b === start.id)) continue;
+    const A = analysis.nodes.get(g.a).pos, u = g.dir, b = n.dot(u), D = 1 - b * b;
+    if (D < 1e-6) continue;
+    const w0 = S.clone().sub(A), dd = n.dot(w0), e = u.dot(w0);
+    const t = (b * e - dd) / D, s = (e - b * dd) / D;
+    if (t <= 1 || s <= 0.5 || s >= g.Le - 0.5) continue;
+    const P1 = S.clone().addScaledVector(n, t), P2 = A.clone().addScaledVector(u, s);
+    if (P1.distanceTo(P2) < 0.5) out.push({ type: 'seg', id: g.id, pos: P2, t });
+  }
+  return out;
+}
+function updateDraw() {
+  overlay.clear();
+  const d = state.d, F = model.config.fittings, dotR = F[d].od / 2 * 0.9;
+  if (!draw.start) {
+    const t = draw.hover = pickTarget();
+    if (t) {
+      ovDot(t.pos, dotR, t.type === 'plane' ? mats.ghost : mats.ghostSnap);
+      setTip(t.type === 'node' ? 'Empezar desde ' + kindLabel(analysis.nodes.get(t.id)).toLowerCase() : t.type === 'seg' ? 'Derivar con una Te desde este tubo' : '');
+    } else setTip('');
+    requestRender(); return;
+  }
+  const S = draw.start.pos;
+  ovDot(S, dotR, mats.ghostSnap);
+  let best = null;
+  for (const n of ALL_DIRS) {
+    if ((Math.abs(n.z) > 1e-6) !== mouse.shift) continue;
+    const tr = trial(draw.start, n, d); if (!tr.ok) continue;
+    let t = rayLineParam(S, n), dist;
+    if (t === null) { t = draw.cand?.len || state.snap * 10; dist = pxDist(S) + 5; }
+    else { if (t <= 0) continue; dist = pxDist(S.clone().addScaledVector(n, t)); }
+    if (!best || dist < best.dist) best = { n, t, dist, tr };
+  }
+  if (!best) { draw.cand = null; setTip('Ninguna dirección válida desde aquí' + (mouse.shift ? ' · suelta Mayús' : ' · prueba con Mayús')); requestRender(); return; }
+  let len = Math.max(state.snap, Math.round(best.t / state.snap) * state.snap);
+  let end = { type: 'plane', pos: S.clone().addScaledVector(best.n, len) };
+  const mags = magnetTargets(draw.start, S, best.n);
+  let mag = mags.find(c => Math.abs(c.t - len) < 0.5);
+  if (!mag) { let bp = SNAP_PX; for (const c of mags) { const px = pxDist(c.pos); if (px < bp) { bp = px; mag = c; } } }
+  if (mag) { end = mag; len = mag.t; }
+  const endTr = end.type === 'plane' ? { ok: true, z: 0 } : trial(end, best.n.clone().negate(), d);
+  draw.cand = { dir: best.n.clone(), len, end, ok: endTr.ok, msg: endTr.msg };
+  ovCyl(S, best.n, len, d / 2, endTr.ok ? mats.ghost : mats.ghostBad);
+  ovDot(end.pos, dotR, end.type === 'plane' ? mats.ghost : mats.ghostSnap);
+  const Lr = len - best.tr.z - endTr.z;
+  setTip(`Ø${d} · ejes <b>${fmt(len)}</b> · real ${fmt(Lr)}${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
+  requestRender();
+}
+function addTube(st, en, d) {
+  const freeA = st.type === 'node' && model.segmentsOf(st.id).length === 1;
+  const freeB = en.type === 'node' && model.segmentsOf(en.id).length === 1;
+  const resolve = t => t.type === 'plane' ? model.addNode(t.pos.toArray()) : t.type === 'node' ? t.id : model.splitSegment(t.id, t.pos.toArray());
+  const a = resolve(st), b = resolve(en);
+  model.addSegment(a, b, d);
+  if (freeA) model.mergeThrough(a);  // prolongar un extremo en la misma dirección = un solo tubo
+  if (freeB) model.mergeThrough(b);
+  return b;
+}
+function drawClick() {
+  if (!draw.start) {
+    if (draw.hover) { draw.start = draw.hover; status('Indica el siguiente punto · ' + TOOL_HINTS.draw); }
+    updateDraw(); return;
+  }
+  if (pxDist(draw.start.pos) < 8) { finishDraw(); return; }
+  updateDraw(); commitDraw(draw.cand);
+}
+function commitDraw(c) {
+  if (!c) return;
+  if (!c.ok) { status('✘ ' + c.msg); return; }
+  try {
+    const b = model.transact('Dibujar tubo', () => addTube(draw.start, c.end, state.d));
+    if (c.end.type !== 'plane' || !model.nodes.has(b)) finishDraw(false, 'Tubo conectado');
+    else { draw.start = { type: 'node', id: b, pos: v3(model.nodes.get(b).pos) }; updateDraw(); }
+  } catch (err) { status('✘ ' + err.message); }
+}
+function typedLength(v) {
+  const c = draw.cand;
+  if (!c) { status('Mueve el ratón para indicar la dirección y vuelve a escribir la longitud'); return; }
+  const dir = c.dir.clone();
+  if (v < 0) {
+    dir.negate(); v = -v;
+    const tr = trial(draw.start, dir, state.d); if (!tr.ok) { status('✘ Dirección contraria no válida: ' + tr.msg); return; }
+  }
+  const S = draw.start.pos;
+  const en = magnetTargets(draw.start, S, dir).find(x => Math.abs(x.t - v) < 0.5) || { type: 'plane', pos: S.clone().addScaledVector(dir, v) };
+  const tr = en.type === 'plane' ? { ok: true } : trial(en, dir.clone().negate(), state.d);
+  commitDraw({ dir, len: v, end: en, ok: tr.ok, msg: tr.msg });
+}
+function finishDraw(silent, msg) {
+  const was = !!draw.start;
+  draw.start = null; draw.cand = null; overlay.clear(); setTip('');
+  if (was && !silent) status((msg || 'Tramo terminado') + ' · ' + TOOL_HINTS.draw);
+  requestRender();
+}
+function openLenBox(ch) {
+  const b = $('#len-box');
+  b.style.display = 'block'; b.style.left = (mouse.x + 16) + 'px'; b.style.top = (mouse.y + 40) + 'px';
+  b.value = ch; b.focus();
+}
+function closeLenBox() { const b = $('#len-box'); b.style.display = 'none'; b.blur(); }
+$('#len-box').addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') { e.preventDefault(); const v = parseNum(e.target.value); closeLenBox(); if (isFinite(v) && v !== 0) typedLength(v); }
+  else if (e.key === 'Escape') closeLenBox();
+});
+$('#len-box').addEventListener('blur', () => { $('#len-box').style.display = 'none'; });
+
+// ---------- FASE 5: colocación manual de accesorios
+const placeRot = new THREE.Quaternion();
+const place = { pos: null, ports: null, ok: false };
+function fittingTemplate(key, d) {
+  const X = [1, 0, 0], NX = [-1, 0, 0], Y = [0, 1, 0], D45 = [Math.SQRT1_2, Math.SQRT1_2, 0];
+  const [k, B, S] = key.split('-'), big = +B, small = +S;
+  switch (k) {
+    case 'elbow90': return [{ dir: X, d }, { dir: Y, d }];
+    case 'elbow45': return [{ dir: NX, d }, { dir: D45, d }];
+    case 'tee': return [{ dir: X, d }, { dir: NX, d }, { dir: Y, d }];
+    case 'coupling': return [{ dir: X, d }, { dir: NX, d }];
+    case 'red': return [{ dir: X, d: big }, { dir: NX, d: small }];
+    case 'ter': return [{ dir: X, d: big }, { dir: NX, d: big }, { dir: Y, d: small }];
+  }
+  return [];
+}
+const cleanDir = v => v.set(...[v.x, v.y, v.z].map(c => Math.abs(c) < 1e-9 ? 0 : c)).normalize();
+function updatePlace() {
+  overlay.clear();
+  const p = planePoint(); place.pos = p; if (!p) { setTip(''); requestRender(); return; }
+  const F = model.config.fittings;
+  const ports = fittingTemplate(state.fit, state.d).map(q => ({ d: q.d, dir: cleanDir(new THREE.Vector3(...q.dir).applyQuaternion(placeRot)) }));
+  const fake = ports.map(q => ({ dir: q.dir.clone(), d: q.d, len: 1, z: 0 }));
+  const info = classifyNode(fake, model.config);
+  const ok = info.kind !== 'invalid' && ports.every(q => isAllowedDir(q.dir));
+  ports.forEach((q, i) => { q.len = Math.ceil((fake[i].z + F[q.d].socket + 60) / 10) * 10; ovCyl(p, q.dir, q.len, q.d / 2, ok ? mats.ghost : mats.ghostBad); });
+  ovDot(p, Math.max(...ports.map(q => F[q.d].od)) / 2, ok ? mats.ghost : mats.ghostBad);
+  place.ports = ports; place.ok = ok;
+  setTip(esc($('#s-fit').selectedOptions[0].textContent) + (/^(red|ter)/.test(state.fit) ? '' : ' Ø' + state.d) + (ok ? '' : '<br>✘ Orientación no permitida (diagonal espacial)'));
+  requestRender();
+}
+function placeClick() {
+  updatePlace();
+  if (!place.pos || !place.ok) { status('✘ No se puede colocar con esta orientación'); return; }
+  model.transact('Colocar accesorio', () => {
+    const c = model.addNode(place.pos.toArray());
+    for (const q of place.ports) model.addSegment(c, model.addNode(place.pos.clone().addScaledVector(q.dir, q.len).toArray()), q.d);
+  });
+  status('Accesorio colocado con tramos cortos en sus bocas: prolóngalos con la herramienta Tubo o arrastrando sus extremos');
+}
+function rotatePlace(k) {
+  const axis = k === 'r' ? new THREE.Vector3(0, 0, 1) : k === 'e' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  placeRot.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, k === 'r' ? Math.PI / 4 : Math.PI / 2));
+  updatePlace();
+}
+
+// ---------- FASE 6: puntos de arrastre (alargar / contraer)
+let pending = null, drag = null, dragQueued = false;
+function pickGrab() {
+  const hh = ray.intersectObjects(handles.children, false)[0];
+  if (hh) return hh.object.userData.handle;
+  const p = pickAny();
+  return p?.type === 'node' ? { nodeId: p.id, segId: null } : null;
+}
+viewport.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || state.tool !== 'select' || e.target !== renderer.domElement) return;
+  setRay(e);
+  const h = pickGrab(); if (!h) return;
+  e.stopPropagation(); // la cámara no gira mientras se arrastra
+  pending = { ...h, x: e.clientX, y: e.clientY };
+}, { capture: true });
+function startDrag(e) {
+  const n = analysis.nodes.get(pending.nodeId);
+  let segId = pending.segId;
+  if (!n || !n.ports.length) { pending = null; return; }
+  if (!segId) { // el eje del arrastre es el tubo cuyo trazo en pantalla sigue mejor el movimiento
+    const dx = e.clientX - pending.x, dy = e.clientY - pending.y, ml = Math.hypot(dx, dy);
+    const s0 = toScreen(n.pos); let best = -1;
+    for (const p of n.ports) {
+      const s1 = toScreen(n.pos.clone().addScaledVector(p.dir, 100));
+      const vx = s1.x - s0.x, vy = s1.y - s0.y, c = Math.abs((vx * dx + vy * dy) / ((Math.hypot(vx, vy) || 1) * ml));
+      if (c > best) { best = c; segId = p.segId; }
+    }
+  }
+  const g = analysis.segs.get(segId), axis = segAxis(model, segId, n.id);
+  setRay({ clientX: pending.x, clientY: pending.y });
+  const t0 = rayLineParam(n.pos, axis);
+  if (t0 === null) { status('Este tubo se ve de punta: cambia la vista para arrastrarlo'); pending = null; return; }
+  drag = {
+    segId, nodeId: n.id, axis, N0: n.pos.clone(), t0, Le0: g.Le, lastLe: g.Le, min: minAxisLength(g),
+    set: movingSet(model, segId, n.id).nodes.map(id => [id, [...model.nodes.get(id).pos]]),
+    before: model.beginLive(),
+  };
+  if (!pending.segId) state.selected = { type: 'node', id: n.id };
+  controls.enabled = false; renderer.domElement.style.cursor = 'grabbing'; pending = null;
+}
+function applyDrag() {
+  dragQueued = false; if (!drag) return;
+  const t = rayLineParam(drag.N0, drag.axis); if (t === null) return;
+  let Le = Math.round((drag.Le0 + t - drag.t0) / state.snap) * state.snap;
+  const atMin = Le <= drag.min; if (atMin) Le = drag.min;
+  if (Math.abs(Le - drag.lastLe) > 1e-9) {
+    drag.lastLe = Le; const delta = Le - drag.Le0;
+    for (const [id, p] of drag.set) model.moveNode(id, [p[0] + drag.axis.x * delta, p[1] + drag.axis.y * delta, p[2] + drag.axis.z * delta]);
+    model.emit(true);
+  }
+  const g = analysis.segs.get(drag.segId);
+  setTip(`ejes <b>${fmt(g.Le)}</b> · real ${fmt(g.Lr)}${atMin ? '<br>mínimo: accesorios en contacto' : ''}`);
+}
+function endDrag() {
+  controls.enabled = true; renderer.domElement.style.cursor = ''; setTip('');
+  const d = drag; drag = null;
+  if (Math.abs(d.lastLe - d.Le0) > 1e-9) { model.commitLive(d.before, 'Estirar tubo'); status(`Tramo ${d.segId}: ${fmt(d.Le0)} → ${fmt(d.lastLe)} mm a ejes`); }
+  else { rebuild(); renderProps(); }
+}
+addEventListener('pointermove', e => {
+  if (pending && !drag && Math.hypot(e.clientX - pending.x, e.clientY - pending.y) > 4) startDrag(e);
+  if (drag) { setRay(e); if (!dragQueued) { dragQueued = true; requestAnimationFrame(applyDrag); } }
+});
+addEventListener('pointerup', e => {
+  if (drag) { setRay(e); applyDrag(); endDrag(); }
+  else if (pending) { if (!pending.segId) select({ type: 'node', id: pending.nodeId }); }
+  pending = null;
+});
+
+// ---------- clic, movimiento y doble clic sobre el visor
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4 || e.button !== 0) { downAt = null; return; }
+  downAt = null; setRay(e);
+  if (state.tool === 'draw') return drawClick();
+  if (state.tool === 'place') return placeClick();
+  select(pickAny());
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (drag) return;
+  setRay(e);
+  const p = planePoint();
+  if (p) $('#st-xyz').textContent = `X ${fmt(p.x, 0)}  Y ${fmt(p.y, 0)}  Z ${fmt(p.z, 0)}`;
+  if (e.buttons) return;
+  if (state.tool === 'draw') updateDraw();
+  else if (state.tool === 'place') updatePlace();
+  else if (!pending) {
+    const g = pickGrab();
+    renderer.domElement.style.cursor = g ? 'grab' : pickAny() ? 'pointer' : '';
+  }
+});
+renderer.domElement.addEventListener('pointerleave', () => { if (!drag) { setTip(''); if (state.tool !== 'select') { overlay.clear(); requestRender(); } } });
+renderer.domElement.addEventListener('dblclick', () => { if (state.tool === 'draw') finishDraw(); });
+function select(pick) { state.selected = pick; rebuild(); renderProps(); }
+
+function deleteSelection() {
+  const s = state.selected; if (!s) return;
+  model.transact('Borrar', () => {
+    let touched;
+    if (s.type === 'seg') { const g = model.segments.get(s.id); touched = [g.a, g.b]; model.removeSegment(s.id); }
+    else { touched = model.segmentsOf(s.id).map(g => g.a === s.id ? g.b : g.a); model.removeNode(s.id); }
+    // al quitar una derivación, la Te que queda alineada se convierte en tubo continuo
+    for (const n of touched) if (model.nodes.has(n)) model.mergeThrough(n);
+  });
+  state.selected = null; status(s.type === 'seg' ? 'Tubo borrado' : 'Accesorio y sus tubos borrados');
+}
+addEventListener('keydown', e => {
+  if (e.target.matches('input,select,textarea') || $('#help').open) return;
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
+  else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); }
+  else if (mod || e.altKey) return;
+  else if (k === 'shift') { mouse.shift = true; refreshPreview(); }
+  else if (state.tool === 'draw' && draw.start && /^[0-9,.\-]$/.test(e.key)) { e.preventDefault(); openLenBox(e.key); }
+  else if (k === 'enter' && state.tool === 'draw') finishDraw();
+  else if (k === 'escape') { if (state.tool === 'draw' && draw.start) finishDraw(); else if (state.tool !== 'select') setTool('select'); else select(null); }
+  else if (k === 'delete') deleteSelection();
+  else if (k === 's') setTool('select');
+  else if (k === 'd') setTool('draw');
+  else if (k === 'a') setTool('place');
+  else if (state.tool === 'place' && ['r', 'e', 'w'].includes(k)) rotatePlace(k);
+  else if (k === 'f') fitAll();
+});
+addEventListener('keyup', e => { if (e.key === 'Shift') { mouse.shift = false; refreshPreview(); } });
+function doUndo() { const l = model.undo(); status(l ? `Deshecho: ${l}` : 'Nada que deshacer'); }
+function doRedo() { const l = model.redo(); status(l ? `Rehecho: ${l}` : 'Nada que rehacer'); }
+
+/* =====================================================================
+   PANELES
+   ===================================================================== */
+function status(msg) { $('#st-msg').textContent = msg; }
+const row = (k, v, cls = '') => `<tr><th>${k}</th><td class="${cls}">${v}</td></tr>`;
+const msgs = (errors = [], warnings = []) => errors.map(t => `<div class="msg err">${esc(t)}</div>`).join('') + warnings.map(t => `<div class="msg warn">${esc(t)}</div>`).join('');
+const kindLabel = n => KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : '');
+const dirName = v => { const c = ['x', 'y', 'z'].map((a, i) => { const x = [v.x, v.y, v.z][i]; return Math.abs(x) < 1e-4 ? '' : (x > 0 ? '+' : '−') + a.toUpperCase(); }).filter(Boolean); return c.join(' ') + (c.length === 2 ? ' (45°)' : ''); };
+
+function renderProps() {
+  const el = $('#tab-props'); const s = state.selected;
+  if (!s || (s.type === 'seg' && !analysis.segs.has(s.id)) || (s.type === 'node' && !analysis.nodes.has(s.id))) {
+    el.innerHTML = `<h3>Propiedades</h3><p class="hint">Haz clic en un tubo o accesorio para ver sus datos.</p>
+      <h4>Herramientas</h4>
+      <p class="hint"><b>S</b> Seleccionar · <b>D</b> Tubo · <b>A</b> Accesorio</p>
+      <p class="hint">Tubo: clic en el plano, en un extremo o sobre un tubo (crea Te). Los codos se ponen solos al cambiar de dirección. Mayús para subir/bajar. Escribe un número para fijar la longitud (negativo = sentido contrario).</p>
+      <p class="hint">Accesorio: R gira 45° en planta; E y W lo vuelcan 90°.</p>
+      <h4>Vista</h4>
+      <p class="hint">Rueda: zoom · Botón izquierdo: girar · Botón derecho: desplazar · F: encuadrar · Supr: borrar · Ctrl+Z / Ctrl+Y: deshacer / rehacer</p>`;
+    return;
+  }
+  if (s.type === 'seg') {
+    const g = analysis.segs.get(s.id);
+    const A = analysis.nodes.get(g.a), B = analysis.nodes.get(g.b);
+    if (!state.moveEnd || state.moveEnd.seg !== g.id) state.moveEnd = { seg: g.id, end: (A.kind === 'end' && B.kind !== 'end') ? 'a' : 'b' };
+    el.innerHTML = `<h3><span class="swatch" style="background:var(--c${g.d})"></span>Tubo Ø${g.d} <span class="hint">(${g.id})</span></h3>
+      <div class="hint">Longitud real de corte</div><div class="big">${fmt(g.Lr)} mm</div>
+      <h4>Editar</h4>
+      <table>
+        <tr><th>Diámetro</th><td><select id="p-d">${DIAMETERS.map(d => `<option value="${d}"${d === g.d ? ' selected' : ''}>Ø${d}</option>`).join('')}</select></td></tr>
+        <tr><th>Medida a ejes</th><td><input id="p-le" type="text" inputmode="decimal" value="${numStr(g.Le)}"></td></tr>
+        <tr><th>Longitud real</th><td><input id="p-lr" type="text" inputmode="decimal" value="${numStr(g.Lr)}"></td></tr>
+        <tr><th>Al cambiar, mover</th><td><select id="p-move">
+          <option value="a">extremo A (${esc(kindLabel(A).toLowerCase())})</option>
+          <option value="b">extremo B (${esc(kindLabel(B).toLowerCase())})</option></select></td></tr>
+      </table>
+      <p class="hint">Lo conectado al extremo que se mueve se desplaza con él. Mínimo a ejes: ${fmt(minAxisLength(g))} mm.</p>
+      <h4>Detalle</h4>
+      <table>
+        ${row('Descuento extremo A', `${fmt(g.zA)} mm · ${esc(kindLabel(A))}`)}
+        ${row('Descuento extremo B', `${fmt(g.zB)} mm · ${esc(kindLabel(B))}`)}
+        ${row('Tubo visto', fmt(g.free) + ' mm', 'num')}
+        ${row('Dirección', dirName(g.dir))}
+        ${row('Marca de pieza', state.cut?.marks.get(g.id) || '—')}
+      </table>${msgs(g.errors, g.warnings)}
+      ${g.Lr > model.config.barLength ? '<p><button id="p-split">Dividir con manguitos</button></p>' : ''}`;
+    if ($('#p-split')) $('#p-split').onclick = () => { const k = model.transact('Dividir tramo largo', () => splitLongSegment(model, g.id)); status(`Tramo dividido con ${k} manguito${k === 1 ? '' : 's'}`); };
+    $('#p-move').value = state.moveEnd.end;
+    $('#p-move').onchange = e => { state.moveEnd.end = e.target.value; };
+    $('#p-d').onchange = e => { model.transact('Cambiar diámetro', () => { model.segments.get(g.id).d = +e.target.value; }); status(`Tramo ${g.id} cambiado a Ø${e.target.value}`); };
+    const applyLen = Le => {
+      if (!isFinite(Le)) { status('✘ Valor no válido'); renderProps(); return; }
+      try {
+        model.transact('Cambiar medida', () => setSegmentLength(model, g.id, Le, state.moveEnd.end === 'a' ? g.a : g.b));
+        const ng = analysis.segs.get(g.id); status(`Tramo ${g.id}: ejes ${fmt(ng.Le)} mm · real ${fmt(ng.Lr)} mm`);
+      } catch (err) { status('✘ ' + err.message); renderProps(); }
+    };
+    $('#p-le').onchange = e => applyLen(parseNum(e.target.value));
+    $('#p-lr').onchange = e => applyLen(parseNum(e.target.value) + g.zA + g.zB);
+    for (const id of ['#p-le', '#p-lr']) $(id).onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
+  } else {
+    const n = analysis.nodes.get(s.id);
+    const ports = n.ports.map(p => `<tr><td>${p.segId}</td><td>Ø${p.d}${p.role === 'branch' ? ' (derivación)' : ''}</td><td class="num">${fmt(p.z)}</td><td class="num">${fmt(p.socket)}</td><td>${dirName(p.dir)}</td></tr>`).join('');
+    el.innerHTML = `<h3>${esc(kindLabel(n))} <span class="hint">(${n.id})</span></h3>
+      <table>${row('Posición (eje)', `X ${fmt(n.pos.x)} · Y ${fmt(n.pos.y)} · Z ${fmt(n.pos.z)}`)}</table>
+      <h4>Bocas</h4>
+      <table><tr><th>Tramo</th><th>Ø</th><th class="num">Z</th><th class="num">Embocad.</th><th>Hacia</th></tr>${ports}</table>
+      ${msgs(n.errors)}
+      <p class="hint">Arrastra el ${n.kind === 'end' ? 'extremo' : 'accesorio'} para alargar o acortar el tubo en la dirección del movimiento; lo que hay detrás se desplaza con él.</p>`;
+  }
+}
+
+// ---------- FASE 8: panel de despiece
+function despieceHTML(cut) {
+  const B = model.config.barLength;
+  let h = '';
+  for (const d of DIAMETERS) {
+    const r = cut.byD[d]; if (!r.pieces.length) continue;
+    const nb = r.bars.length;
+    h += `<h4><span class="swatch" style="background:var(--c${d})"></span>Ø${d} · ${nb} barra${nb === 1 ? '' : 's'} de ${fmt(B, 0)} mm</h4>
+      <div class="hint">${r.pieces.length} pieza${r.pieces.length === 1 ? '' : 's'} · ${fmt(r.sum / 1000, 2)} m de tubo · aprovechamiento ${fmt(r.util * 100, 0)} % · mínimo teórico ${r.lower} barra${r.lower === 1 ? '' : 's'}</div>`;
+    r.bars.forEach((b, i) => {
+      h += `<div class="bar">${b.items.map(p => `<span class="c${d}" style="flex:${p.L}" title="${p.mark}: ${p.L} mm">${p.L >= B * 0.12 ? p.mark : ''}</span>`).join('')}${b.retal > 0 ? `<em style="flex:${b.retal}"></em>` : ''}</div>
+        <div class="barinfo"><b>Barra ${i + 1}</b>: ${b.items.map(p => `${p.L} <span class="pm" data-seg="${p.segId}">(${p.mark})</span>`).join(' · ')} — ${b.cuts} corte${b.cuts === 1 ? '' : 's'} · retal ${fmt(b.retal, 0)} mm</div>`;
+    });
+  }
+  const all = DIAMETERS.flatMap(d => cut.byD[d].pieces);
+  if (all.length) h += `<h4>Piezas (${all.length})</h4><table><tr><th>Marca</th><th class="num">Real</th><th class="num">A ejes</th><th>Tramo</th></tr>${all.map(p => `<tr class="pm-row" data-seg="${p.segId}"><td>${p.mark}${p.L > B ? ' ⚠' : ''}</td><td class="num">${p.L}</td><td class="num">${fmt(p.Le)}</td><td>${p.segId}</td></tr>`).join('')}</table>`;
+  h += '<h4>Accesorios</h4>' + (cut.fittings.length ? `<table>${cut.fittings.map(f => `<tr><td>${esc(f.name)}</td><td class="num">${f.n}</td></tr>`).join('')}</table>` : '<p class="hint">Sin accesorios.</p>');
+  return h;
+}
+
+function renderSummary() {
+  const cut = state.cut, c = model.config;
+  const issues = [];
+  for (const s of analysis.segs.values()) for (const t of s.errors) issues.push({ cls: 'err', t, pick: { type: 'seg', id: s.id } });
+  for (const n of analysis.nodes.values()) for (const t of n.errors) issues.push({ cls: 'err', t, pick: { type: 'node', id: n.id } });
+  for (const s of analysis.segs.values()) for (const t of s.warnings) issues.push({ cls: 'warn', t, pick: { type: 'seg', id: s.id } });
+  const el = $('#tab-summary');
+  const empty = !analysis.segs.size;
+  el.innerHTML = `<h3>Despiece</h3>
+    <div class="btns"><button id="b-csv"${empty ? ' disabled' : ''}>Exportar CSV</button><button id="b-print"${empty ? ' disabled' : ''}>Imprimir / PDF</button></div>
+    <p class="hint">Barras de ${fmt(c.barLength, 0)} mm · ${fmt(c.kerf)} mm por corte · longitudes reales redondeadas al mm. Clic en una marca para localizar la pieza.</p>
+    ${cut.oversize.length ? `<div class="msg warn">${cut.oversize.length} pieza${cut.oversize.length === 1 ? '' : 's'} más larga${cut.oversize.length === 1 ? '' : 's'} que la barra (${cut.oversize.map(p => p.mark).join(', ')}): no entran en el despiece.<br><button id="b-split-all" style="margin-top:4px">Dividir con manguitos</button></div>` : ''}
+    ${cut.invalid.length ? `<div class="msg err">No incluidos por errores: ${cut.invalid.map(s => s.id).join(', ')}</div>` : ''}
+    ${empty ? '<p class="hint">Dibuja tubos para obtener el despiece.</p>' : despieceHTML(cut)}
+    <h4>Avisos (${issues.length})</h4>
+    ${issues.length ? issues.map((i, k) => `<div class="msg ${i.cls} issue" data-k="${k}">${esc(i.pick.id)}: ${esc(i.t)}</div>`).join('') : '<div class="msg ok">Sin errores ni avisos.</div>'}`;
+  $$('.issue', el).forEach(d => d.onclick = () => { select(issues[+d.dataset.k].pick); showTab('props'); });
+  $$('[data-seg]', el).forEach(d => d.onclick = () => { select({ type: 'seg', id: d.dataset.seg }); showTab('props'); });
+  $('#b-csv').onclick = exportCSV;
+  $('#b-print').onclick = printCut;
+  if ($('#b-split-all')) $('#b-split-all').onclick = () => {
+    const ids = cut.oversize.map(p => p.segId);
+    const k = model.transact('Dividir tramos largos', () => ids.reduce((x, id) => x + splitLongSegment(model, id), 0));
+    status(`${k} manguito${k === 1 ? '' : 's'} añadido${k === 1 ? '' : 's'}`);
+  };
+  const nf = [...analysis.nodes.values()].filter(n => n.isFitting).length;
+  const nb = DIAMETERS.reduce((x, d) => x + cut.byD[d].bars.length, 0);
+  $('#st-count').textContent = `${analysis.segs.size} tubos · ${nf} accesorios · ${nb} barras · ${issues.length} avisos`;
+}
+
+// ---------- FASE 10: configuración editable
+const getPath = (o, p) => p.split('.').reduce((x, k) => x[k], o);
+const setPath = (o, p, v) => { const ks = p.split('.'), last = ks.pop(); ks.reduce((x, k) => x[k], o)[last] = v; };
+let cfgRendered = '', cfgEditing = false;
+function renderConfig() {
+  const key = JSON.stringify(model.config) + '|' + model.name;
+  if (key === cfgRendered) return;
+  cfgRendered = key;
+  if (cfgEditing) return; // el valor ya está escrito en el campo; no se redibuja para no perder el foco
+  const c = model.config, F = c.fittings;
+  const inp = (path, v) => `<input data-cfg="${path}" type="text" inputmode="decimal" value="${numStr(v)}">`;
+  const ZROWS = [['socket', 'Embocadura'], ['od', 'Ø exterior'], ['elbow90', 'Z codo 90°'], ['elbow45', 'Z codo 45°'], ['tee', 'Z Te'], ['coupling', 'Z manguito']];
+  $('#tab-config').innerHTML = `<h3>Configuración</h3>
+    <table>
+      <tr><th>Nombre del proyecto</th><td><input data-cfg="name" type="text" value="${esc(model.name)}"></td></tr>
+      <tr><th>Longitud de barra (mm)</th><td>${inp('barLength', c.barLength)}</td></tr>
+      <tr><th>Pérdida por corte (mm)</th><td>${inp('kerf', c.kerf)}</td></tr>
+      <tr><th>Tubo visto mínimo (mm)</th><td>${inp('minFree', c.minFree)}</td></tr>
+    </table>
+    <h4>Accesorios (mm)</h4>
+    <p class="hint">Z = distancia del centro del accesorio al tope de la embocadura. Se descuenta de la medida a ejes para obtener la longitud real.</p>
+    <table class="cfg"><tr><th></th>${DIAMETERS.map(d => `<th>Ø${d}</th>`).join('')}</tr>
+      ${ZROWS.map(([k, l]) => `<tr><th>${l}</th>${DIAMETERS.map(d => `<td>${inp(`fittings.${d}.${k}`, F[d][k])}</td>`).join('')}</tr>`).join('')}</table>
+    <h4>Manguitos reductores (Z por boca)</h4>
+    <table class="cfg"><tr><th></th><th>Boca mayor</th><th>Boca menor</th></tr>
+      ${Object.keys(c.reducers).map(r => `<tr><th>${r.replace('-', '×')}</th><td>${inp(`reducers.${r}.big`, c.reducers[r].big)}</td><td>${inp(`reducers.${r}.small`, c.reducers[r].small)}</td></tr>`).join('')}</table>
+    <h4>Tes reducidas (Z por boca)</h4>
+    <table class="cfg"><tr><th></th><th>Principal</th><th>Derivación</th></tr>
+      ${Object.keys(c.teeReduced).map(r => `<tr><th>${r.replace('-', '×')}</th><td>${inp(`teeReduced.${r}.run`, c.teeReduced[r].run)}</td><td>${inp(`teeReduced.${r}.branch`, c.teeReduced[r].branch)}</td></tr>`).join('')}</table>
+    <p><button id="b-cfg-reset">Restaurar valores por defecto</button></p>
+    <p class="hint">La configuración se guarda dentro del proyecto y los cambios se pueden deshacer (Ctrl+Z).</p>`;
+  $$('[data-cfg]', $('#tab-config')).forEach(i => { i.onchange = () => applyCfg(i); i.onkeydown = e => { if (e.key === 'Enter') i.blur(); }; });
+  $('#b-cfg-reset').onclick = () => { model.transact('Restaurar configuración', () => { model.config = structuredClone(DEFAULT_CONFIG); }); status('Configuración restaurada a los valores por defecto'); };
+}
+function applyCfg(i) {
+  const path = i.dataset.cfg;
+  cfgEditing = true;
+  try {
+    if (path === 'name') { const v = i.value.trim() || 'Proyecto sin título'; model.transact('Renombrar proyecto', () => { model.name = v; }); return; }
+    const v = parseNum(i.value);
+    const d = +path.split('.')[1];
+    const bad = !isFinite(v) || v < 0 || (path === 'barLength' && v < 100) || (path === 'kerf' && v > 50)
+      || (path.endsWith('.od') && v <= d) || (path.endsWith('.socket') && v <= 0);
+    if (bad) { status('✘ Valor no válido: ' + i.value); i.value = numStr(getPath(model.config, path)); return; }
+    model.transact('Configuración', () => setPath(model.config, path, v));
+    i.value = numStr(v); status(`Configuración actualizada (${path} = ${fmt(v)})`);
+  } finally { cfgEditing = false; }
+}
+
+// ---------- FASE 9: exportación
+function snapshotCanvas() {
+  renderNow();
+  const src = renderer.domElement, k = src.width / src.clientWidth;
+  const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const g = c.getContext('2d'); g.drawImage(src, 0, 0);
+  const vr = viewport.getBoundingClientRect();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const el of $$('#labels .dim')) {
+    if (el.style.display === 'none') continue;
+    const r = el.getBoundingClientRect();
+    if (r.right < vr.left || r.left > vr.right || r.bottom < vr.top || r.top > vr.bottom) continue;
+    const x = (r.left - vr.left) * k, y = (r.top - vr.top) * k, w = r.width * k, h = r.height * k;
+    g.fillStyle = cssVar('--label-bg'); g.strokeStyle = cssVar('--border'); g.lineWidth = k;
+    g.beginPath(); g.roundRect(x, y, w, h, 4 * k); g.fill(); g.stroke();
+    const lines = el.innerText.split('\n').filter(Boolean);
+    lines.forEach((t, j) => {
+      g.fillStyle = j ? cssVar('--muted') : cssVar('--label-text');
+      g.font = `${(j ? 10 : 11) * k}px system-ui, sans-serif`;
+      g.fillText(t, x + w / 2, y + h * (j + 0.5) / lines.length);
+    });
+  }
+  return c;
+}
+const fileBase = () => (model.name || 'proyecto').replace(/[^\w\- áéíóúñÁÉÍÓÚÑ]+/g, '_');
+function exportCSV() {
+  const cut = state.cut, c = model.config;
+  const n = x => typeof x === 'number' ? String(Math.round(x * 100) / 100).replace('.', ',') : x;
+  const rows = [['PipeCAD', model.name], ['Fecha', new Date().toLocaleDateString('es-ES')], ['Longitud de barra (mm)', c.barLength], ['Pérdida por corte (mm)', c.kerf], []];
+  rows.push(['PLAN DE CORTE']);
+  rows.push(['Ø', 'Barra', 'Marca', 'Longitud real (mm)', 'Medida a ejes (mm)', 'Tramo']);
+  for (const d of DIAMETERS) cut.byD[d].bars.forEach((b, i) => {
+    for (const p of b.items) rows.push([d, i + 1, p.mark, p.L, p.Le, p.segId]);
+    rows.push([d, i + 1, `Retal (${b.cuts} corte${b.cuts === 1 ? '' : 's'})`, b.retal, '', '']);
+  });
+  if (cut.oversize.length) { rows.push([]); rows.push(['PIEZAS MAYORES QUE LA BARRA (dividir con manguitos)']); for (const p of cut.oversize) rows.push([p.d, '', p.mark, p.L, p.Le, p.segId]); }
+  rows.push([]); rows.push(['RESUMEN DE TUBO']); rows.push(['Ø', 'Barras', 'Piezas', 'Metros de tubo', 'Aprovechamiento %']);
+  for (const d of DIAMETERS) { const r = cut.byD[d]; if (r.pieces.length) rows.push([d, r.bars.length, r.pieces.length, r.sum / 1000, r.util * 100]); }
+  rows.push([]); rows.push(['ACCESORIOS']); rows.push(['Accesorio', 'Cantidad']);
+  for (const f of cut.fittings) rows.push([f.name, f.n]);
+  const cell = v => { const s = String(n(v)); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  download(fileBase() + ' - despiece.csv', '﻿' + rows.map(r => r.map(cell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+  status('Despiece exportado a CSV');
+}
+function printCut() {
+  const c = model.config;
+  const img = snapshotCanvas().toDataURL('image/png');
+  $('#print').innerHTML = `<h1>${esc(model.name)}</h1>
+    <div class="hint">Despiece PipeCAD · ${new Date().toLocaleDateString('es-ES')} · barras de ${fmt(c.barLength, 0)} mm · ${fmt(c.kerf)} mm por corte</div>
+    <img alt="Vista del proyecto">${despieceHTML(state.cut)}`;
+  const im = $('#print img');
+  im.onload = () => window.print();
+  im.src = img;
+}
+
+function showTab(name) {
+  $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  $$('.tabpane').forEach(p => p.classList.toggle('on', p.id === 'tab-' + name));
+}
+
+/* =====================================================================
+   PRUEBAS DEL MOTOR
+   ===================================================================== */
+function runTests() {
+  const results = [];
+  const build = (nodes, segs) => {
+    const m = new Model(); const ids = {};
+    for (const k in nodes) ids[k] = m.addNode(nodes[k]);
+    const sid = {}; for (const [a, b, d] of segs) sid[a + b] = m.addSegment(ids[a], ids[b], d);
+    const an = analyze(m);
+    return { m, an, node: k => an.nodes.get(ids[k]), seg: k => an.segs.get(sid[k]) };
+  };
+  const test = (name, fn) => { try { const r = fn(); results.push({ name, ok: r === true, detail: r === true ? '' : r }); } catch (e) { results.push({ name, ok: false, detail: e.message }); } };
+  const eq = (got, exp, what) => near(got, exp, 0.01) ? true : `${what}: esperado ${exp}, obtenido ${fmt(got, 3)}`;
+  const all = (...checks) => checks.find(c => c !== true) ?? true;
+
+  test('Codo 90° Ø20: tramo de 1000 mm a ejes entre dos codos → 978 mm', () => {
+    const t = build({ a: [0, -500, 0], b: [0, 0, 0], c: [1000, 0, 0], d: [1000, 500, 0] }, [['a', 'b', 20], ['b', 'c', 20], ['c', 'd', 20]]);
+    return all(t.node('b').kind === 'elbow90' || 'b no es codo 90', eq(t.seg('bc').Lr, 978, 'Lr'), eq(t.seg('ab').Lr, 489, 'Lr extremo libre'));
+  });
+  test('Codo 45° Ø32: descuentos de 8 mm', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [1500, 500, 0] }, [['a', 'b', 32], ['b', 'c', 32]]);
+    return all(t.node('b').kind === 'elbow45' || 'no es codo 45', eq(t.seg('ab').Lr, 992, 'Lr ab'), eq(t.seg('bc').Lr, Math.hypot(500, 500) - 8, 'Lr bc'));
+  });
+  test('Te Ø40: tramo principal y derivación −21 mm', () => {
+    const t = build({ a: [-1000, 0, 0], b: [0, 0, 0], c: [1000, 0, 0], d: [0, 0, 800] }, [['a', 'b', 40], ['b', 'c', 40], ['b', 'd', 40]]);
+    return all(t.node('b').kind === 'tee' || 'no es Te', eq(t.seg('ab').Lr, 979, 'Lr ab'), eq(t.seg('bd').Lr, 779, 'Lr bd'));
+  });
+  test('Te reducida 40×32: principal −21, derivación −22', () => {
+    const t = build({ a: [-1000, 0, 0], b: [0, 0, 0], c: [1000, 0, 0], d: [0, 0, 800] }, [['a', 'b', 40], ['b', 'c', 40], ['b', 'd', 32]]);
+    return all(t.node('b').kind === 'teeReduced' || 'no es Te reducida', eq(t.seg('ab').Lr, 979, 'Lr ab'), eq(t.seg('bd').Lr, 778, 'Lr bd'));
+  });
+  test('Te con derivación mayor que el principal → no válida', () => {
+    const t = build({ a: [-1000, 0, 0], b: [0, 0, 0], c: [1000, 0, 0], d: [0, 0, 800] }, [['a', 'b', 32], ['b', 'c', 32], ['b', 'd', 40]]);
+    return t.node('b').kind === 'invalid' || 'debería ser no válida';
+  });
+  test('Manguito reductor 32×20: −3 / −10', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [2000, 0, 0] }, [['a', 'b', 32], ['b', 'c', 20]]);
+    return all(t.node('b').kind === 'reducer' || 'no es reductor', eq(t.seg('ab').Lr, 997, 'Lr ab'), eq(t.seg('bc').Lr, 990, 'Lr bc'));
+  });
+  test('Manguito Ø20 (tramo partido): −2 / −2', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [2000, 0, 0] }, [['a', 'b', 20], ['b', 'c', 20]]);
+    return all(t.node('b').kind === 'coupling' || 'no es manguito', eq(t.seg('ab').Lr, 998, 'Lr ab'));
+  });
+  test('Ángulo de 45° entre tubos (giro de 135°) → no válido', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [0, 1000, 0] }, [['a', 'b', 20], ['b', 'c', 20]]);
+    return t.node('b').kind === 'invalid' || 'debería ser no válido';
+  });
+  test('Giro de 90° con distinto diámetro → no válido', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [1000, 1000, 0] }, [['a', 'b', 32], ['b', 'c', 20]]);
+    return t.node('b').kind === 'invalid' || 'debería ser no válido';
+  });
+  test('Cuatro tubos en un nodo → no válido', () => {
+    const t = build({ o: [0, 0, 0], a: [1000, 0, 0], b: [-1000, 0, 0], c: [0, 1000, 0], d: [0, -1000, 0] }, [['o', 'a', 20], ['o', 'b', 20], ['o', 'c', 20], ['o', 'd', 20]]);
+    return t.node('o').kind === 'invalid' || 'debería ser no válido';
+  });
+  test('Direcciones permitidas: ejes y diagonales en planos; no diagonales espaciales', () => {
+    const ok = [[1, 0, 0], [0, 0, -1], [1, 1, 0], [0, -1, 1]].every(v => isAllowedDir(new THREE.Vector3(...v).normalize()));
+    const ko = [[1, 1, 1], [1, 2, 0], [3, 0, 1]].some(v => isAllowedDir(new THREE.Vector3(...v).normalize()));
+    return (ok && !ko) || 'clasificación de direcciones incorrecta';
+  });
+  test('Accesorios solapados → error; tubo visto corto → aviso; > barra → aviso', () => {
+    const t1 = build({ a: [0, -500, 0], b: [0, 0, 0], c: [60, 0, 0], d: [60, 500, 0] }, [['a', 'b', 40], ['b', 'c', 40], ['c', 'd', 40]]);
+    const t2 = build({ a: [0, -500, 0], b: [0, 0, 0], c: [100, 0, 0], d: [100, 500, 0] }, [['a', 'b', 40], ['b', 'c', 40], ['c', 'd', 40]]);
+    const t3 = build({ a: [0, 0, 0], b: [3200, 0, 0] }, [['a', 'b', 20]]);
+    return all(t1.seg('bc').errors.length > 0 || 'sin error de solape', t2.seg('bc').warnings.length > 0 || 'sin aviso de tubo visto', t3.seg('ab').warnings.length > 0 || 'sin aviso de barra');
+  });
+  test('Partir tramo crea manguito y conserva la medida a ejes', () => {
+    const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([2000, 0, 0]); const s = m.addSegment(a, b, 32);
+    m.splitSegment(s, [800, 0, 0]); const an = analyze(m);
+    const sum = [...an.segs.values()].reduce((x, g) => x + g.Le, 0);
+    return all(an.segs.size === 2 || 'no hay 2 tramos', eq(sum, 2000, 'suma a ejes'), [...an.nodes.values()].some(n => n.kind === 'coupling') || 'sin manguito');
+  });
+  test('Serialización JSON ida y vuelta', () => {
+    const m = new Model(); buildExample(m); const j1 = JSON.stringify(m.toJSON());
+    const m2 = new Model(); m2.load(JSON.parse(j1)); return JSON.stringify(m2.toJSON()) === j1 || 'el JSON no coincide';
+  });
+  test('Deshacer / rehacer', () => {
+    const m = new Model();
+    m.transact('add', () => { const a = m.addNode([0, 0, 0]), b = m.addNode([500, 0, 0]); m.addSegment(a, b, 20); });
+    m.undo(); const c0 = m.segments.size; m.redo(); const c1 = m.segments.size;
+    return (c0 === 0 && c1 === 1) || `tras deshacer ${c0}, tras rehacer ${c1}`;
+  });
+  test('Prolongar un extremo en línea fusiona los tramos', () => {
+    const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([1000, 0, 0]), c = m.addNode([2000, 0, 0]);
+    m.addSegment(a, b, 20); m.addSegment(b, c, 20); m.mergeThrough(b); const an = analyze(m);
+    return all(an.segs.size === 1 || 'no se fusionaron', eq([...an.segs.values()][0].Le, 2000, 'Le'));
+  });
+  test('No se fusionan tramos en codo ni con distinto Ø', () => {
+    const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([1000, 0, 0]), c = m.addNode([1000, 1000, 0]), d = m.addNode([2000, 0, 0]);
+    m.addSegment(a, b, 20); m.addSegment(b, c, 20); const r1 = m.mergeThrough(b);
+    const m2 = new Model(); const x = m2.addNode([0, 0, 0]), y = m2.addNode([1000, 0, 0]), z = m2.addNode([2000, 0, 0]);
+    m2.addSegment(x, y, 32); m2.addSegment(y, z, 20); const r2 = m2.mergeThrough(y);
+    return (!r1 && !r2) || 'se fusionó indebidamente';
+  });
+  test('Estirar tramo entre codos desplaza el resto del circuito', () => {
+    const t = build({ a: [0, -500, 0], b: [0, 0, 0], c: [1000, 0, 0], d: [1000, 500, 0] }, [['a', 'b', 20], ['b', 'c', 20], ['c', 'd', 20]]);
+    setSegmentLength(t.m, t.seg('bc').id, 1500, t.node('c').id); const an = analyze(t.m);
+    return all(eq(an.segs.get(t.seg('bc').id).Lr, 1478, 'Lr bc'), eq(an.nodes.get(t.node('d').id).pos.x, 1500, 'x de d'),
+      eq(an.segs.get(t.seg('cd').id).Le, 500, 'Le cd'), eq(an.segs.get(t.seg('ab').id).Le, 500, 'Le ab'));
+  });
+  test('No se puede acortar por debajo del mínimo físico', () => {
+    const t = build({ a: [0, -500, 0], b: [0, 0, 0], c: [1000, 0, 0], d: [1000, 500, 0] }, [['a', 'b', 40], ['b', 'c', 40], ['c', 'd', 40]]);
+    try { setSegmentLength(t.m, t.seg('bc').id, 80, t.node('c').id); return 'debería fallar (mínimo 94)'; } catch { }
+    setSegmentLength(t.m, t.seg('bc').id, 94, t.node('c').id);
+    return eq(analyze(t.m).segs.get(t.seg('bc').id).free, 0, 'tubo visto');
+  });
+  test('Circuito cerrado: estirar un lado mantiene el rectángulo', () => {
+    const t = build({ a: [0, 0, 0], b: [1000, 0, 0], c: [1000, 1000, 0], d: [0, 1000, 0] }, [['a', 'b', 20], ['b', 'c', 20], ['c', 'd', 20], ['d', 'a', 20]]);
+    setSegmentLength(t.m, t.seg('ab').id, 1500, t.node('b').id); const an = analyze(t.m);
+    const errs = [...an.nodes.values(), ...an.segs.values()].filter(x => x.errors.length).length;
+    return all(errs === 0 || 'hay errores', eq(an.segs.get(t.seg('cd').id).Le, 1500, 'Le cd'), eq(an.segs.get(t.seg('bc').id).Le, 1000, 'Le bc'));
+  });
+  const pk = (Ls, B = 3000, k = 2) => packBars(Ls.map((L, i) => ({ L, mark: 'p' + i })), B, k);
+  test('Corte: 2 × 1499 caben en una barra (1501 + 1499 = 3000)', () => {
+    const b = pk([1499, 1499]); return all(b.length === 1 || `${b.length} barras`, b[0].cuts === 1 || `${b[0].cuts} cortes`, eq(b[0].retal, 0, 'retal'));
+  });
+  test('Corte: 2 × 1500 necesitan dos barras', () => { const b = pk([1500, 1500]); return b.length === 2 || `${b.length} barras`; });
+  test('Corte: 3 × 1000 necesitan dos barras (2 cortes = 4 mm)', () => { const b = pk([1000, 1000, 1000]); return b.length === 2 || `${b.length} barras`; });
+  test('Corte: pieza de 3000 = barra entera sin cortes', () => { const b = pk([3000]); return all(b.length === 1 || 'barras', b[0].cuts === 0 || `${b[0].cuts} cortes`); });
+  test('Corte: retal = barra − piezas − cortes', () => { const b = pk([1000, 500]); return all(eq(b[0].retal, 3000 - 1500 - 4, 'retal'), b[0].cuts === 2 || 'cortes'); });
+  test('Optimización: 1998+1000 ×2 → 2 barras llenas', () => { const b = pk([1000, 1998, 1000, 1998]); return all(b.length === 2 || `${b.length} barras`, b.every(x => x.retal === 0) || 'retal'); });
+  test('Optimización: no peor que el mínimo teórico en un caso exigente', () => {
+    const Ls = [1700, 1300, 1200, 1100, 900, 800, 800, 700, 600, 500, 400, 300];
+    const b = pk(Ls); const sum = Ls.reduce((x, y) => x + y, 0);
+    return b.length <= Math.ceil((sum + 2 * Ls.length) / 3000) || `${b.length} barras`;
+  });
+  test('Dividir tramo de 7000 mm Ø20: 3000 + 3000 + 992 con 2 manguitos', () => {
+    const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([7000, 0, 0]); const s = m.addSegment(a, b, 20);
+    const k = splitLongSegment(m, s); const an = analyze(m);
+    const Ls = [...an.segs.values()].map(g => Math.round(g.Lr)).sort((x, y) => y - x).join(',');
+    const nc = [...an.nodes.values()].filter(n => n.kind === 'coupling').length;
+    return all(k === 2 || `${k} manguitos`, Ls === '3000,3000,992' || 'piezas ' + Ls, nc === 2 || `${nc} manguitos en el modelo`);
+  });
+  test('Dividir deja un resto mínimo de 300 mm', () => {
+    const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([3100, 0, 0]); const s = m.addSegment(a, b, 32);
+    splitLongSegment(m, s); const Ls = [...analyze(m).segs.values()].map(g => Math.round(g.Lr)).sort((x, y) => y - x).join(',');
+    return Ls === '2796,300' || 'piezas ' + Ls;
+  });
+  test('Despiece del ejemplo: marcas y barras', () => {
+    const m = new Model(); buildExample(m); const cut = computeCutlist(m, analyze(m));
+    const n = DIAMETERS.reduce((x, d) => x + cut.byD[d].pieces.length, 0);
+    return all(n === 11 || `${n} piezas`, cut.marks.size === 11 || 'marcas', cut.byD[40].bars.length >= cut.byD[40].lower || 'barras < mínimo');
+  });
+  test('Ejemplo sin errores', () => {
+    const m = new Model(); buildExample(m); const an = analyze(m);
+    const bad = [...an.nodes.values()].filter(n => n.errors.length).map(n => n.id).concat([...an.segs.values()].filter(s => s.errors.length).map(s => s.id));
+    return bad.length === 0 || 'errores en ' + bad.join(', ');
+  });
+
+  const pass = results.filter(r => r.ok).length;
+  $('#test-out').innerHTML = `<div class="msg ${pass === results.length ? 'ok' : 'err'}">${pass} / ${results.length} pruebas superadas</div>` +
+    results.map(r => `<div class="msg ${r.ok ? 'ok' : 'err'}">${r.ok ? '✔' : '✘'} ${esc(r.name)}${r.detail ? '<br>' + esc(r.detail) : ''}</div>`).join('');
+  console.table(results);
+  return results;
+}
+
+/* =====================================================================
+   ARCHIVO
+   ===================================================================== */
+function download(name, data, type) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$('#b-new').onclick = () => {
+  if (model.segments.size && !confirm('¿Empezar un proyecto nuevo? Podrás deshacerlo con Ctrl+Z.')) return;
+  model.transact('Nuevo proyecto', () => model.reset()); state.selected = null; fitAll(); status('Proyecto nuevo');
+};
+$('#b-example').onclick = () => { model.transact('Cargar ejemplo', () => buildExample(model)); state.selected = null; setView('iso'); status('Proyecto de ejemplo cargado'); };
+$('#b-save').onclick = () => { download((model.name || 'proyecto').replace(/[^\w\- ]+/g, '_') + '.json', JSON.stringify(model.toJSON(), null, 1), 'application/json'); status('Proyecto guardado'); };
+$('#b-open').onclick = () => $('#file').click();
+$('#file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const json = JSON.parse(await f.text());
+    model.transact('Abrir ' + f.name, () => model.load(json));
+    if (!json.name) model.name = f.name.replace(/\.json$/i, '');
+    state.selected = null; fitAll(); status('Abierto: ' + f.name);
+  } catch (err) { alert('No se pudo abrir el archivo: ' + err.message); }
+};
+
+/* =====================================================================
+   ARRANQUE
+   ===================================================================== */
+$('#b-undo').onclick = doUndo; $('#b-redo').onclick = doRedo; $('#b-del').onclick = deleteSelection;
+$('#b-fit').onclick = () => fitAll();
+$('#b-proj').onclick = () => setProjection(!state.ortho);
+$$('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+$('#s-dims').onchange = e => { state.dims = e.target.value; store.set('pipecad-dims', state.dims); rebuild(); };
+$$('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+$('#b-tests').onclick = runTests;
+$('#b-help').onclick = () => $('#help').showModal();
+addEventListener('keydown', e => { if (e.key === 'F1') { e.preventDefault(); $('#help').open ? $('#help').close() : $('#help').showModal(); } });
+$('#b-png').onclick = () => snapshotCanvas().toBlob(b => { download(fileBase() + '.png', b, 'image/png'); status('Imagen PNG guardada'); });
+$$('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+$$('[data-d]').forEach(b => b.onclick = () => setDiameter(+b.dataset.d));
+$('#s-fit').onchange = e => { state.fit = e.target.value; placeRot.identity(); setTool('place'); e.target.blur(); };
+$('#s-snap').onchange = e => { state.snap = +e.target.value; e.target.blur(); status(`Paso de ${state.snap} mm`); };
+$('#i-planez').onchange = e => {
+  const v = parseNum(e.target.value);
+  if (!isFinite(v)) { e.target.value = numStr(state.planeZ); return; }
+  state.planeZ = v; e.target.value = numStr(v); buildGrid(); requestRender(); status(`Plano de trabajo a Z = ${fmt(v)} mm`);
+};
+$('#i-planez').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
+$('#b-theme').onclick = () => {
+  const order = ['auto', 'light', 'dark'];
+  themePref = order[(order.indexOf(themePref) + 1) % 3]; store.set('pipecad-theme', themePref); applyTheme();
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
+model.on((m, live) => {
+  analysis = analyze(model);
+  if (!live) state.cut = computeCutlist(model, analysis);
+  if (state.selected && !(state.selected.type === 'seg' ? analysis.segs.has(state.selected.id) : analysis.nodes.has(state.selected.id))) state.selected = null;
+  rebuild(live); renderProps();
+  if (live) return;
+  if (draw.start?.type === 'node' && !model.nodes.has(draw.start.id)) finishDraw(true);
+  if (draw.start?.type === 'seg' && !model.segments.has(draw.start.id)) finishDraw(true);
+  renderSummary(); renderConfig();
+  $('#b-undo').disabled = !model.undoStack.length; $('#b-redo').disabled = !model.redoStack.length;
+  store.set('pipecad-autosave', JSON.stringify(model.toJSON()));
+});
+
+state.dims = store.get('pipecad-dims') || 'both'; $('#s-dims').value = state.dims;
+makeControls();
+new ResizeObserver(resize).observe(viewport);
+makeMaterials();
+let restored = false;
+try { const saved = store.get('pipecad-autosave'); if (saved) { model.load(JSON.parse(saved)); restored = model.segments.size > 0; } } catch { model.reset(); }
+model.emit();
+applyTheme();
+resize();
+setView('iso');
+setDiameter(20);
+setTool('select');
+status(restored ? 'Proyecto recuperado del autoguardado' : 'Proyecto vacío — pulsa «Ejemplo» para ver un circuito de muestra');
+window.__pipecadReady = true;
+if (!restored && !store.get('pipecad-help-seen')) { store.set('pipecad-help-seen', '1'); $('#help').showModal(); }
+window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, toScreen, pickGrab, setRay, handles }; // acceso desde consola
+if (new URLSearchParams(location.search).has('test')) { showTab('tests'); runTests(); }
+</script>
+</body>
+</html>
