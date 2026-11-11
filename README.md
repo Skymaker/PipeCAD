@@ -13,7 +13,10 @@ Enlace: https://skymaker.github.io/PipeCAD/
 
 - **Dibujo 3D por polilínea**: los codos de 90° y 45° se insertan solos al cambiar de dirección; empezar o terminar sobre un tubo crea una Te (o Te reducida).
 - **Accesorios**: codo 90°, codo 45°, Te, Te reducida, manguito y manguito reductor. Se pueden colocar sueltos, en el extremo de un tubo o insertados en un tubo (lo parten en dos), y girar con un gizmo de anillos; los tubos que dejan de encajar se separan.
-- **Unir tubos** alineados en uno solo, quitando el manguito o cerrando el hueco.
+- **Unir tubos** alineados en uno solo, quitando el manguito o cerrando el hueco, o unir dos tubos con un tramo perpendicular y Tes giradas automáticamente.
+- **Puntos de referencia** (extremos, mitad, tercios, cuartos, centros de accesorio) activables, y dibujo en altura sin teclas modificadoras.
+- **Giro libre** de los accesorios sobre sus propios ejes (pasos configurables o ángulo exacto).
+- **Cubo de vistas** para orbitar y saltar a caras, aristas o vértices, con interruptor isométrica / perspectiva.
 - **Rótulos** de cotas o marcas de pieza que se pueden ocultar con un interruptor.
 - **Puntos de arrastre** para alargar y acortar tubos; lo conectado detrás se desplaza en bloque.
 - **Medidas a eje**: la longitud real de corte se calcula descontando la cota Z de cada accesorio (centro → tope de embocadura). Las cotas son editables.

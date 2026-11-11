@@ -163,6 +163,12 @@ Cada fase termina con algo funcional y verificable en el navegador.
 | Interruptor de rótulos (botón y tecla L). | ✅ |
 | Borrar un accesorio deja sus tubos sueltos. 44/44 pruebas. | ✅ |
 | Diagonales a 45°: el paso se aplica al avance en cada eje (250 + 250 → 353,553 a ejes), al dibujar, al arrastrar y al elegir un punto sobre un tubo, para que los tramos simétricos se encuentren. | ✅ |
+| **Direcciones libres**: los tubos ya no están limitados a ejes y diagonales; las uniones siguen exigiendo 90°/45° entre bocas. Al dibujar en el espacio se ofrecen las 18 direcciones «limpias» y, desde un tubo con dirección libre, las de su propio sistema de ejes. | ✅ |
+| Dibujo en Z sin Mayús: se ofrecen a la vez direcciones horizontales, verticales e inclinadas y gana la más cercana al ratón en pantalla (Mayús queda como restricción opcional a tramos que suben o bajan). | ✅ |
+| Puntos de referencia (extremos, mitad, tercios, cuartos, centros de accesorio), activables por tipo (▾) y en bloque (botón / F3). | ✅ |
+| Unión automática al dibujar: desde un tubo, un punto o un extremo, al pasar sobre otro tubo se propone el tramo perpendicular (o la perpendicular común si no son paralelos) y las Tes quedan giradas el ángulo necesario. | ✅ |
+| Gizmo sobre los **ejes propios** del accesorio (ejes de sus bocas y perpendicular) con paso angular configurable (1/5/15/45/90°) y giro exacto escrito en el panel. Inserción de accesorios en tubos con dirección libre. | ✅ |
+| Cubo de vistas (arriba a la derecha) que se arrastra para orbitar y lleva a caras, aristas y vértices con animación; interruptor Iso (ortográfica) / Persp. Sustituye a los botones Planta, Alzado, Perfil, Iso y Perspectiva. 55/55 pruebas. | ✅ |
 | Aviso de extremo suelto pegado a otro nodo (parece unido pero no lo está) y acción **Conectar**: alarga el tubo hasta el nodo o desplaza el accesorio a lo largo de su tubo hasta el cruce. Caso detectado en `Prueba.json`. 49/49 pruebas. | ✅ |
 
 ## 5. Orden y entregas
