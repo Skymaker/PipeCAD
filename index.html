@@ -89,6 +89,9 @@ footer #st-xyz{font-variant-numeric:tabular-nums}
 input[type=text],input[type=number]{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 6px;min-height:28px}
 td input,td select{width:100%}
 #tip{position:absolute;pointer-events:none;background:var(--label-bg);color:var(--label-text);border:1px solid var(--border);border-radius:5px;padding:2px 7px;font-size:12px;white-space:nowrap;display:none;z-index:5}
+#wpgizmo{position:absolute;top:10px;left:10px;width:120px;z-index:4;display:flex;flex-direction:column;align-items:center;gap:2px;user-select:none}
+#wp-canvas{width:120px;height:120px;cursor:pointer;touch-action:none}
+#wp-label{font-size:11px;background:var(--label-bg);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap;font-variant-numeric:tabular-nums}
 #viewcube{position:absolute;top:10px;right:10px;width:120px;z-index:4;display:flex;flex-direction:column;align-items:center;gap:4px;user-select:none}
 #vc-canvas{width:120px;height:120px;cursor:grab;touch-action:none}
 #vc-canvas:active{cursor:grabbing}
@@ -192,7 +195,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
         <select id="s-snap"><option>1</option><option>5</option><option selected>10</option><option>50</option><option>100</option></select> mm</label>
       <label class="lbl">Giro
         <select id="s-ang" title="Paso angular al girar accesorios"><option>1</option><option>5</option><option selected>15</option><option>45</option><option>90</option></select>°</label>
-      <label class="lbl">Z plano <input id="i-planez" type="text" inputmode="decimal" value="0" style="width:64px"></label>
+      <label class="lbl" title="Posición del plano de trabajo sobre su eje perpendicular"><span id="planez-lbl">Z plano</span> <input id="i-planez" type="text" inputmode="decimal" value="0" style="width:64px"></label>
     </div>
     <div class="group osnap-wrap">
       <button id="b-osnap" class="on" role="switch" aria-checked="true" title="Puntos de referencia: extremos, mitad, tercios… (F3)">Referencias</button>
@@ -219,6 +222,10 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
     <div id="viewport">
       <div id="labels"></div>
       <div id="tip"></div>
+      <div id="wpgizmo" aria-label="Planos de trabajo">
+        <canvas id="wp-canvas" width="120" height="120" title="Planos de trabajo: pulsa un plano para trabajar en él"></canvas>
+        <div id="wp-label">Plano XY · Z = 0</div>
+      </div>
       <div id="viewcube" aria-label="Cubo de vistas">
         <canvas id="vc-canvas" width="120" height="120" title="Arrastra para girar la vista · clic en una cara, arista o vértice para ir a esa vista"></canvas>
         <div class="vc-switch" role="radiogroup" aria-label="Proyección">
@@ -295,6 +302,8 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       </table>
       <h4>Ratón</h4>
       <p>Botón izquierdo: girar la vista · derecho: desplazar · rueda: zoom hacia el cursor.</p>
+      <h4>Planos de trabajo</h4>
+      <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
       <p>Arriba a la derecha. Arrástralo para girar la vista; haz clic en una cara (planta, alzado…), una arista o un vértice (isométricas) para ir a esa vista. El interruptor cambia entre <b>Iso</b> (ortográfica) y <b>Persp</b> (perspectiva).</p>
       <h4>Colores</h4>
@@ -983,7 +992,13 @@ function buildExample(m) {
 const model = new Model();
 let analysis = analyze(model);
 const state = { selected: null, dims: 'both', labelsOn: true, ortho: false, angStep: 15,
-  osnap: { on: true, end: true, mid: true, third: true, quarter: false, fit: true }, tool: 'select', d: 20, snap: 10, planeZ: 0, fit: 'elbow90', moveEnd: null };
+  osnap: { on: true, end: true, mid: true, third: true, quarter: false, fit: true }, tool: 'select', d: 20, snap: 10, wp: 'xy', planeOff: { xy: 0, xz: 0, yz: 0 }, fit: 'elbow90', moveEnd: null };
+// Planos de trabajo: normal, eje de la cota que los sitúa y ejes que contienen
+const PLANES = {
+  xy: { name: 'XY', normal: new THREE.Vector3(0, 0, 1), axis: 'z', color: '#3e7bfa' },
+  xz: { name: 'XZ', normal: new THREE.Vector3(0, 1, 0), axis: 'y', color: '#30a46c' },
+  yz: { name: 'YZ', normal: new THREE.Vector3(1, 0, 0), axis: 'x', color: '#e5484d' },
+};
 
 const viewport = $('#viewport');
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -1076,9 +1091,12 @@ function buildGrid() {
   const size = half * 2;
   const minor = new THREE.GridHelper(size, size / 100, cssVar('--grid-minor'), cssVar('--grid-minor'));
   const major = new THREE.GridHelper(size, size / 1000, cssVar('--grid-major'), cssVar('--grid-major'));
-  for (const g of [minor, major]) { g.rotation.x = Math.PI / 2; g.material.transparent = true; g.material.depthWrite = false; gridGroup.add(g); }
-  minor.material.opacity = .6; major.position.z = 0.2;
-  gridGroup.position.z = state.planeZ;
+  for (const g of [minor, major]) { g.material.transparent = true; g.material.depthWrite = false; gridGroup.add(g); }
+  minor.material.opacity = .6; major.position.y = 0.2; // GridHelper está en su plano XZ local (normal Y)
+  // la rejilla se orienta y desplaza según el plano de trabajo activo
+  const wp = PLANES[state.wp];
+  gridGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), wp.normal);
+  gridGroup.position.copy(wp.normal).multiplyScalar(state.planeOff[state.wp]);
 }
 
 function rebuild(live = false) {
@@ -1320,6 +1338,76 @@ function initViewCube() {
   $$('.vc-switch button').forEach(b => b.onclick = () => setProjection(b.dataset.proj === 'ortho'));
   syncProjSwitch();
 }
+// ---------- gizmo de planos de trabajo (esquina superior izquierda)
+// Tres planos ortogonales que se cortan y se dividen en cuatro cuadrantes; al pulsar uno se activa.
+function setWorkPlane(key, quiet = false) {
+  state.wp = key; store.set('pipecad-wp', key);
+  buildGrid(); syncPlaneUI(); refreshPreview(); requestRender();
+  if (!quiet) { const wp = PLANES[key]; status(`Plano de trabajo ${wp.name} (${wp.axis.toUpperCase()} = ${fmt(state.planeOff[key])} mm)`); }
+}
+function syncPlaneUI() {
+  const wp = PLANES[state.wp];
+  $('#planez-lbl').textContent = wp.axis.toUpperCase() + ' plano';
+  if (document.activeElement !== $('#i-planez')) $('#i-planez').value = numStr(state.planeOff[state.wp]);
+  $('#wp-label').textContent = `Plano ${wp.name} · ${wp.axis.toUpperCase()} = ${fmt(state.planeOff[state.wp])}`;
+  for (const [k, o] of Object.entries(wpg.planes)) {
+    const on = k === state.wp, hot = k === wpg.hover;
+    o.fill.material.opacity = on ? 0.55 : hot ? 0.38 : 0.16;
+    o.edge.material.opacity = on ? 1 : 0.55;
+    o.edge.material.linewidth = on ? 2 : 1;
+  }
+}
+const wpg = { renderer: null, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1.7, 1.7, 1.7, -1.7, 0.1, 20), planes: {}, hover: null, ray: new THREE.Raycaster() };
+function initPlaneGizmo() {
+  const canvas = $('#wp-canvas');
+  wpg.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  wpg.renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); wpg.renderer.setSize(120, 120, false);
+  const S = 2.0, geo = new THREE.PlaneGeometry(S, S), egeo = new THREE.EdgesGeometry(geo);
+  for (const [k, wp] of Object.entries(PLANES)) {
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), wp.normal);
+    const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: wp.color, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+    const edge = new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: wp.color, transparent: true }));
+    for (const o of [fill, edge]) { o.quaternion.copy(q); wpg.scene.add(o); }
+    fill.userData.key = k;
+    wpg.planes[k] = { fill, edge };
+  }
+  // ejes de referencia con su nombre
+  const axisLabel = (txt, color, pos) => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = color; g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 32, 34);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+    sp.scale.setScalar(0.42); sp.position.copy(pos); wpg.scene.add(sp);
+  };
+  for (const [txt, color, v] of [['X', '#e5484d', [1, 0, 0]], ['Y', '#30a46c', [0, 1, 0]], ['Z', '#3e7bfa', [0, 0, 1]]]) {
+    const dir = new THREE.Vector3(...v);
+    wpg.scene.add(new THREE.ArrowHelper(dir, new THREE.Vector3(), 1.3, color, 0.18, 0.1));
+    axisLabel(txt, color, dir.clone().multiplyScalar(1.55));
+  }
+  let down = null;
+  const pick = e => {
+    const r = canvas.getBoundingClientRect();
+    wpg.ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), wpg.cam);
+    return wpg.ray.intersectObjects(Object.values(wpg.planes).map(p => p.fill), false)[0]?.object.userData.key || null;
+  };
+  canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, moved: false }; try { canvas.setPointerCapture(e.pointerId); } catch { /* sin captura */ } });
+  canvas.addEventListener('pointermove', e => {
+    if (down) { // arrastrar también orbita la vista, como el cubo
+      const dx = e.clientX - down.x, dy = e.clientY - down.y;
+      if (!down.moved && Math.hypot(dx, dy) < 3) return;
+      down.moved = true; down.x = e.clientX; down.y = e.clientY; cancelAnimationFrame(viewAnim); orbitBy(-dx * 0.012, dy * 0.012); return;
+    }
+    const k = pick(e); if (k !== wpg.hover) { wpg.hover = k; canvas.title = k ? `Trabajar en el plano ${PLANES[k].name}` : 'Planos de trabajo'; syncPlaneUI(); requestRender(); }
+  });
+  canvas.addEventListener('pointerup', e => { const d = down; down = null; if (!d || d.moved) return; const k = pick(e); if (k) setWorkPlane(k); });
+  canvas.addEventListener('pointerleave', () => { if (!down && wpg.hover) { wpg.hover = null; syncPlaneUI(); requestRender(); } });
+  syncPlaneUI();
+}
+function renderPlaneGizmo() {
+  if (!wpg.renderer) return;
+  wpg.cam.quaternion.copy(camera.quaternion);
+  wpg.cam.position.set(0, 0, 5).applyQuaternion(camera.quaternion);
+  wpg.renderer.render(wpg.scene, wpg.cam);
+}
 function renderViewCube() {
   if (!vc.renderer) return;
   vc.cam.quaternion.copy(camera.quaternion);
@@ -1342,7 +1430,7 @@ function renderNow() {
     if (o.userData.minPx) o.scale.setScalar(Math.max(o.userData.baseR, o.userData.minPx * mmPerPx(o.position)));
   }
   renderer.render(scene, camera); labelRenderer.render(scene, camera);
-  renderViewCube();
+  renderViewCube(); renderPlaneGizmo();
 }
 
 // ---------- tema
@@ -1380,15 +1468,18 @@ function rayLineParam(P, u) {
   if (D < 1e-5) return null;
   return (b * r.dot(w0) - u.dot(w0)) / D;
 }
-// Punto del ratón sobre el plano de trabajo (horizontal a Z plano; vertical si la vista es lateral)
+// Punto del ratón sobre el plano de trabajo activo (XY, XZ o YZ, desplazado su cota).
+// Si ese plano se ve de canto, se usa el plano principal que esté más de frente.
 function planePoint() {
-  const dir = ray.ray.direction, horiz = Math.abs(dir.z) > 0.15;
-  const plane = horiz ? new THREE.Plane(new THREE.Vector3(0, 0, 1), -state.planeZ)
-    : new THREE.Plane().setFromNormalAndCoplanarPoint(Math.abs(dir.x) > Math.abs(dir.y) ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0), controls.target);
+  const dir = ray.ray.direction;
+  let key = state.wp;
+  if (Math.abs(dir.dot(PLANES[key].normal)) < 0.15)
+    key = Object.keys(PLANES).reduce((a, b) => Math.abs(dir.dot(PLANES[b].normal)) > Math.abs(dir.dot(PLANES[a].normal)) ? b : a);
+  const wp = PLANES[key], off = state.planeOff[key];
   const p = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(plane, p)) return null;
+  if (!ray.ray.intersectPlane(new THREE.Plane(wp.normal, -off), p)) return null;
   const s = state.snap; p.set(Math.round(p.x / s) * s, Math.round(p.y / s) * s, Math.round(p.z / s) * s);
-  if (horiz) p.z = state.planeZ;
+  p[wp.axis] = off;
   return p;
 }
 function nearestNode(maxPx = SNAP_PX) {
@@ -1415,6 +1506,21 @@ function pickAny() {
   const g = nearestSeg(); if (g) return { type: 'seg', id: g.id };
   const hit = ray.intersectObjects(world.children, false).find(h => h.object.userData.pick);
   return hit ? hit.object.userData.pick : null;
+}
+// Coordenadas del punto que se está marcando (no solo del plano de trabajo): incluye la Z real
+function showXYZ(p) {
+  if (!p) return;
+  $('#st-xyz').textContent = `X ${fmt(p.x)}  Y ${fmt(p.y)}  Z ${fmt(p.z)}`;
+}
+function currentPoint() {
+  if (state.tool === 'draw') return draw.start ? (draw.cand?.end?.pos || draw.start.pos) : draw.hover?.pos;
+  if (state.tool === 'place') return place.target?.pos;
+  return planePoint();
+}
+// Desplazamiento por eje de un tramo: «ΔX 250 · ΔZ 250»
+function deltaText(dir, len) {
+  return ['x', 'y', 'z'].map(k => [k, dir[k] * len]).filter(([, v]) => Math.abs(v) > 0.05)
+    .map(([k, v]) => `Δ${k.toUpperCase()} ${v > 0 ? '+' : '−'}${fmt(Math.abs(v))}`).join(' · ');
 }
 function setTip(html) {
   const t = $('#tip'); if (!html) { t.style.display = 'none'; return; }
@@ -1624,7 +1730,8 @@ function updateDraw() {
     ovCyl(ac.start.pos, ac.dir, ac.len, d / 2, mats.ghost);
     ovDot(ac.start.pos, dotR, mats.ghostSnap); ovDot(ac.end.pos, dotR, mats.ghostSnap);
     const incl = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(ac.dir.z, -1, 1)));
-    setTip(`Unión con ${ac.auto} · ejes <b>${fmt(ac.len)}</b> · real ${fmt(ac.len - ac.zA - ac.zB)}` + (Math.abs(incl) > 0.05 ? ` · inclinación ${fmt(incl)}°` : ''));
+    setTip(`Unión con ${ac.auto} · ejes <b>${fmt(ac.len)}</b> · real ${fmt(ac.len - ac.zA - ac.zB)}` + (Math.abs(incl) > 0.05 ? ` · inclinación ${fmt(incl)}°` : '')
+      + `<br><small>${deltaText(ac.dir, ac.len)} → Z ${fmt(ac.end.pos.z)}</small>`);
     requestRender(); return;
   }
   let best = null;
@@ -1652,8 +1759,7 @@ function updateDraw() {
   ovCyl(S, best.n, len, dUse / 2, endTr.ok ? mats.ghost : mats.ghostBad);
   ovDot(end.pos, dotR, end.type === 'plane' ? mats.ghost : mats.ghostSnap);
   const Lr = len - best.tr.z - endTr.z;
-  const cAx = Math.max(Math.abs(best.n.x), Math.abs(best.n.y), Math.abs(best.n.z));
-  setTip(`Ø${dUse} · ejes <b>${fmt(len)}</b>${cAx < 0.99 ? ` (${fmt(len * cAx)} + ${fmt(len * cAx)})` : ''} · real ${fmt(Lr)}${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
+  setTip(`Ø${dUse} · ejes <b>${fmt(len)}</b> · real ${fmt(Lr)}<br><small>${deltaText(best.n, len)} → Z ${fmt(end.pos.z)}</small>${end.type !== 'plane' ? ' · conecta' : ''}${endTr.ok ? '' : '<br>✘ ' + esc(endTr.msg)}`);
   requestRender();
 }
 function addTube(st, en, d) {
@@ -1719,6 +1825,11 @@ $('#len-box').addEventListener('blur', () => { $('#len-box').style.display = 'no
 
 // ---------- FASE 5: colocación manual de accesorios
 const placeRot = new THREE.Quaternion();
+const PLANE_BASE = {
+  xy: new THREE.Quaternion(),
+  xz: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2),                      // Y → Z
+  yz: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 1, 1).normalize(), 2 * Math.PI / 3),     // X → Y, Y → Z
+};
 const place = { target: null, ports: null, ok: false, msg: '' };
 function updatePlace() {
   overlay.clear();
@@ -1730,7 +1841,9 @@ function updatePlace() {
   if (t.type === 'seg') dAuto = analysis.segs.get(t.id).d;
   else if (t.type === 'node') { const ds = new Set(analysis.nodes.get(t.id).ports.map(p => p.d)); if (ds.size === 1) dAuto = [...ds][0]; }
   const tpl = fittingTemplate(state.fit, dAuto);
-  const pref = tpl.map(p => cleanDir(p.dir.clone().applyQuaternion(placeRot)));
+  // la plantilla (definida en XY) se lleva al plano de trabajo activo antes de los giros R/E/W
+  const base = PLANE_BASE[state.wp];
+  const pref = tpl.map(p => cleanDir(p.dir.clone().applyQuaternion(base).applyQuaternion(placeRot)));
   let ports = null, where = '', msg = '';
   if (t.type === 'plane') {
     ports = pref.map((dir, k) => ({ dir, d: tpl[k].d }));
@@ -1873,7 +1986,9 @@ function applyDrag() {
     model.emit(true);
   }
   const g = analysis.segs.get(drag.segId);
-  setTip(`ejes <b>${fmt(g.Le)}</b> · real ${fmt(g.Lr)}${atMin ? '<br>mínimo: accesorios en contacto' : ''}`);
+  const moved = analysis.nodes.get(drag.nodeId)?.pos;
+  showXYZ(moved);
+  setTip(`ejes <b>${fmt(g.Le)}</b> · real ${fmt(g.Lr)}${moved ? `<br><small>${deltaText(drag.axis, g.Le - drag.Le0)} → X ${fmt(moved.x)} · Y ${fmt(moved.y)} · Z ${fmt(moved.z)}</small>` : ''}${atMin ? '<br>mínimo: accesorios en contacto' : ''}`);
 }
 function endDrag() {
   controls.enabled = true; renderer.domElement.style.cursor = ''; setTip('');
@@ -1906,11 +2021,11 @@ renderer.domElement.addEventListener('pointerup', e => {
 renderer.domElement.addEventListener('pointermove', e => {
   if (drag || rot) return;
   setRay(e);
-  const p = planePoint();
-  if (p) $('#st-xyz').textContent = `X ${fmt(p.x, 0)}  Y ${fmt(p.y, 0)}  Z ${fmt(p.z, 0)}`;
-  if (e.buttons) return;
+  if (e.buttons) { showXYZ(planePoint()); return; }
   if (state.tool === 'draw') updateDraw();
   else if (state.tool === 'place') updatePlace();
+  showXYZ(currentPoint());
+  if (state.tool !== 'select') return;
   else if (!pending) {
     const g = pickGrab();
     renderer.domElement.style.cursor = g ? 'grab' : pickAny() ? 'pointer' : '';
@@ -2530,6 +2645,15 @@ function runTests() {
     const n = placeFitting(m, { type: 'plane', pos: new THREE.Vector3(1000, 0, 0) }, fittingTemplate('coupling', 20));
     try { connectLoose(m, s, e, n); return 'no se rechazó'; } catch { return true; }
   });
+  test('Planos de trabajo: un codo colocado en XZ y en YZ queda en ese plano', () => {
+    const tpl = fittingTemplate('elbow90', 20);
+    const inPlane = (key, q) => tpl.every(p => near(p.dir.clone().applyQuaternion(q).dot(PLANES[key].normal), 0));
+    return all(inPlane('xz', PLANE_BASE.xz) || 'XZ', inPlane('yz', PLANE_BASE.yz) || 'YZ', inPlane('xy', PLANE_BASE.xy) || 'XY');
+  });
+  test('Desplazamiento por eje de un tramo inclinado incluye Z', () => {
+    const t = deltaText(new THREE.Vector3(0, 1, 1).normalize(), 250 * Math.SQRT2);
+    return t === 'ΔY +250 · ΔZ +250' || t;
+  });
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
     const bad = [...an.nodes.values()].filter(n => n.errors.length).map(n => n.id).concat([...an.segs.values()].filter(s => s.errors.length).map(s => s.id));
@@ -2605,9 +2729,10 @@ $$('[data-d]').forEach(b => b.onclick = () => setDiameter(+b.dataset.d));
 $('#s-fit').onchange = e => { state.fit = e.target.value; placeRot.identity(); setTool('place'); e.target.blur(); };
 $('#s-snap').onchange = e => { state.snap = +e.target.value; e.target.blur(); status(`Paso de ${state.snap} mm`); };
 $('#i-planez').onchange = e => {
-  const v = parseNum(e.target.value);
-  if (!isFinite(v)) { e.target.value = numStr(state.planeZ); return; }
-  state.planeZ = v; e.target.value = numStr(v); buildGrid(); requestRender(); status(`Plano de trabajo a Z = ${fmt(v)} mm`);
+  const v = parseNum(e.target.value), wp = PLANES[state.wp];
+  if (!isFinite(v)) { e.target.value = numStr(state.planeOff[state.wp]); return; }
+  state.planeOff[state.wp] = v; e.target.value = numStr(v); buildGrid(); syncPlaneUI(); refreshPreview(); requestRender();
+  status(`Plano de trabajo ${wp.name} en ${wp.axis.toUpperCase()} = ${fmt(v)} mm`);
 };
 $('#i-planez').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
 $('#b-theme').onclick = () => {
@@ -2638,6 +2763,8 @@ model.on((m, live) => {
 $('#b-labels').onclick = () => setLabels(!state.labelsOn);
 makeControls();
 initViewCube();
+initPlaneGizmo();
+if (PLANES[store.get('pipecad-wp')]) setWorkPlane(store.get('pipecad-wp'), true);
 new ResizeObserver(resize).observe(viewport);
 makeMaterials();
 let restored = false;
@@ -2651,7 +2778,7 @@ setTool('select');
 status(restored ? 'Proyecto recuperado del autoguardado' : 'Proyecto vacío — pulsa «Ejemplo» para ver un circuito de muestra');
 window.__pipecadReady = true;
 if (!restored && !store.get('pipecad-help-seen')) { store.set('pipecad-help-seen', '1'); $('#help').showModal(); }
-window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, toScreen, pickGrab, setRay, handles }; // acceso desde consola
+window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, wpg, setWorkPlane, toScreen, pickGrab, setRay, handles }; // acceso desde consola
 if (new URLSearchParams(location.search).has('test')) { showTab('tests'); runTests(); }
 </script>
 </body>

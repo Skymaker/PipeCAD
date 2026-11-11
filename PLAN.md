@@ -169,6 +169,7 @@ Cada fase termina con algo funcional y verificable en el navegador.
 | Unión automática al dibujar: desde un tubo, un punto o un extremo, al pasar sobre otro tubo se propone el tramo perpendicular (o la perpendicular común si no son paralelos) y las Tes quedan giradas el ángulo necesario. | ✅ |
 | Gizmo sobre los **ejes propios** del accesorio (ejes de sus bocas y perpendicular) con paso angular configurable (1/5/15/45/90°) y giro exacto escrito en el panel. Inserción de accesorios en tubos con dirección libre. | ✅ |
 | Cubo de vistas (arriba a la derecha) que se arrastra para orbitar y lleva a caras, aristas y vértices con animación; interruptor Iso (ortográfica) / Persp. Sustituye a los botones Planta, Alzado, Perfil, Iso y Perspectiva. 55/55 pruebas. | ✅ |
+| Gizmo de planos de trabajo (arriba a la izquierda): tres planos que se cortan en cuadrantes; al pulsar uno se trabaja en XY, XZ o YZ (puntos en el vacío, rejilla y orientación inicial de los accesorios), con su cota editable. La barra de estado muestra X, Y, Z del punto que se marca (antes mostraba siempre el punto del plano XY) y el rótulo de dibujo indica el desplazamiento por eje. 57/57 pruebas. | ✅ |
 | Aviso de extremo suelto pegado a otro nodo (parece unido pero no lo está) y acción **Conectar**: alarga el tubo hasta el nodo o desplaza el accesorio a lo largo de su tubo hasta el cruce. Caso detectado en `Prueba.json`. 49/49 pruebas. | ✅ |
 
 ## 5. Orden y entregas
