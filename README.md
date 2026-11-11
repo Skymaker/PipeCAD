@@ -82,6 +82,56 @@ Pero solo `servidor.mjs` permite **guardar** accesorios desde el editor. Sin él
 - guardarlos en el navegador;
 - **Descargar .zip**, que incluye un `LEEME.txt` con los pasos para copiarlos a la carpeta.
 
+## Ver el proyecto en realidad aumentada
+
+El visor [`ra.html`](ra.html) muestra el proyecto a tamaño real sobre el suelo. Funciona en las **Meta Quest 3**, en teléfonos **Android** con ARCore (Chrome) y en **iPhone / iPad** (Safari, con AR Quick Look y sin gravedad). La realidad aumentada en el navegador solo funciona en páginas **HTTPS** (o en `localhost`).
+
+En PipeCAD, el botón **Ver en RA** del menú lateral muestra un **código QR** y un enlace al visor con el proyecto dentro. Escanéalo con la cámara del móvil o con las gafas, o copia el enlace y ábrelo en ellos.
+
+### Opción A: GitHub Pages (lo más sencillo)
+
+Abre PipeCAD en https://skymaker.github.io/PipeCAD/, dibuja o abre tu proyecto y pulsa **Ver en RA**. El enlace lleva el proyecto comprimido dentro, no se guarda en ningún servidor y funciona en cualquier dispositivo con internet. Los accesorios personalizados que solo estén en tu carpeta `modelos/` se ven con su forma simple.
+
+### Opción B: servidor local con HTTPS (en tu red, sin GitHub)
+
+1. Instala **mkcert** (https://github.com/FiloSottile/mkcert/releases). En Windows también vale `winget install FiloSottile.mkcert`.
+2. Averigua la IP de tu ordenador en la wifi. En Windows, con `ipconfig`: la «Dirección IPv4» del adaptador wifi o Ethernet, por ejemplo `192.168.1.20`.
+3. Crea los certificados, dentro de la carpeta de PipeCAD:
+
+   ```bash
+   mkcert -install
+   ```
+
+   ```bash
+   mkcert -cert-file certificados/pipecad.pem -key-file certificados/pipecad-key.pem localhost 127.0.0.1 192.168.1.20
+   ```
+
+   Si la carpeta `certificados` no existe, créala antes. Esa carpeta no se sube a GitHub (está en `.gitignore`).
+4. Arranca el servidor con HTTPS:
+
+   ```bash
+   node servidor.mjs --https
+   ```
+
+   En Windows también puedes usar `iniciar-servidor.bat --https`. El servidor muestra la dirección del visor para la red, por ejemplo `https://192.168.1.20:8443/ra.html`. Desde las gafas y los móviles solo se puede **ver**; guardar y borrar solo se puede desde este ordenador.
+5. En PipeCAD (http://localhost:8080/), pulsa **Ver en RA**:
+   - el proyecto se guarda en `proyectos/` y el código QR apunta a él;
+   - si el ordenador tiene varias redes, elige en el diálogo la de la misma wifi que las gafas o el móvil.
+6. Haz que cada dispositivo confíe en el certificado. El certificado raíz de mkcert es el archivo `rootCA.pem` de la carpeta que muestra `mkcert -CAROOT`.
+   - **Android**: copia `rootCA.pem` al teléfono e instálalo en *Ajustes › Seguridad › Más ajustes de seguridad › Cifrado y credenciales › Instalar un certificado › Certificado de CA*.
+   - **iPhone / iPad**: envíate `rootCA.pem` (por ejemplo, por correo o AirDrop). Instala el perfil en *Ajustes › General › VPN y gestión de dispositivos* y actívalo en *Ajustes › General › Información › Ajustes de confianza de certificados*.
+   - **Meta Quest 3**: el navegador no permite instalar certificados. Si aparece el aviso de conexión no privada, pulsa *Avanzado › Continuar*. Si así no arranca la realidad aumentada, usa la opción C.
+
+### Opción C: por cable USB con adb (Quest 3 y Android)
+
+Con el modo desarrollador activado y el cable conectado:
+
+```bash
+adb reverse tcp:8080 tcp:8080
+```
+
+Después, en las gafas o el teléfono, abre `http://localhost:8080/ra.html` y elige el proyecto, o pega el enlace de **Ver en RA**. Para el dispositivo es `localhost`, así que no hace falta HTTPS.
+
 ## Funciones
 
 - **Dibujo 3D por polilínea**: los codos de 90° y 45° se insertan solos al cambiar de dirección; empezar o terminar sobre un tubo crea una Te (o Te reducida).
@@ -97,7 +147,7 @@ Pero solo `servidor.mjs` permite **guardar** accesorios desde el editor. Sin él
   - `plantillas/`: las plantillas del editor;
   - `pipecad.scad`: la librería OpenSCAD común.
 - **Editor de accesorios** ([`editor.html`](editor.html)): crea y edita accesorios con un formulario, desde cero o desde plantillas. Genera código **OpenSCAD** paramétrico (descargable) y, con él, los STL imprimibles en el propio navegador; los guarda en la carpeta `modelos/`.
-- **Visor de realidad aumentada** ([`ra.html`](ra.html), en desarrollo): muestra el proyecto a tamaño real (medidas y peso aproximado), con vista 3D adaptable al móvil. Se abre con un proyecto `.json`, con el último proyecto de PipeCAD de este navegador o con un enlace que lleva el proyecto dentro. Con unas **Meta Quest 3** o un **Android con ARCore** (Chrome), «Ver en RA» la coloca sobre el suelo real: en las gafas, mirando al suelo y pellizcando; en el teléfono, tocando la pantalla o «Colocar aquí». Necesita HTTPS: prueba con https://skymaker.github.io/PipeCAD/ra.html?ejemplo. Tiene **gravedad** (motor de física Rapier): en la vista 3D, «Soltar» la deja caer y «Reiniciar» la vuelve a poner derecha. En las Quest 3 se **agarra** pellizcando (o con el gatillo o el botón de agarre del mando), de cerca o apuntando con el rayo; con dos manos se gira, y al soltarla cae o se lanza. En la vista 3D y en Android se **arrastra con el ratón o el dedo** (cuelga del punto cogido) y se gira con dos dedos. **Opciones**: gravedad, fijar al suelo, cotas, rejilla y colores por Ø; en las Quest aparecen en la muñeca izquierda al mirar la palma (o con el botón X del mando). En **iPhone y iPad** (Safari), «Ver en RA» la abre con AR Quick Look a tamaño real sobre el suelo; ahí se mueve y gira con los dedos, pero sin gravedad (ver [PLAN.md](PLAN.md)).
+- **Visor de realidad aumentada** ([`ra.html`](ra.html); ver [cómo usarlo](#ver-el-proyecto-en-realidad-aumentada)): muestra el proyecto a tamaño real (medidas y peso aproximado), con vista 3D adaptable al móvil. Se abre con el botón **Ver en RA** de PipeCAD (código QR), con un proyecto `.json` o con el último proyecto de PipeCAD de este navegador. Con unas **Meta Quest 3** o un **Android con ARCore** (Chrome), «Ver en RA» la coloca sobre el suelo real: en las gafas, mirando al suelo y pellizcando; en el teléfono, tocando la pantalla o «Colocar aquí». Necesita HTTPS: prueba con https://skymaker.github.io/PipeCAD/ra.html?ejemplo. Tiene **gravedad** (motor de física Rapier): en la vista 3D, «Soltar» la deja caer y «Reiniciar» la vuelve a poner derecha. En las Quest 3 se **agarra** pellizcando (o con el gatillo o el botón de agarre del mando), de cerca o apuntando con el rayo; con dos manos se gira, y al soltarla cae o se lanza. En la vista 3D y en Android se **arrastra con el ratón o el dedo** (cuelga del punto cogido) y se gira con dos dedos. **Opciones**: gravedad, fijar al suelo, cotas, rejilla y colores por Ø; en las Quest aparecen en la muñeca izquierda al mirar la palma (o con el botón X del mando). En **iPhone y iPad** (Safari), «Ver en RA» la abre con AR Quick Look a tamaño real sobre el suelo; ahí se mueve y gira con los dedos, pero sin gravedad (ver [PLAN.md](PLAN.md)).
 - **Proyecto de ejemplo** en [`ejemplos/ejemplo.json`](ejemplos/ejemplo.json) (botón «Ejemplo»).
 - **Ajustes** de la interfaz: botón «Ejemplo» visible u oculto y tamaño de los gizmos de navegación.
 - **Cubo de vistas** para orbitar y saltar a caras, aristas o vértices, con interruptor isométrica / perspectiva.

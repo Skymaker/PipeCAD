@@ -1026,7 +1026,7 @@ function loadModelSTL(path) {
 // Lee el catálogo y los .pcf de los personalizados; los del navegador (versiones anteriores) se mantienen
 async function loadModels() {
   if (!MODELS.files && location.protocol.startsWith('http')) {
-    try { const r = await fetch('api/estado', { cache: 'no-store' }); MODELS.server = r.ok && !!(await r.json()).pipecad; } catch { MODELS.server = false; }
+    try { const r = await fetch('api/estado', { cache: 'no-store' }); const j = r.ok ? await r.json() : {}; MODELS.server = !!j.pipecad && j.escribir !== false; MODELS.serverInfo = j; } catch { MODELS.server = false; }
   }
   let catalog = null, error = '';
   try { catalog = JSON.parse(await readModelFile('catalogo.json')); } catch (e) { error = e.message; }
@@ -1077,6 +1077,19 @@ function loadLib() {
   } catch { /* sin biblioteca guardada */ }
 }
 
-  return { DIAMETERS, DEFAULT_CONFIG, KIND_NAMES, BUILTIN_KINDS, FITTING_KINDS, LIB, builtinEnabled, syncActive, customGeometry, vkeyPorts, $, $$, v3, NF, fmt, esc, near, r3, NF_RAW, numStr, parseNum, cssVar, store, Model, isAllowedDir, classifyNode, matchCustom, classifyBuiltin, analyze, DIRS18, r6, cleanDir, vkey, PORT_EXTRA, fitPorts, FIT_META, storeFit, fitMeta, fittingTemplate, classifyExplicit, portZs, orientations, chooseOrientation, freeOrientations, placeFitting, currentPorts, nodeFitMeta, planRotation, localDirs, fittingAxes, detachPort, isolateGroup, transformNodes, mirrorGroup, snapshotNodes, duplicateItems, nodesBox, rotateFitting, deleteFitting, joinPlan, connectLoose, joinCandidates, joinSegments, PCF_KEYS, tokenizePCF, parsePCF, fmtN, pcfFor, builtinDef, autoFittingGeometry, mergePositions, parseSTL, bufToB64, b64ToBuf, localToWorldQuat, movingSet, segAxis, minAxisLength, snapLen, setSegmentLength, packBars, computeCutlist, splitLongSegment, MODELS, readModelFile, loadModelSTL, loadModels, builtinModel, loadExampleJSON, buildExample, kindLabel, saveLib, loadLib };
+// ---------------------------------------------------------------- proyecto en el enlace (#p=…)
+// El proyecto va comprimido (deflate) y en base64url dentro del fragmento: no se envía a ningún servidor.
+const b64url = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64url = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+async function packProject(json) {
+  const stream = new Blob([JSON.stringify(json)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
+}
+async function unpackProject(s) {
+  const stream = new Blob([unb64url(s)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(stream).text());
+}
+
+  return { packProject, unpackProject, DIAMETERS, DEFAULT_CONFIG, KIND_NAMES, BUILTIN_KINDS, FITTING_KINDS, LIB, builtinEnabled, syncActive, customGeometry, vkeyPorts, $, $$, v3, NF, fmt, esc, near, r3, NF_RAW, numStr, parseNum, cssVar, store, Model, isAllowedDir, classifyNode, matchCustom, classifyBuiltin, analyze, DIRS18, r6, cleanDir, vkey, PORT_EXTRA, fitPorts, FIT_META, storeFit, fitMeta, fittingTemplate, classifyExplicit, portZs, orientations, chooseOrientation, freeOrientations, placeFitting, currentPorts, nodeFitMeta, planRotation, localDirs, fittingAxes, detachPort, isolateGroup, transformNodes, mirrorGroup, snapshotNodes, duplicateItems, nodesBox, rotateFitting, deleteFitting, joinPlan, connectLoose, joinCandidates, joinSegments, PCF_KEYS, tokenizePCF, parsePCF, fmtN, pcfFor, builtinDef, autoFittingGeometry, mergePositions, parseSTL, bufToB64, b64ToBuf, localToWorldQuat, movingSet, segAxis, minAxisLength, snapLen, setSegmentLength, packBars, computeCutlist, splitLongSegment, MODELS, readModelFile, loadModelSTL, loadModels, builtinModel, loadExampleJSON, buildExample, kindLabel, saveLib, loadLib };
 };
 })(globalThis);

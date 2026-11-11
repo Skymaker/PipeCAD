@@ -140,6 +140,12 @@ td input,td select{width:100%}
 .pm,.pm-row{cursor:pointer}
 .pm:hover,.pm-row:hover{color:var(--accent)}
 table.cfg td{padding:2px 3px}
+.ar-qr{display:grid;place-items:center;background:#fff;border-radius:10px;padding:12px;margin:10px auto;width:fit-content}
+.ar-qr canvas{width:260px;height:260px;image-rendering:pixelated}
+.ar-link{display:flex;gap:6px;margin:8px 0}
+.ar-link input{flex:1;min-width:0;font:12px ui-monospace,Consolas,monospace}
+.ar-devs{margin:8px 0 0;padding-left:18px}
+.ar-devs li{margin:3px 0}
 #print{display:none}
 #help{max-width:min(860px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:16px 20px;position:relative}
 #help::backdrop,#prefs::backdrop{background:rgba(0,0,0,.35)}
@@ -259,6 +265,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <div class="sb-sep"></div>
       <button id="b-fit" data-icon="fit" data-tip="Encuadrar todo (F)"><span class="sb-txt">Encuadrar</span></button>
       <button id="b-png" data-icon="camera" data-tip="Guardar imagen PNG de la vista"><span class="sb-txt">Imagen</span></button>
+      <button id="b-ar" data-icon="ar" data-tip="Ver el proyecto a tamaño real en realidad aumentada (Meta Quest 3, Android, iPhone)"><span class="sb-txt">Ver en RA</span></button>
       <button id="b-labels" class="on" role="switch" aria-checked="true" data-icon="label" data-tip="Mostrar u ocultar rótulos (L)"><span class="sb-txt">Rótulos</span></button>
       <div class="sb-fill"></div>
       <button id="b-prefs" data-icon="settings" data-tip="Ajustes de la interfaz"><span class="sb-txt">Ajustes</span></button>
@@ -313,6 +320,19 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
   </footer>
 </div>
 <div id="print"></div>
+<dialog id="ar-dialog" aria-labelledby="ar-title">
+  <form method="dialog"><button class="close" title="Cerrar">✕</button></form>
+  <h2 id="ar-title">Ver en realidad aumentada</h2>
+  <p class="hint">Escanea el código con el móvil o con las Meta Quest 3 (o abre el enlace en ellos) para ver este proyecto a tamaño real sobre el suelo.</p>
+  <div class="ar-qr" id="ar-qr-box"><canvas id="ar-qr" aria-label="Código QR con el enlace al visor"></canvas></div>
+  <div id="ar-notes"></div>
+  <div class="ar-link"><input id="ar-url" readonly aria-label="Enlace al visor"><button id="ar-copy">Copiar</button><button id="ar-open">Abrir aquí</button></div>
+  <ul class="hint ar-devs">
+    <li><b>Meta Quest 3</b>: navegador de Quest → «Ver en RA» → mira al suelo y pellizca. Se coge con las manos o los mandos.</li>
+    <li><b>Android</b>: Chrome con los Servicios de Google Play para RA → «Ver en RA» → toca para colocarla; se arrastra con el dedo.</li>
+    <li><b>iPhone / iPad</b>: Safari → «Ver en RA» → AR Quick Look (sin gravedad).</li>
+  </ul>
+</dialog>
 <dialog id="prefs" aria-labelledby="prefs-title">
   <form method="dialog"><button class="close" title="Cerrar">✕</button></form>
   <h2 id="prefs-title">Ajustes</h2>
@@ -372,6 +392,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <h4>Biblioteca de accesorios</h4>
       <p>En la pestaña <b>Biblioteca</b> se cargan y quitan los accesorios uno a uno: los de serie con su casilla y los personalizados desde un archivo <code>.pcf</code> (un texto sencillo que describe sus bocas y medidas) y, opcionalmente, su modelo <code>.stl</code>. Cada accesorio se puede descargar en STL para imprimirlo en 3D; los modelos están en la carpeta <code>modelos/</code>, fuera del programa. Allí mismo está la guía para crear accesorios propios y una plantilla.</p>
       <p>El <b>Editor de accesorios</b> (botón de la pestaña Biblioteca o <code>editor.html</code>) permite crearlos con un formulario: genera el código <b>OpenSCAD</b>, que se puede descargar, y con él los STL imprimibles. Para guardarlos en la carpeta <code>modelos</code> hay que abrir PipeCAD con el servidor local (<code>iniciar-servidor</code>, ver el README).</p>
+      <p><b>Ver en RA</b> (menú lateral) da un código QR y un enlace para ver el proyecto a tamaño real en realidad aumentada con unas Meta Quest 3, un Android o un iPhone (visor <code>ra.html</code>).</p>
       <h4>Planos de trabajo</h4>
       <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
@@ -401,7 +422,7 @@ THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z vertical (convención CAD). 1 unida
 // Núcleo compartido (js/nucleo.js): modelo, motor de accesorios, .pcf, STL, despiece, biblioteca y carpeta de modelos
 const hooks = {}; // avisos del núcleo a esta página (se asignan en el arranque)
 const {
-  DIAMETERS, DEFAULT_CONFIG, KIND_NAMES, BUILTIN_KINDS, FITTING_KINDS, LIB, builtinEnabled, syncActive, customGeometry, vkeyPorts, $, $$, v3, NF, fmt, esc, near, r3, NF_RAW, numStr, parseNum, cssVar, store, Model, isAllowedDir, classifyNode, matchCustom, classifyBuiltin, analyze, DIRS18, r6, cleanDir, vkey, PORT_EXTRA, fitPorts, FIT_META, storeFit, fitMeta, fittingTemplate, classifyExplicit, portZs, orientations, chooseOrientation, freeOrientations, placeFitting, currentPorts, nodeFitMeta, planRotation, localDirs, fittingAxes, detachPort, isolateGroup, transformNodes, mirrorGroup, snapshotNodes, duplicateItems, nodesBox, rotateFitting, deleteFitting, joinPlan, connectLoose, joinCandidates, joinSegments, PCF_KEYS, tokenizePCF, parsePCF, fmtN, pcfFor, builtinDef, autoFittingGeometry, mergePositions, parseSTL, bufToB64, b64ToBuf, localToWorldQuat, movingSet, segAxis, minAxisLength, snapLen, setSegmentLength, packBars, computeCutlist, splitLongSegment, MODELS, readModelFile, loadModelSTL, loadModels, builtinModel, loadExampleJSON, buildExample, kindLabel, saveLib, loadLib,
+  packProject, unpackProject, DIAMETERS, DEFAULT_CONFIG, KIND_NAMES, BUILTIN_KINDS, FITTING_KINDS, LIB, builtinEnabled, syncActive, customGeometry, vkeyPorts, $, $$, v3, NF, fmt, esc, near, r3, NF_RAW, numStr, parseNum, cssVar, store, Model, isAllowedDir, classifyNode, matchCustom, classifyBuiltin, analyze, DIRS18, r6, cleanDir, vkey, PORT_EXTRA, fitPorts, FIT_META, storeFit, fitMeta, fittingTemplate, classifyExplicit, portZs, orientations, chooseOrientation, freeOrientations, placeFitting, currentPorts, nodeFitMeta, planRotation, localDirs, fittingAxes, detachPort, isolateGroup, transformNodes, mirrorGroup, snapshotNodes, duplicateItems, nodesBox, rotateFitting, deleteFitting, joinPlan, connectLoose, joinCandidates, joinSegments, PCF_KEYS, tokenizePCF, parsePCF, fmtN, pcfFor, builtinDef, autoFittingGeometry, mergePositions, parseSTL, bufToB64, b64ToBuf, localToWorldQuat, movingSet, segAxis, minAxisLength, snapLen, setSegmentLength, packBars, computeCutlist, splitLongSegment, MODELS, readModelFile, loadModelSTL, loadModels, builtinModel, loadExampleJSON, buildExample, kindLabel, saveLib, loadLib,
 } = globalThis.crearNucleoPipeCAD(THREE, hooks);
 
 /* =====================================================================
@@ -2930,6 +2951,7 @@ const ICONS = {
   mirrorH: '<path d="M3 12h18" stroke-dasharray="2 2.5"/><path d="M7 9l5-6 5 6zM7 15l5 6 5-6z"/>',
   mirrorV: '<path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 7 3 12l6 5zM15 7l6 5-6 5z"/>',
   fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  ar: '<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><path d="m12 7 4.5 2.5v5L12 17l-4.5-2.5v-5z"/><path d="m7.5 9.5 4.5 2.5 4.5-2.5M12 12v5"/>',
   camera: '<path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="4"/>',
   label: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   theme: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
@@ -2990,6 +3012,61 @@ $$('.tabs button').forEach(b => b.onclick = () => { showTab(b.dataset.tab); if (
 $('#b-tests').onclick = runTests;
 $('#b-help').onclick = () => $('#help').showModal();
 addEventListener('keydown', e => { if (e.key === 'F1') { e.preventDefault(); $('#help').open ? $('#help').close() : $('#help').showModal(); } });
+// ---------- «Ver en RA»: enlace al visor (ra.html) con el proyecto dentro, y su código QR
+// El proyecto va comprimido en el propio enlace (#p=…), que no se envía a ningún servidor. Si es muy largo
+// para un QR y hay servidor local, se guarda en proyectos/ y el enlace lleva solo su identificador.
+const QR_SRC = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+let qrLoading = null;
+const loadQR = () => qrLoading ||= new Promise((res, rej) => {
+  const sc = Object.assign(document.createElement('script'), { src: QR_SRC });
+  sc.onload = () => res(window.qrcode); sc.onerror = () => { qrLoading = null; rej(new Error('no se pudo cargar el generador de códigos QR')); };
+  document.head.append(sc);
+});
+function drawQR(qrcode, canvas, text) {
+  const q = qrcode(0, 'L'); q.addData(text, 'Byte'); q.make();
+  const n = q.getModuleCount(), quiet = 4, scale = Math.max(2, Math.floor(520 / (n + 2 * quiet)));
+  canvas.width = canvas.height = (n + 2 * quiet) * scale;
+  const g = canvas.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, canvas.width, canvas.height); g.fillStyle = '#000';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (q.isDark(y, x)) g.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+  return n;
+}
+let arHost = null; // dirección elegida si el ordenador tiene varias
+async function shareAR() {
+  if (!model.segments.size) { status('El proyecto está vacío: dibuja algo antes de verlo en realidad aumentada'); return; }
+  const dlg = $('#ar-dialog'), notes = [];
+  $('#ar-url').value = 'Preparando el enlace…'; $('#ar-notes').innerHTML = ''; $('#ar-qr-box').hidden = true;
+  if (!dlg.open) dlg.showModal();
+  const json = model.toJSON();
+  let base = new URL('ra.html', location.href);
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  if (location.protocol === 'file:') notes.push(['warn', 'PipeCAD está abierto como archivo: el enlace solo sirve en este ordenador. Para verlo en las gafas o el móvil, usa GitHub Pages o el servidor local con «--https» (ver el README).']);
+  else if (local) {
+    const urls = MODELS.serverInfo?.https?.urls || [], u = urls[arHost] ?? urls[0];
+    if (u) base = new URL('ra.html', u);
+    if (urls.length > 1) notes.push(['host', urls]);
+    else notes.push(['warn', 'Con el servidor local sin «--https», el código QR no sirve en otros dispositivos: arráncalo con «node servidor.mjs --https» (ver el README) o conecta las gafas o el móvil por USB con «adb reverse tcp:8080 tcp:8080» y abre el enlace en ellos.']);
+  }
+  let url = base.href + '#p=' + await packProject(json);
+  if (url.length > 300 && MODELS.server) { // con servidor local: el proyecto se guarda en él y el QR queda sencillo
+    try {
+      const r = await fetch('api/proyectos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) }), j = await r.json();
+      if (r.ok) { url = base.href + '?proyecto=' + j.id; notes.push(['ok', `Proyecto guardado en el servidor local (proyectos/${j.id}.json): el código QR queda más sencillo.`]); }
+    } catch { /* se queda el enlace largo */ }
+  }
+  $('#ar-url').value = url;
+  if (url.length > 2900) notes.push(['warn', 'El proyecto es demasiado grande para un código QR. Copia el enlace, usa el servidor local o guarda el proyecto (.json) y ábrelo en el visor con «Abrir».']);
+  else {
+    try { drawQR(await loadQR(), $('#ar-qr'), url); $('#ar-qr-box').hidden = false; }
+    catch (e) { notes.push(['warn', 'No se pudo dibujar el código QR (' + e.message + '): usa el enlace.']); }
+  }
+  $('#ar-notes').innerHTML = notes.map(([k, t]) => k === 'host'
+    ? `<label class="hint">Dirección de este ordenador en la red (la de la misma wifi que las gafas o el móvil): <select id="ar-host">${t.map((x, i) => `<option value="${i}" ${i === (arHost ?? 0) ? 'selected' : ''}>${esc(new URL(x).host)}</option>`).join('')}</select></label>`
+    : `<div class="msg ${k}">${esc(t)}</div>`).join('');
+  $('#ar-host')?.addEventListener('change', e => { arHost = +e.target.value; shareAR(); });
+}
+$('#b-ar').onclick = shareAR;
+$('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText($('#ar-url').value); status('Enlace del visor RA copiado'); } catch { $('#ar-url').select(); status('Selecciona el enlace y cópialo con Ctrl+C'); } };
+$('#ar-open').onclick = () => window.open($('#ar-url').value, 'pipecad-ra');
 $('#b-png').onclick = () => snapshotCanvas().toBlob(b => { download(fileBase() + '.png', b, 'image/png'); status('Imagen PNG guardada'); });
 $$('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 $$('[data-d]').forEach(b => b.onclick = () => setDiameter(+b.dataset.d));

@@ -277,7 +277,7 @@ async function readModelFile(rel, binary = false) {
 }
 async function loadSources() {
   if (!SRC.files && !SRC.dir && location.protocol.startsWith('http')) {
-    try { const r = await fetch('api/estado', { cache: 'no-store' }); SRC.server = r.ok && !!(await r.json()).pipecad; } catch { SRC.server = false; }
+    try { const r = await fetch('api/estado', { cache: 'no-store' }); const j = r.ok ? await r.json() : {}; SRC.server = !!j.pipecad && j.escribir !== false; } catch { SRC.server = false; }
   }
   try {
     SRC.catalog = JSON.parse(await readModelFile('catalogo.json'));

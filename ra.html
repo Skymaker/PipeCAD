@@ -165,7 +165,7 @@ import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
    ===================================================================== */
 const hooks = {};
 const N = globalThis.crearNucleoPipeCAD(THREE, hooks);
-const { Model, analyze, DEFAULT_CONFIG, LIB, customGeometry, localToWorldQuat, loadModels, loadExampleJSON, store, fmt, esc, cssVar } = N;
+const { packProject, unpackProject, Model, analyze, DEFAULT_CONFIG, LIB, customGeometry, localToWorldQuat, loadModels, loadExampleJSON, store, fmt, esc, cssVar } = N;
 const $ = s => document.querySelector(s);
 const MM = 0.001;
 const MOBILE = matchMedia('(pointer: coarse)').matches;
@@ -178,18 +178,6 @@ function message(text, kind = '', ms = 4000) {
   clearTimeout(msgTimer); if (text && ms) msgTimer = setTimeout(() => { m.hidden = true; }, ms);
 }
 
-// ---------------------------------------------------------------- proyecto en el enlace (#p=…)
-// El proyecto va comprimido (deflate) y en base64url dentro del fragmento: no se envía a ningún servidor.
-const b64url = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
-const unb64url = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
-async function packProject(json) {
-  const stream = new Blob([JSON.stringify(json)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
-  return b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
-}
-async function unpackProject(s) {
-  const stream = new Blob([unb64url(s)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return JSON.parse(await new Response(stream).text());
-}
 
 // ---------------------------------------------------------------- escena (metros, Y vertical)
 const view = $('#view');
@@ -1094,6 +1082,8 @@ loadPhysics();
   try {
     if (p) return await openProject(await unpackProject(p), 'Proyecto compartido');
     if (params.has('ejemplo')) return await openProject(await loadExampleJSON(), 'Ejemplo');
+    const pid = params.get('proyecto'); // proyecto guardado en el servidor local (proyectos/<id>.json)
+    if (pid && /^[a-z0-9]{6,40}$/.test(pid)) { const r = await fetch('proyectos/' + pid + '.json', { cache: 'no-cache' }); if (!r.ok) throw new Error(`proyectos/${pid}.json: ${r.status}`); return await openProject(await r.json(), 'Proyecto compartido'); }
   } catch (err) { message('No se pudo abrir el proyecto del enlace: ' + err.message, 'err', 8000); }
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
