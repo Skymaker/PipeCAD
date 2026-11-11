@@ -28,7 +28,7 @@ Enlace: https://skymaker.github.io/PipeCAD/
 
 ## Desarrollo
 
-El plan de fases y el estado del proyecto están en [PLAN.md](PLAN.md). Las pruebas del motor de cálculo se ejecutan desde la pestaña **Pruebas** o abriendo `index.html?test`.
+El plan de fases y el estado del proyecto están en [PLAN.md](PLAN.md). Las pruebas del motor de cálculo se ejecutan desde la pestaña **Configuración** (sección «Pruebas del motor») o abriendo `index.html?test`.
 
 ## Licencia
 

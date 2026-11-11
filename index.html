@@ -291,18 +291,19 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
         <button data-tab="props" class="on">Propiedades</button>
         <button data-tab="summary">Despiece</button>
         <button data-tab="lib">Biblioteca</button>
-        <button data-tab="config">Config.</button>
-        <button data-tab="tests">Pruebas</button>
+        <button data-tab="config">Configuración</button>
       </div>
       <div class="tabpane on" id="tab-props"></div>
       <div class="tabpane" id="tab-summary"></div>
       <div class="tabpane" id="tab-lib"></div>
-      <div class="tabpane" id="tab-config"></div>
-      <div class="tabpane" id="tab-tests">
-        <h3>Pruebas del motor</h3>
-        <p class="hint">Comprueban el cálculo de accesorios y longitudes reales. También se ejecutan solas abriendo la página con <code>?test</code>.</p>
-        <button id="b-tests" class="primary">Ejecutar pruebas</button>
-        <div id="test-out"></div>
+      <div class="tabpane" id="tab-config">
+        <div id="cfg-body"></div>
+        <section id="cfg-tests">
+          <h4>Pruebas del motor</h4>
+          <p class="hint">Comprueban el cálculo de accesorios, longitudes reales, despiece, biblioteca y STL. También se ejecutan solas abriendo la página con <code>?test</code>.</p>
+          <button id="b-tests">Ejecutar pruebas</button>
+          <div id="test-out"></div>
+        </section>
       </div>
     </aside>
   </main>
@@ -347,7 +348,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       </ol>
       <h4>Medidas</h4>
       <p><b>A ejes</b>: distancia entre los centros de los accesorios.<br>
-        <b>Real</b>: longitud de corte del tubo = a ejes − Z de cada accesorio (centro → tope de embocadura). Las cotas Z se ajustan en <b>Config.</b></p>
+        <b>Real</b>: longitud de corte del tubo = a ejes − Z de cada accesorio (centro → tope de embocadura). Las cotas Z se ajustan en <b>Configuración</b></p>
       <h4>Despiece</h4>
       <p>Barras de 3000 mm; cada corte resta 2 mm. Las piezas caben en una barra si su suma más 2 mm por cada corte entre ellas no supera la barra. Los tramos más largos que la barra se dividen con manguitos.</p>
     </section>
@@ -3153,7 +3154,7 @@ function renderConfig() {
   const c = model.config, F = c.fittings;
   const inp = (path, v) => `<input data-cfg="${path}" type="text" inputmode="decimal" value="${numStr(v)}">`;
   const ZROWS = [['socket', 'Embocadura'], ['od', 'Ø exterior'], ['elbow90', 'Z codo 90°'], ['elbow45', 'Z codo 45°'], ['tee', 'Z Te'], ['coupling', 'Z manguito']];
-  $('#tab-config').innerHTML = `<h3>Configuración</h3>
+  $('#cfg-body').innerHTML = `<h3>Configuración</h3>
     <table>
       <tr><th>Nombre del proyecto</th><td><input data-cfg="name" type="text" value="${esc(model.name)}"></td></tr>
       <tr><th>Longitud de barra (mm)</th><td>${inp('barLength', c.barLength)}</td></tr>
@@ -3172,7 +3173,7 @@ function renderConfig() {
       ${Object.keys(c.teeReduced).map(r => `<tr><th>${r.replace('-', '×')}</th><td>${inp(`teeReduced.${r}.run`, c.teeReduced[r].run)}</td><td>${inp(`teeReduced.${r}.branch`, c.teeReduced[r].branch)}</td></tr>`).join('')}</table>
     <p><button id="b-cfg-reset">Restaurar valores por defecto</button></p>
     <p class="hint">La configuración se guarda dentro del proyecto y los cambios se pueden deshacer (Ctrl+Z).</p>`;
-  $$('[data-cfg]', $('#tab-config')).forEach(i => { i.onchange = () => applyCfg(i); i.onkeydown = e => { if (e.key === 'Enter') i.blur(); }; });
+  $$('[data-cfg]', $('#cfg-body')).forEach(i => { i.onchange = () => applyCfg(i); i.onkeydown = e => { if (e.key === 'Enter') i.blur(); }; });
   $('#b-cfg-reset').onclick = () => { model.transact('Restaurar configuración', () => { model.config = structuredClone(DEFAULT_CONFIG); }); status('Configuración restaurada a los valores por defecto'); };
 }
 function applyCfg(i) {
@@ -4086,7 +4087,7 @@ status(restored ? 'Proyecto recuperado del autoguardado' : 'Proyecto vacío — 
 window.__pipecadReady = true;
 if (!restored && !store.get('pipecad-help-seen')) { store.set('pipecad-help-seen', '1'); $('#help').showModal(); }
 window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, wpg, setWorkPlane, renderNow, printableFittingGeometry, isWatertight, parsePCF, builtinDef, fittingWalls, toScreen, pickGrab, setRay, handles }; // acceso desde consola
-if (new URLSearchParams(location.search).has('test')) { showTab('tests'); runTests(); }
+if (new URLSearchParams(location.search).has('test')) { showTab('config'); runTests(); $('#cfg-tests').scrollIntoView(); }
 </script>
 </body>
 </html>
