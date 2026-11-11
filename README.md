@@ -16,6 +16,7 @@ Enlace: https://skymaker.github.io/PipeCAD/
 - **Unir tubos** alineados en uno solo, quitando el manguito o cerrando el hueco, o unir dos tubos con un tramo perpendicular y Tes giradas automáticamente.
 - **Puntos de referencia** (extremos, mitad, tercios, cuartos, centros de accesorio) activables, y dibujo en altura sin teclas modificadoras.
 - **Giro libre** de los accesorios sobre sus propios ejes (pasos configurables o ángulo exacto).
+- **Selección múltiple** (Mayús+clic, rectángulo con doble clic) y **grupos** que se mueven y giran en conjunto con una caja manipuladora; duplicado de grupos y selecciones.
 - **Cubo de vistas** para orbitar y saltar a caras, aristas o vértices, con interruptor isométrica / perspectiva.
 - **Rótulos** de cotas o marcas de pieza que se pueden ocultar con un interruptor.
 - **Puntos de arrastre** para alargar y acortar tubos; lo conectado detrás se desplaza en bloque.

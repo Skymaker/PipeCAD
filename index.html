@@ -89,6 +89,8 @@ footer #st-xyz{font-variant-numeric:tabular-nums}
 input[type=text],input[type=number]{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 6px;min-height:28px}
 td input,td select{width:100%}
 #tip{position:absolute;pointer-events:none;background:var(--label-bg);color:var(--label-text);border:1px solid var(--border);border-radius:5px;padding:2px 7px;font-size:12px;white-space:nowrap;display:none;z-index:5}
+#selrect{position:absolute;display:none;pointer-events:none;z-index:6;border:1.5px solid var(--accent);background:color-mix(in srgb, var(--accent) 12%, transparent)}
+#selrect.crossing{border-style:dashed;border-color:var(--ok);background:color-mix(in srgb, var(--ok) 12%, transparent)}
 #wpgizmo{position:absolute;top:10px;left:10px;width:120px;z-index:4;display:flex;flex-direction:column;align-items:center;gap:2px;user-select:none}
 #wp-canvas{width:120px;height:120px;cursor:pointer;touch-action:none}
 #wp-label{font-size:11px;background:var(--label-bg);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -166,6 +168,8 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <button id="b-undo" title="Deshacer (Ctrl+Z)">↶</button>
       <button id="b-redo" title="Rehacer (Ctrl+Y)">↷</button>
       <button id="b-del" title="Borrar selección (Supr)">Borrar</button>
+      <button id="b-group" title="Agrupar la selección (Ctrl+G) · desagrupar: Ctrl+Mayús+G">Agrupar</button>
+      <button id="b-dup" title="Duplicar la selección (Ctrl+D)">Duplicar</button>
     </div>
     <div class="group">
       <button data-tool="select" title="Seleccionar y arrastrar (S)">Seleccionar</button>
@@ -222,6 +226,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
     <div id="viewport">
       <div id="labels"></div>
       <div id="tip"></div>
+      <div id="selrect"></div>
       <div id="wpgizmo" aria-label="Planos de trabajo">
         <canvas id="wp-canvas" width="120" height="120" title="Planos de trabajo: pulsa un plano para trabajar en él"></canvas>
         <div id="wp-label">Plano XY · Z = 0</div>
@@ -302,6 +307,9 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       </table>
       <h4>Ratón</h4>
       <p>Botón izquierdo: girar la vista · derecho: desplazar · rueda: zoom hacia el cursor.</p>
+      <h4>Selección y grupos</h4>
+      <p><b>Mayús+clic</b> añade o quita elementos. <b>Doble clic y arrastrar</b> (o doble clic y luego arrastrar) dibuja un rectángulo: hacia la derecha selecciona lo que queda dentro, hacia la izquierda lo que toca. <b>Ctrl+A</b> selecciona todo.</p>
+      <p><b>Ctrl+G</b> agrupa la selección; al pulsar un miembro se selecciona el grupo entero y aparece su caja: flechas para moverlo por ejes, esfera central para moverlo en el plano de trabajo y anillos para girarlo. <b>Ctrl+clic</b> selecciona una pieza dentro del grupo. <b>Ctrl+D</b> duplica (la copia es un grupo nuevo). <b>Ctrl+Mayús+G</b> desagrupa.</p>
       <h4>Planos de trabajo</h4>
       <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
@@ -383,6 +391,7 @@ class Model {
     this.name = 'Proyecto sin título';
     this.nodes = new Map();     // id → {id, pos:[x,y,z]}
     this.segments = new Map();  // id → {id, a, b, d}
+    this.groups = new Map();    // id → {id, name, nodes:[ids], segs:[ids]}
     this.nextId = 1;
     this.config = structuredClone(DEFAULT_CONFIG);
   }
@@ -420,13 +429,32 @@ class Model {
   }
   splitSegment(id, pos) {
     const s = this.segments.get(id); const n = this.addNode(pos);
-    const oldB = s.b; s.b = n; this.addSegment(n, oldB, s.d); return n;
+    const oldB = s.b; s.b = n; const s2 = this.addSegment(n, oldB, s.d);
+    const g = this.groupWithSeg(id); if (g) { g.nodes.push(n); g.segs.push(s2); } // el trozo nuevo sigue en su grupo
+    return n;
+  }
+  // ---- grupos
+  groupWithSeg(segId) { for (const g of this.groups.values()) if (g.segs.includes(segId)) return g; return null; }
+  groupWithNode(nodeId) { for (const g of this.groups.values()) if (g.nodes.includes(nodeId)) return g; return null; }
+  addGroup(nodes, segs, name) {
+    // un elemento solo puede estar en un grupo: se saca de los grupos anteriores
+    for (const g of this.groups.values()) { g.nodes = g.nodes.filter(n => !nodes.includes(n)); g.segs = g.segs.filter(s => !segs.includes(s)); }
+    const id = this._id('g'); this.groups.set(id, { id, name: name || 'Grupo ' + (this.groups.size + 1), nodes: [...new Set(nodes)], segs: [...new Set(segs)] });
+    this.cleanGroups(); return id;
+  }
+  cleanGroups() {
+    for (const [id, g] of this.groups) {
+      g.segs = g.segs.filter(s => this.segments.has(s));
+      g.nodes = g.nodes.filter(n => this.nodes.has(n));
+      if (!g.segs.length && !g.nodes.length) this.groups.delete(id);
+    }
   }
   // ---- serialización
   toJSON() {
     return {
       format: 'pipecad', version: 1, name: this.name, nextId: this.nextId, config: this.config,
       nodes: [...this.nodes.values()], segments: [...this.segments.values()],
+      ...(this.groups.size ? { groups: [...this.groups.values()] } : {}),
     };
   }
   load(json) {
@@ -439,13 +467,15 @@ class Model {
     this.config = cfg;
     this.nodes = new Map(json.nodes.map(n => [n.id, { id: n.id, pos: [...n.pos], ...(n.fit ? { fit: structuredClone(n.fit) } : {}) }]));
     this.segments = new Map(json.segments.map(s => [s.id, { id: s.id, a: s.a, b: s.b, d: s.d }]));
+    this.groups = new Map((json.groups || []).map(g => [g.id, { id: g.id, name: g.name, nodes: [...g.nodes], segs: [...g.segs] }]));
+    this.cleanGroups();
     this.nextId = json.nextId || 1;
   }
   // ---- historial (instantáneas)
   transact(label, fn) {
     const before = JSON.stringify(this.toJSON());
     let r;
-    try { r = fn(); } catch (e) { this.load(JSON.parse(before)); throw e; }
+    try { r = fn(); this.cleanGroups(); } catch (e) { this.load(JSON.parse(before)); throw e; }
     this.undoStack.push({ label, state: before });
     if (this.undoStack.length > 300) this.undoStack.shift();
     this.redoStack = [];
@@ -461,7 +491,9 @@ class Model {
   redo() { return this._swap(this.redoStack, this.undoStack); }
   // edición en vivo (arrastre): se modifica sin historial y al soltar se registra un único paso
   beginLive() { return JSON.stringify(this.toJSON()); }
+  cancelLive(before) { this.load(JSON.parse(before)); this.emit(); }
   commitLive(before, label) {
+    this.cleanGroups();
     this.undoStack.push({ label, state: before });
     if (this.undoStack.length > 300) this.undoStack.shift();
     this.redoStack = []; this.emit();
@@ -760,6 +792,51 @@ function detachPort(m, nodeId, pos, p) {
   const s = m.segments.get(p.segId);
   const nn = m.addNode(pos.clone().addScaledVector(p.dir, p.z).toArray());
   if (s.a === nodeId) s.a = nn; else s.b = nn;
+  m.groupWithSeg(p.segId)?.nodes.push(nn); // el extremo nuevo pertenece al grupo de su tubo
+  return nn;
+}
+
+/* ---------- grupos: aislar, transformar y duplicar (operaciones puras) ---------- */
+// Separa los tubos de fuera del grupo que llegan a nodos del grupo (conservan su longitud real)
+function isolateGroup(m, gid) {
+  const g = m.groups.get(gid), segs = new Set(g.segs), an = analyze(m); let k = 0;
+  for (const nid of g.nodes) {
+    const n = an.nodes.get(nid); if (!n) continue;
+    for (const p of n.ports) if (!segs.has(p.segId)) { detachPort(m, nid, n.pos, p); k++; }
+  }
+  return k;
+}
+// Aplica una matriz (giro + traslación) a unos nodos partiendo de sus posiciones originales;
+// las bocas de los accesorios declarados giran con ellos.
+function transformNodes(m, orig, M) {
+  const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(M));
+  for (const [id, o] of orig) {
+    const n = m.nodes.get(id); if (!n) continue;
+    n.pos = v3(o.pos).applyMatrix4(M).toArray().map(r3);
+    if (o.fit) n.fit = storeFit(fitPorts(o.fit).map(p => ({ dir: cleanDir(p.dir.applyQuaternion(q)), d: p.d })));
+  }
+}
+const snapshotNodes = (m, ids) => new Map(ids.filter(id => m.nodes.has(id)).map(id => { const n = m.nodes.get(id); return [id, { pos: [...n.pos], fit: n.fit && structuredClone(n.fit) }]; }));
+// Copia nodos y tubos desplazados; devuelve los ids nuevos
+function duplicateItems(m, nodeIds, segIds, offset) {
+  const nodes = new Set(nodeIds);
+  for (const sid of segIds) { const s = m.segments.get(sid); if (s) { nodes.add(s.a); nodes.add(s.b); } }
+  const map = new Map();
+  for (const id of nodes) {
+    const n = m.nodes.get(id); if (!n) continue;
+    const nid = m.addNode(v3(n.pos).add(offset).toArray());
+    if (n.fit) m.nodes.get(nid).fit = structuredClone(n.fit);
+    map.set(id, nid);
+  }
+  const segs = [];
+  for (const sid of segIds) { const s = m.segments.get(sid); if (s && map.has(s.a) && map.has(s.b)) segs.push(m.addSegment(map.get(s.a), map.get(s.b), s.d)); }
+  return { nodes: [...map.values()], segs };
+}
+// Caja que envuelve unos nodos (con margen de un accesorio)
+function nodesBox(m, ids) {
+  const b = new THREE.Box3();
+  for (const id of ids) { const n = m.nodes.get(id); if (n) b.expandByPoint(v3(n.pos)); }
+  return b.isEmpty() ? b : b.expandByScalar(40);
 }
 function rotateFitting(m, nodeId, axis, angle) {
   const an = analyze(m), n = an.nodes.get(nodeId);
@@ -991,7 +1068,7 @@ function buildExample(m) {
    ===================================================================== */
 const model = new Model();
 let analysis = analyze(model);
-const state = { selected: null, dims: 'both', labelsOn: true, ortho: false, angStep: 15,
+const state = { selected: null, multi: new Map(), group: null, rectArmed: false, dims: 'both', labelsOn: true, ortho: false, angStep: 15,
   osnap: { on: true, end: true, mid: true, third: true, quarter: false, fit: true }, tool: 'select', d: 20, snap: 10, wp: 'xy', planeOff: { xy: 0, xz: 0, yz: 0 }, fit: 'elbow90', moveEnd: null };
 // Planos de trabajo: normal, eje de la cota que los sitúa y ejes que contienen
 const PLANES = {
@@ -1057,6 +1134,38 @@ function makeMaterials() {
   mats.gizmo = ['#e5484d', '#30a46c', '#3e7bfa', '#d98a00'].map(ring);
   mats.gizmoPick = new THREE.MeshBasicMaterial({ visible: false });
 }
+const ARROW_CONE = new THREE.ConeGeometry(1, 1, 18);
+// Caja de un grupo: contorno, flechas para mover por ejes, esfera central para mover en el plano
+// de trabajo y anillos para girar alrededor del centro.
+function addGroupBox(g) {
+  const box = nodesBox(model, g.nodes); if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3()), R = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 60);
+  const helper = new THREE.Box3Helper(box, new THREE.Color(cssVar('--sel')));
+  helper.material.depthTest = false; helper.material.transparent = true; helper.renderOrder = 9; handles.add(helper);
+  const axes = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+  Object.entries(axes).forEach(([ax, v], i) => {
+    const dir = new THREE.Vector3(...v);
+    // flecha (unidad 1 a lo largo de +Y, girada al eje) con un cilindro invisible más grueso para cogerla
+    const arrow = new THREE.Group();
+    const shaft = new THREE.Mesh(UNIT_CYL, mats.gizmo[i]); shaft.scale.set(0.03, 0.78, 0.03); shaft.position.y = 0.39;
+    const tip = new THREE.Mesh(ARROW_CONE, mats.gizmo[i]); tip.scale.set(0.09, 0.22, 0.09); tip.position.y = 0.89;
+    const grab = new THREE.Mesh(UNIT_CYL, mats.gizmoPick); grab.scale.set(0.11, 1, 0.11); grab.position.y = 0.5;
+    for (const part of [shaft, tip, grab]) { part.userData.boxMove = { axis: ax, gid: g.id }; part.renderOrder = 11; arrow.add(part); }
+    arrow.position.copy(c); arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    arrow.userData.baseR = R * 0.8; arrow.userData.minPx = 60; arrow.scale.setScalar(arrow.userData.baseR);
+    handles.add(arrow);
+    for (const pickRing of [false, true]) {
+      const m = new THREE.Mesh(pickRing ? GIZMO_PICK : GIZMO_RING, pickRing ? mats.gizmoPick : mats.gizmo[i]);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); m.position.copy(c); m.renderOrder = 11;
+      m.userData.baseR = R * (1.05 + i * 0.08); m.userData.minPx = 78 + i * 6; m.scale.setScalar(m.userData.baseR);
+      m.userData.boxRot = { axis: ax, gid: g.id };
+      handles.add(m);
+    }
+  });
+  const pan = new THREE.Mesh(UNIT_SPH, mats.handle);
+  pan.position.copy(c); pan.renderOrder = 12; pan.userData.baseR = R * 0.07; pan.userData.minPx = 8; pan.scale.setScalar(pan.userData.baseR);
+  pan.userData.boxPan = { gid: g.id }; handles.add(pan);
+}
 const GIZMO_RING = new THREE.TorusGeometry(1, 0.035, 8, 72);
 const GIZMO_PICK = new THREE.TorusGeometry(1, 0.16, 6, 48);
 function cylinder(start, dir, length, radius, mat, pick) {
@@ -1109,7 +1218,7 @@ function rebuild(live = false) {
   for (const s of analysis.segs.values()) {
     if (s.Le < 1e-6) continue;
     const A = analysis.nodes.get(s.a).pos;
-    const isSel = sel && sel.type === 'seg' && sel.id === s.id;
+    const isSel = isSelected('seg', s.id) || (sel && sel.type === 'seg' && sel.id === s.id);
     const status = s.errors.length ? 'err' : s.warnings.length ? 'warn' : '';
     let text = '';
     if (state.dims === 'both') text = `${fmt(s.Lr)}<small>ejes ${fmt(s.Le)}</small>`;
@@ -1131,7 +1240,7 @@ function rebuild(live = false) {
 
   // Accesorios
   for (const n of analysis.nodes.values()) {
-    const isSel = sel && sel.type === 'node' && sel.id === n.id;
+    const isSel = isSelected('node', n.id) || (sel && sel.type === 'node' && sel.id === n.id);
     const allPorts = [...n.ports, ...n.open];
     const sig = [n.kind, vkey(n.pos), isSel, n.d, n.errors.length, n.open.length, ...allPorts.map(p => `${vkey(p.dir)}:${p.d}:${p.z}:${p.socket}:${F[p.d].od}`)].join('|');
     sync(cache.node, n.id, sig, () => {
@@ -1159,10 +1268,12 @@ function rebuild(live = false) {
     m.scale.setScalar(m.userData.baseR); m.position.copy(n.pos); m.renderOrder = 10;
     m.userData.handle = { nodeId, segId }; handles.add(m);
   };
-  if (sel?.type === 'seg' && analysis.segs.has(sel.id)) { const g = analysis.segs.get(sel.id); addHandle(g.a, g.id); addHandle(g.b, g.id); }
-  if (sel?.type === 'node') addHandle(sel.id, null);
+  const single = !state.group && state.multi.size <= 1;
+  if (single && sel?.type === 'seg' && analysis.segs.has(sel.id)) { const g = analysis.segs.get(sel.id); addHandle(g.a, g.id); addHandle(g.b, g.id); }
+  if (single && sel?.type === 'node') addHandle(sel.id, null);
+  if (state.group && model.groups.has(state.group) && state.tool === 'select') addGroupBox(model.groups.get(state.group));
   // Gizmo de giro: un anillo por cada eje propio del accesorio (ejes de sus bocas y perpendicular)
-  const gn = sel?.type === 'node' && analysis.nodes.get(sel.id);
+  const gn = single && sel?.type === 'node' && analysis.nodes.get(sel.id);
   if (gn && (gn.isFitting || gn.explicit) && state.tool === 'select') {
     const R = cssFitOd(F, gn.d) * 1.5;
     fittingAxes(model, analysis, gn.id).forEach((ax, i) => {
@@ -1884,22 +1995,126 @@ function rotatePlace(k) {
 // ---------- FASE 6: puntos de arrastre (alargar / contraer)
 let pending = null, drag = null, dragQueued = false;
 function pickGrab() {
-  const hits = ray.intersectObjects(handles.children, false);
-  const g = hits.find(h => h.object.userData.gizmo);
-  if (g) return { gizmo: g.object.userData.gizmo };
+  const hits = ray.intersectObjects(handles.children, true);
+  for (const k of ['boxPan', 'boxMove', 'boxRot', 'gizmo']) {
+    const h = hits.find(x => x.object.userData[k]);
+    if (h) return { [k]: h.object.userData[k] };
+  }
   const hh = hits.find(h => h.object.userData.handle);
   if (hh) return hh.object.userData.handle;
   const p = pickAny();
   return p?.type === 'node' ? { nodeId: p.id, segId: null } : null;
 }
+let lastClick = { t: 0, x: 0, y: 0 };
 viewport.addEventListener('pointerdown', e => {
   if (e.button !== 0 || state.tool !== 'select' || e.target !== renderer.domElement) return;
   setRay(e);
+  // doble clic (y arrastrar) o rectángulo armado: selección por rectángulo
+  const dbl = performance.now() - lastClick.t < 350 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 8;
+  if (dbl || state.rectArmed) { e.stopPropagation(); startRect(e); return; }
   const h = pickGrab(); if (!h) return;
   e.stopPropagation(); // la cámara no gira mientras se arrastra
   if (h.gizmo) { startRotate(h.gizmo); return; }
-  pending = { ...h, x: e.clientX, y: e.clientY };
+  if (h.boxMove || h.boxPan || h.boxRot) { startBox(h); return; }
+  pending = { ...h, x: e.clientX, y: e.clientY, add: e.shiftKey, single: e.ctrlKey || e.metaKey };
 }, { capture: true });
+
+// ---------- rectángulo de selección (doble clic y arrastrar)
+let rectSel = null;
+function startRect(e) {
+  rectSel = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, add: e.shiftKey };
+  controls.enabled = false; drawRect();
+}
+function drawRect() {
+  const el = $('#selrect'), vr = viewport.getBoundingClientRect();
+  const x = Math.min(rectSel.x0, rectSel.x1) - vr.left, y = Math.min(rectSel.y0, rectSel.y1) - vr.top;
+  el.style.display = 'block'; el.style.left = x + 'px'; el.style.top = y + 'px';
+  el.style.width = Math.abs(rectSel.x1 - rectSel.x0) + 'px'; el.style.height = Math.abs(rectSel.y1 - rectSel.y0) + 'px';
+  el.classList.toggle('crossing', rectSel.x1 < rectSel.x0);
+}
+function endRect() {
+  const r = rectSel; rectSel = null; controls.enabled = true; $('#selrect').style.display = 'none';
+  if (Math.hypot(r.x1 - r.x0, r.y1 - r.y0) < 5) { // doble clic sin arrastrar: el siguiente arrastre dibuja el rectángulo
+    state.rectArmed = true; status('Rectángulo de selección: arrastra · hacia la derecha selecciona lo que queda dentro, hacia la izquierda lo que toca · Esc cancela');
+    return;
+  }
+  state.rectArmed = false;
+  const cr = renderer.domElement.getBoundingClientRect();
+  const minx = Math.min(r.x0, r.x1) - cr.left, maxx = Math.max(r.x0, r.x1) - cr.left, miny = Math.min(r.y0, r.y1) - cr.top, maxy = Math.max(r.y0, r.y1) - cr.top;
+  const inside = s => s.x >= minx && s.x <= maxx && s.y >= miny && s.y <= maxy;
+  const crossing = r.x1 < r.x0, picks = [];
+  for (const g of analysis.segs.values()) {
+    const A = analysis.nodes.get(g.a).pos, B = analysis.nodes.get(g.b).pos;
+    const hit = crossing ? Array.from({ length: 11 }, (_, i) => inside(toScreen(A.clone().lerp(B, i / 10)))).some(Boolean) : inside(toScreen(A)) && inside(toScreen(B));
+    if (hit) picks.push({ type: 'seg', id: g.id });
+  }
+  for (const n of analysis.nodes.values()) if ((n.isFitting || n.explicit || n.kind === 'invalid') && inside(toScreen(n.pos))) picks.push({ type: 'node', id: n.id });
+  // los grupos se seleccionan enteros (son unidades)
+  const all = new Map(r.add ? state.multi : []);
+  for (const p of picks) { const g = groupOfPick(p); for (const q of g ? groupPicks(g) : [p]) all.set(selKey(q), q); }
+  const list = [...all.values()];
+  setSelection(list, list[0] || null, exactGroup(list));
+  status(`${list.length} elemento${list.length === 1 ? '' : 's'} seleccionado${list.length === 1 ? '' : 's'} (${crossing ? 'que tocan el rectángulo' : 'dentro del rectángulo'})`);
+}
+
+// ---------- caja de grupo: mover por ejes, mover en el plano de trabajo y girar
+let boxOp = null;
+function startBox(h) {
+  const kind = h.boxMove ? 'move' : h.boxPan ? 'pan' : 'rot', info = h.boxMove || h.boxPan || h.boxRot;
+  const before = model.beginLive();
+  const detached = isolateGroup(model, info.gid); // el grupo se mueve como pieza independiente
+  const g = model.groups.get(info.gid);
+  const center = nodesBox(model, g.nodes).getCenter(new THREE.Vector3());
+  boxOp = { kind, gid: info.gid, before, detached, orig: snapshotNodes(model, g.nodes), center, changed: false };
+  if (kind === 'move') {
+    boxOp.axis = AXES[info.axis]; boxOp.axisName = info.axis; boxOp.t0 = rayLineParam(center, boxOp.axis);
+    if (boxOp.t0 === null) { model.cancelLive(before); boxOp = null; status('Esa flecha se ve de punta: gira la vista'); return; }
+  } else if (kind === 'pan') {
+    boxOp.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(PLANES[state.wp].normal, center);
+    boxOp.p0 = ray.ray.intersectPlane(boxOp.plane, new THREE.Vector3());
+    if (!boxOp.p0) { model.cancelLive(before); boxOp = null; return; }
+  } else {
+    boxOp.axis = AXES[info.axis]; boxOp.axisName = info.axis;
+    const c = toScreen(center); boxOp.c = c; boxOp.prev = Math.atan2(-(mouse.y - c.y), mouse.x - c.x); boxOp.acc = 0;
+    boxOp.sign = camera.position.clone().sub(center).dot(boxOp.axis) >= 0 ? 1 : -1;
+  }
+  if (detached) model.emit(true);
+  controls.enabled = false; renderer.domElement.style.cursor = 'grabbing';
+}
+function updateBox() {
+  const o = boxOp, step = state.snap, M = new THREE.Matrix4();
+  let tip = '';
+  if (o.kind === 'move') {
+    const t = rayLineParam(o.center, o.axis); if (t === null) return;
+    const d = Math.round((t - o.t0) / step) * step;
+    M.makeTranslation(o.axis.x * d, o.axis.y * d, o.axis.z * d); o.changed = d !== 0;
+    tip = `Mover Δ${o.axisName.toUpperCase()} <b>${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))}</b> mm`;
+  } else if (o.kind === 'pan') {
+    const p = ray.ray.intersectPlane(o.plane, new THREE.Vector3()); if (!p) return;
+    const dv = p.sub(o.p0); for (const k of ['x', 'y', 'z']) dv[k] = Math.round(dv[k] / step) * step;
+    dv[PLANES[state.wp].axis] = 0;
+    M.makeTranslation(dv.x, dv.y, dv.z); o.changed = dv.lengthSq() > 0;
+    tip = `Mover en el plano ${PLANES[state.wp].name}: <b>${deltaText(dv.clone().normalize(), dv.length()) || '0'}</b>`;
+  } else {
+    const a = Math.atan2(-(mouse.y - o.c.y), mouse.x - o.c.x);
+    let d = a - o.prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+    o.acc += d; o.prev = a;
+    const st = THREE.MathUtils.degToRad(state.angStep), ang = Math.round(o.acc * o.sign / st) * st;
+    M.makeTranslation(o.center.x, o.center.y, o.center.z).multiply(new THREE.Matrix4().makeRotationAxis(o.axis, ang)).multiply(new THREE.Matrix4().makeTranslation(-o.center.x, -o.center.y, -o.center.z));
+    o.changed = ang !== 0;
+    tip = `Girar <b>${fmt(THREE.MathUtils.radToDeg(ang))}°</b> sobre ${o.axisName.toUpperCase()} (pasos de ${state.angStep}°)`;
+  }
+  transformNodes(model, o.orig, M);
+  model.emit(true);
+  setTip(tip + (o.detached ? `<br><small>${o.detached} tubo${o.detached > 1 ? 's' : ''} de fuera del grupo se separa${o.detached > 1 ? 'n' : ''}</small>` : ''));
+}
+function endBox() {
+  const o = boxOp; boxOp = null;
+  controls.enabled = true; renderer.domElement.style.cursor = ''; setTip('');
+  if (!o.changed) { model.cancelLive(o.before); return; }
+  model.commitLive(o.before, o.kind === 'rot' ? 'Girar grupo' : 'Mover grupo');
+  status((o.kind === 'rot' ? 'Grupo girado' : 'Grupo movido') + (o.detached ? ` · ${o.detached} tubo${o.detached > 1 ? 's' : ''} separado${o.detached > 1 ? 's' : ''}` : ''));
+}
 
 // ---------- giro de accesorios (gizmo de anillos y teclas R / E / W)
 const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
@@ -1972,7 +2187,7 @@ function startDrag(e) {
     set: movingSet(model, segId, n.id).nodes.map(id => [id, [...model.nodes.get(id).pos]]),
     before: model.beginLive(),
   };
-  if (!pending.segId) state.selected = { type: 'node', id: n.id };
+  if (!pending.segId && !isSelected('node', n.id)) { state.selected = { type: 'node', id: n.id }; state.multi = new Map([['node:' + n.id, state.selected]]); state.group = null; }
   controls.enabled = false; renderer.domElement.style.cursor = 'grabbing'; pending = null;
 }
 function applyDrag() {
@@ -1997,14 +2212,21 @@ function endDrag() {
   else { rebuild(); renderProps(); }
 }
 addEventListener('pointermove', e => {
+  if (rectSel) { rectSel.x1 = e.clientX; rectSel.y1 = e.clientY; drawRect(); return; }
+  if (boxOp) { setRay(e); updateBox(); return; }
   if (rot) { setRay(e); updateRotate(); return; }
   if (pending && !drag && Math.hypot(e.clientX - pending.x, e.clientY - pending.y) > 4) startDrag(e);
   if (drag) { setRay(e); if (!dragQueued) { dragQueued = true; requestAnimationFrame(applyDrag); } }
 });
 addEventListener('pointerup', e => {
+  if (rectSel) { endRect(); return; }
+  if (boxOp) { endBox(); return; }
   if (rot) { endRotate(); return; }
   if (drag) { setRay(e); applyDrag(); endDrag(); }
-  else if (pending) { if (!pending.segId) select({ type: 'node', id: pending.nodeId }); }
+  else if (pending) {
+    if (!pending.segId) select({ type: 'node', id: pending.nodeId }, { add: pending.add, single: pending.single });
+    lastClick = { t: performance.now(), x: e.clientX, y: e.clientY };
+  }
   pending = null;
 });
 
@@ -2016,10 +2238,11 @@ renderer.domElement.addEventListener('pointerup', e => {
   downAt = null; setRay(e);
   if (state.tool === 'draw') return drawClick();
   if (state.tool === 'place') return placeClick();
-  select(pickAny());
+  lastClick = { t: performance.now(), x: e.clientX, y: e.clientY };
+  select(pickAny(), { add: e.shiftKey, single: e.ctrlKey || e.metaKey });
 });
 renderer.domElement.addEventListener('pointermove', e => {
-  if (drag || rot) return;
+  if (drag || rot || boxOp || rectSel) return;
   setRay(e);
   if (e.buttons) { showXYZ(planePoint()); return; }
   if (state.tool === 'draw') updateDraw();
@@ -2031,11 +2254,90 @@ renderer.domElement.addEventListener('pointermove', e => {
     renderer.domElement.style.cursor = g ? 'grab' : pickAny() ? 'pointer' : '';
   }
 });
-renderer.domElement.addEventListener('pointerleave', () => { if (!drag) { setTip(''); if (state.tool !== 'select') { overlay.clear(); requestRender(); } } });
+renderer.domElement.addEventListener('pointerleave', () => { if (!drag && !boxOp && !rot) { setTip(''); if (state.tool !== 'select') { overlay.clear(); requestRender(); } } });
 renderer.domElement.addEventListener('dblclick', () => { if (state.tool === 'draw') finishDraw(); });
-function select(pick) { state.selected = pick; rebuild(); renderProps(); }
+// ---------- selección (simple, múltiple con Mayús, por grupos y por rectángulo)
+const selKey = p => p.type + ':' + p.id;
+const isSelected = (type, id) => state.multi.has(type + ':' + id);
+const groupOfPick = p => p.type === 'seg' ? model.groupWithSeg(p.id) : model.groupWithNode(p.id);
+const groupPicks = g => [...g.segs.map(id => ({ type: 'seg', id })), ...g.nodes.map(id => ({ type: 'node', id }))];
+function exactGroup(list) { // la selección coincide exactamente con un grupo
+  for (const g of model.groups.values()) {
+    const keys = new Set(groupPicks(g).map(selKey));
+    if (keys.size === list.length && list.every(p => keys.has(selKey(p)))) return g.id;
+  }
+  return null;
+}
+function setSelection(picks, primary = null, group = null) {
+  state.multi = new Map(picks.map(p => [selKey(p), p]));
+  state.selected = primary ?? picks[0] ?? null;
+  state.group = group;
+  rebuild(); renderProps();
+}
+// add: Mayús (añade o quita) · single: Ctrl (una pieza dentro de un grupo)
+function select(pick, { add = false, single = false } = {}) {
+  if (!pick) { if (!add) setSelection([]); return; }
+  const g = !single && groupOfPick(pick);
+  const items = g ? groupPicks(g) : [pick];
+  if (!add) { setSelection(items, pick, g ? g.id : null); return; }
+  const m = new Map(state.multi), allIn = items.every(i => m.has(selKey(i)));
+  for (const i of items) { if (allIn) m.delete(selKey(i)); else m.set(selKey(i), i); }
+  const list = [...m.values()];
+  setSelection(list, allIn ? list[0] || null : pick, exactGroup(list));
+}
+function selectedIds() {
+  const picks = state.multi.size ? [...state.multi.values()] : state.selected ? [state.selected] : [];
+  const segs = picks.filter(p => p.type === 'seg' && model.segments.has(p.id)).map(p => p.id);
+  const nodes = picks.filter(p => p.type === 'node' && model.nodes.has(p.id)).map(p => p.id);
+  return { picks, segs, nodes };
+}
+function groupSelection() {
+  const { segs, nodes } = selectedIds();
+  if (segs.length + nodes.length < 2) { status('Selecciona al menos dos elementos (Mayús+clic o rectángulo con doble clic) para agrupar'); return; }
+  const allNodes = new Set(nodes); for (const id of segs) { const s = model.segments.get(id); allNodes.add(s.a); allNodes.add(s.b); }
+  const gid = model.transact('Agrupar', () => model.addGroup([...allNodes], segs));
+  const g = model.groups.get(gid); setSelection(groupPicks(g), null, gid);
+  status(`${g.name} creado: ${g.segs.length} tubos · muévelo con las flechas de la caja y gíralo con los anillos`);
+}
+function ungroupSelection() {
+  if (!state.group) { status('Selecciona un grupo para desagruparlo'); return; }
+  const name = model.groups.get(state.group)?.name, picks = [...state.multi.values()];
+  model.transact('Desagrupar', () => { model.groups.delete(state.group); });
+  setSelection(picks, null, null); status(`${name} desagrupado`);
+}
+function duplicateSelection() {
+  const { segs, nodes } = selectedIds();
+  if (!segs.length && !nodes.length) { status('Selecciona lo que quieres duplicar'); return; }
+  const all = new Set(nodes); for (const id of segs) { const s = model.segments.get(id); all.add(s.a); all.add(s.b); }
+  const size = nodesBox(model, [...all]).getSize(new THREE.Vector3());
+  const ax = state.wp === 'yz' ? 'y' : 'x', off = new THREE.Vector3(); off[ax] = Math.ceil((size[ax] + 300) / 100) * 100;
+  const src = state.group && model.groups.get(state.group);
+  const gid = model.transact('Duplicar', () => {
+    const r = duplicateItems(model, nodes, segs, off);
+    return model.addGroup(r.nodes, r.segs, src ? `${src.name} (copia)` : `Copia ${model.groups.size + 1}`);
+  });
+  const g = model.groups.get(gid); setSelection(groupPicks(g), null, gid);
+  status(`Duplicado como ${g.name}, desplazado ${fmt(off[ax])} mm en ${ax.toUpperCase()} · muévelo con la caja`);
+}
+function selectAll() {
+  setSelection([...[...analysis.segs.keys()].map(id => ({ type: 'seg', id })), ...[...analysis.nodes.values()].filter(n => n.isFitting || n.explicit).map(n => ({ type: 'node', id: n.id }))]);
+  status(`${state.multi.size} elementos seleccionados`);
+}
 
 function deleteSelection() {
+  if (state.multi.size > 1) { // varios elementos (o un grupo): tubos y accesorios; los tubos externos quedan sueltos
+    const { segs, nodes } = selectedIds();
+    model.transact('Borrar selección', () => {
+      for (const id of segs) if (model.segments.has(id)) model.removeSegment(id);
+      for (const id of nodes) {
+        if (!model.nodes.has(id)) continue;
+        const n = analyze(model).nodes.get(id);
+        if (n.ports.length) deleteFitting(model, id); else model.nodes.delete(id);
+      }
+    });
+    status(`${segs.length} tubo${segs.length === 1 ? '' : 's'} y los accesorios seleccionados borrados`);
+    setSelection([]); return;
+  }
   const s = state.selected; if (!s) return;
   const n = s.type === 'node' && analysis.nodes.get(s.id);
   const isEnd = n && n.kind === 'end' && !n.explicit;
@@ -2047,19 +2349,25 @@ function deleteSelection() {
     // al quitar una derivación de una Te deducida, el tramo alineado vuelve a ser un tubo continuo
     for (const id of touched) if (model.nodes.has(id)) model.mergeThrough(id);
   });
-  state.selected = null;
+  setSelection([]);
   status(s.type === 'seg' ? 'Tubo borrado' : isEnd ? 'Tubo borrado' : 'Accesorio borrado; sus tubos quedan sueltos');
 }
 addEventListener('keydown', e => {
-  if (e.target.matches('input,select,textarea') || $('#help').open) return;
+  if (e.target?.matches?.('input,select,textarea') || $('#help').open) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
   else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); }
+  else if (mod && k === 'g') { e.preventDefault(); e.shiftKey ? ungroupSelection() : groupSelection(); }
+  else if (mod && k === 'd') { e.preventDefault(); duplicateSelection(); }
+  else if (mod && k === 'a') { e.preventDefault(); setTool('select'); selectAll(); }
   else if (mod || e.altKey) return;
   else if (k === 'shift') { mouse.shift = true; refreshPreview(); }
   else if (state.tool === 'draw' && draw.start && /^[0-9,.\-]$/.test(e.key)) { e.preventDefault(); openLenBox(e.key); }
   else if (k === 'enter' && state.tool === 'draw') finishDraw();
-  else if (k === 'escape') { if (state.tool === 'draw' && draw.start) finishDraw(); else if (state.tool !== 'select') setTool('select'); else select(null); }
+  else if (k === 'escape') {
+    if (state.rectArmed) { state.rectArmed = false; status('Rectángulo de selección cancelado'); }
+    else if (state.tool === 'draw' && draw.start) finishDraw(); else if (state.tool !== 'select') setTool('select'); else select(null);
+  }
   else if (k === 'delete') deleteSelection();
   else if (k === 's') setTool('select');
   else if (k === 'd') setTool('draw');
@@ -2083,8 +2391,32 @@ const kindLabel = n => KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : '');
 const dirName = v => !isAllowedDir(v) ? `libre (${[v.x, v.y, v.z].map(x => fmt(x, 2)).join(' · ')}) · ${fmt(THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(v.z, -1, 1))))}° en vertical` : dirNameGrid(v);
 const dirNameGrid = v => { const c = ['x', 'y', 'z'].map((a, i) => { const x = [v.x, v.y, v.z][i]; return Math.abs(x) < 1e-4 ? '' : (x > 0 ? '+' : '−') + a.toUpperCase(); }).filter(Boolean); return c.join(' ') + (c.length === 2 ? ' (45°)' : ''); };
 
+function renderGroupPanel(el) {
+  const g = state.group && model.groups.get(state.group);
+  const { segs, nodes } = selectedIds();
+  const pieces = segs.map(id => analysis.segs.get(id)).filter(Boolean);
+  const total = pieces.reduce((x, p) => x + p.Lr, 0);
+  const fits = nodes.map(id => analysis.nodes.get(id)).filter(n => n && (n.isFitting || n.explicit)).length;
+  el.innerHTML = `<h3>${g ? esc(g.name) : `${state.multi.size} elementos seleccionados`}</h3>
+    ${g ? `<table><tr><th>Nombre</th><td><input id="p-gname" type="text" value="${esc(g.name)}"></td></tr></table>` : ''}
+    <table>${row('Tubos', pieces.length, 'num')}${row('Longitud real total', fmt(total) + ' mm', 'num')}${row('Accesorios', fits, 'num')}</table>
+    <div class="btns">
+      ${g ? '<button id="p-ungroup">Desagrupar</button>' : '<button id="p-group">Agrupar</button>'}
+      <button id="p-dup">Duplicar</button>
+      <button id="p-delsel">Borrar</button>
+    </div>
+    ${g ? `<h4>Mover y girar</h4><p class="hint">Arrastra las <b>flechas</b> de la caja para moverlo por un eje (paso ${state.snap} mm), la <b>esfera central</b> para moverlo en el plano de trabajo ${PLANES[state.wp].name}, o los <b>anillos</b> para girarlo alrededor de su centro (paso ${state.angStep}°). Los tubos de fuera del grupo que lleguen a él se separan y conservan su longitud.</p>
+      <p class="hint">Ctrl+clic selecciona una pieza suelta dentro del grupo. Ctrl+D duplica · Ctrl+Mayús+G desagrupa.</p>`
+      : '<p class="hint">Mayús+clic añade o quita elementos. Ctrl+G agrupa la selección para moverla y girarla como una pieza.</p>'}`;
+  if ($('#p-gname')) { $('#p-gname').onchange = e => { const v = e.target.value.trim(); if (v) model.transact('Renombrar grupo', () => { model.groups.get(g.id).name = v; }); }; $('#p-gname').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); }; }
+  $('#p-group') && ($('#p-group').onclick = groupSelection);
+  $('#p-ungroup') && ($('#p-ungroup').onclick = ungroupSelection);
+  $('#p-dup').onclick = duplicateSelection;
+  $('#p-delsel').onclick = deleteSelection;
+}
 function renderProps() {
   const el = $('#tab-props'); const s = state.selected;
+  if (state.group || state.multi.size > 1) { renderGroupPanel(el); return; }
   if (!s || (s.type === 'seg' && !analysis.segs.has(s.id)) || (s.type === 'node' && !analysis.nodes.has(s.id))) {
     el.innerHTML = `<h3>Propiedades</h3><p class="hint">Haz clic en un tubo o accesorio para ver sus datos.</p>
       <h4>Herramientas</h4>
@@ -2129,7 +2461,7 @@ function renderProps() {
       })()}`;
     if ($('#p-connect')) $('#p-connect').onclick = () => doConnect(g.loose);
     $$('.p-join', el).forEach(b => b.onclick = () => {
-      try { model.transact('Unir tubos', () => joinSegments(model, g.id, b.dataset.o)); state.selected = { type: 'seg', id: g.id }; renderProps(); status(`Tubos unidos en ${g.id}`); }
+      try { model.transact('Unir tubos', () => joinSegments(model, g.id, b.dataset.o)); select({ type: 'seg', id: g.id }, { single: true }); status(`Tubos unidos en ${g.id}`); }
       catch (err) { status('✘ ' + err.message); }
     });
     if ($('#p-split')) $('#p-split').onclick = () => { const k = model.transact('Dividir tramo largo', () => splitLongSegment(model, g.id)); status(`Tramo dividido con ${k} manguito${k === 1 ? '' : 's'}`); };
@@ -2654,6 +2986,52 @@ function runTests() {
     const t = deltaText(new THREE.Vector3(0, 1, 1).normalize(), 250 * Math.SQRT2);
     return t === 'ΔY +250 · ΔZ +250' || t;
   });
+  // Rectángulo de 4 tubos Ø20 en XY con codos, más un tubo externo que llega a una esquina
+  const groupModel = () => {
+    const m = new Model(), N = p => m.addNode(p);
+    const a = N([0, 0, 0]), b = N([1000, 0, 0]), c = N([1000, 600, 0]), d = N([0, 600, 0]), e = N([-500, 0, 0]); // la esquina a es una Te
+    const segs = [m.addSegment(a, b, 20), m.addSegment(b, c, 20), m.addSegment(c, d, 20), m.addSegment(d, a, 20)];
+    const ext = m.addSegment(a, e, 20);
+    return { m, segs, ext, nodes: [a, b, c, d], gid: m.addGroup([a, b, c, d], segs) };
+  };
+  test('Grupos: se guardan en el proyecto y se limpian al borrar', () => {
+    const t = groupModel(), j = JSON.parse(JSON.stringify(t.m.toJSON())), m2 = new Model(); m2.load(j);
+    const ok1 = m2.groups.get(t.gid)?.segs.length === 4;
+    m2.removeSegment(t.segs[0]); m2.cleanGroups();
+    return all(ok1 || 'no se guardó', m2.groups.get(t.gid).segs.length === 3 || 'no se limpió');
+  });
+  test('Grupos: partir un tubo del grupo mete el trozo nuevo en el grupo', () => {
+    const t = groupModel(); const n = t.m.splitSegment(t.segs[0], [500, 0, 0]);
+    const g = t.m.groups.get(t.gid);
+    return all(g.segs.length === 5 || `${g.segs.length} tubos`, g.nodes.includes(n) || 'nodo');
+  });
+  test('Grupos: aislar separa los tubos externos conservando su longitud', () => {
+    const t = groupModel(); const Lr0 = analyze(t.m).segs.get(t.ext).Lr;
+    const k = isolateGroup(t.m, t.gid); const an = analyze(t.m);
+    return all(k === 1 || `${k} separados`, eq(an.segs.get(t.ext).Lr, Lr0, 'Lr externo'), [...an.nodes.values()].filter(n => n.kind === 'elbow90').length === 4 || 'codos del grupo');
+  });
+  test('Grupos: girar 90° y mover el conjunto conserva longitudes y uniones', () => {
+    const t = groupModel(); isolateGroup(t.m, t.gid);
+    const before = t.segs.map(s => analyze(t.m).segs.get(s).Lr);
+    const c = nodesBox(t.m, t.nodes).getCenter(new THREE.Vector3());
+    const M = new THREE.Matrix4().makeTranslation(500, 0, 300).multiply(new THREE.Matrix4().makeTranslation(c.x, c.y, c.z))
+      .multiply(new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2)).multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+    transformNodes(t.m, snapshotNodes(t.m, t.nodes), M);
+    const an = analyze(t.m), after = t.segs.map(s => an.segs.get(s).Lr);
+    const errs = [...an.nodes.values(), ...an.segs.values()].filter(x => x.errors.length).length;
+    return all(after.every((v, i) => near(v, before[i])) || 'longitudes', errs === 0 || 'errores', near(an.nodes.get(t.nodes[2]).pos.z - an.nodes.get(t.nodes[1]).pos.z, 600) || 'giro');
+  });
+  test('Grupos: girar un accesorio declarado gira también sus bocas', () => {
+    const m = new Model(); const n = placeFitting(m, { type: 'plane', pos: new THREE.Vector3(0, 0, 0) }, fittingTemplate('tee', 20));
+    transformNodes(m, snapshotNodes(m, [n]), new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2));
+    const open = analyze(m).nodes.get(n).open;
+    return open.some(o => near(o.dir.z, 1)) || 'la derivación no apunta a +Z';
+  });
+  test('Duplicar: copia tubos y accesorios desplazados, con las mismas longitudes', () => {
+    const t = groupModel(); const r = duplicateItems(t.m, [], t.segs, new THREE.Vector3(2000, 0, 0)); const an = analyze(t.m);
+    const Ls = r.segs.map(s => Math.round(an.segs.get(s).Lr)).sort().join(','), L0 = t.segs.map(s => Math.round(an.segs.get(s).Lr)).sort().join(',');
+    return all(r.segs.length === 4 || 'tubos', r.nodes.length === 4 || 'nodos', Ls === L0 || `${Ls} ≠ ${L0}`, near(an.nodes.get(r.nodes[0]).pos.x - an.nodes.get(t.nodes[0]).pos.x, 2000) || 'desplazamiento');
+  });
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
     const bad = [...an.nodes.values()].filter(n => n.errors.length).map(n => n.id).concat([...an.segs.values()].filter(s => s.errors.length).map(s => s.id));
@@ -2677,9 +3055,9 @@ function download(name, data, type) {
 }
 $('#b-new').onclick = () => {
   if (model.segments.size && !confirm('¿Empezar un proyecto nuevo? Podrás deshacerlo con Ctrl+Z.')) return;
-  model.transact('Nuevo proyecto', () => model.reset()); state.selected = null; fitAll(); status('Proyecto nuevo');
+  model.transact('Nuevo proyecto', () => model.reset()); setSelection([]); fitAll(); status('Proyecto nuevo');
 };
-$('#b-example').onclick = () => { model.transact('Cargar ejemplo', () => buildExample(model)); state.selected = null; setView('iso'); status('Proyecto de ejemplo cargado'); };
+$('#b-example').onclick = () => { model.transact('Cargar ejemplo', () => buildExample(model)); setSelection([]); setView('iso'); status('Proyecto de ejemplo cargado'); };
 $('#b-save').onclick = () => { download((model.name || 'proyecto').replace(/[^\w\- ]+/g, '_') + '.json', JSON.stringify(model.toJSON(), null, 1), 'application/json'); status('Proyecto guardado'); };
 $('#b-open').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
@@ -2688,13 +3066,15 @@ $('#file').onchange = async e => {
     const json = JSON.parse(await f.text());
     model.transact('Abrir ' + f.name, () => model.load(json));
     if (!json.name) model.name = f.name.replace(/\.json$/i, '');
-    state.selected = null; fitAll(); status('Abierto: ' + f.name);
+    setSelection([]); fitAll(); status('Abierto: ' + f.name);
   } catch (err) { alert('No se pudo abrir el archivo: ' + err.message); }
 };
 
 /* =====================================================================
    ARRANQUE
    ===================================================================== */
+$('#b-group').onclick = () => state.group ? ungroupSelection() : groupSelection();
+$('#b-dup').onclick = duplicateSelection;
 $('#b-undo').onclick = doUndo; $('#b-redo').onclick = doRedo; $('#b-del').onclick = deleteSelection;
 $('#b-fit').onclick = () => fitAll();
 // Referencias a puntos (menú de tipos + interruptor general)
@@ -2745,7 +3125,13 @@ model.on((m, live) => {
   analysis = analyze(model);
   snapCache = null;
   if (!live) state.cut = computeCutlist(model, analysis);
-  if (state.selected && !(state.selected.type === 'seg' ? analysis.segs.has(state.selected.id) : analysis.nodes.has(state.selected.id))) state.selected = null;
+  const exists = p => p.type === 'seg' ? analysis.segs.has(p.id) : analysis.nodes.has(p.id);
+  if (state.selected && !exists(state.selected)) state.selected = null;
+  for (const [k, p] of state.multi) if (!exists(p)) state.multi.delete(k);
+  if (state.group) { // el grupo puede haber cambiado (partir tubos, separar extremos…): se refresca la selección
+    const g = model.groups.get(state.group);
+    if (!g) state.group = null; else state.multi = new Map(groupPicks(g).map(p => [selKey(p), p]));
+  }
   rebuild(live); renderProps();
   if (live) return;
   if (draw.start?.type === 'node' && !model.nodes.has(draw.start.id)) finishDraw(true);
