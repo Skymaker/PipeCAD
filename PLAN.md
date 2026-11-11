@@ -1,193 +1,289 @@
 # PipeCAD — Plan de desarrollo
 
-CAD 3D en un único archivo `index.html` (HTML + CSS + JS) para diseñar instalaciones con tubería de PVC de **Ø20, Ø32 y Ø40 mm**, con despiece optimizado en barras de 3 m.
+CAD 3D para el navegador con el que se diseñan instalaciones con tubería de PVC de **Ø20, Ø32 y Ø40 mm**. Da las longitudes reales de corte y el despiece optimizado en barras de 3 m. Incluye una biblioteca ampliable de accesorios con modelos imprimibles en 3D generados con OpenSCAD.
 
 ---
 
-## 1. Decisiones tomadas
+## 1. Decisiones de diseño
 
 | Tema | Decisión |
 |---|---|
-| Motor 3D | Three.js desde CDN (versión fijada, `importmap` + `OrbitControls`). Requiere internet al abrir. |
-| Cotas de accesorios | Valores por defecto de catálogo PVC presión encolar, **editables** en una tabla de configuración. |
-| Direcciones | Ejes X/Y/Z y diagonales a 45° en los planos principales (18 direcciones: 6 de ejes + 12 diagonales; se excluyen las diagonales espaciales tipo (1,1,1)). |
-| Diámetros | Se permiten cambios de diámetro mediante **manguito reductor** y **T reducida**. |
-| Forma de dibujo | **Ambos**: polilínea con accesorios automáticos (modo principal) + colocación manual de accesorios y conexión de tubos. |
-| Regla de corte | Cada pieza consume `L + 2 mm`, salvo que agote exactamente la barra (consumo = `min(L+2, resto)`). Optimización para mínimo de barras. |
-| Exportación | Proyecto JSON (guardar/abrir), despiece CSV, impresión/PDF del despiece, captura PNG. |
-| Snap de arrastre | 10 mm por defecto, ajustable (1/5/10/50/100 mm) + introducción numérica exacta. |
-
-### Supuestos adicionales (corregibles)
-- Unidades internas: 1 unidad = 1 mm. Eje **Z vertical** (convención CAD).
-- Interfaz en español. Colores por diámetro: Ø20 gris claro, Ø32 gris medio, Ø40 gris oscuro (o colores distintivos opcionales).
-- Un tramo cuya longitud real supere 3000 mm se avisa y se ofrece **dividir automáticamente con un manguito de unión** (accesorio recto). Se añade el manguito al catálogo por necesidad física.
-- La T es de 90° (no se incluye Y/T a 45°).
-- Autoguardado en `localStorage` del último proyecto.
+| Arquitectura | Páginas web estáticas sin compilación: `index.html` (PipeCAD) y `editor.html` (editor de accesorios), cada una con su HTML, CSS y JS. Los datos que no son código van en carpetas aparte: `modelos/` y `ejemplos/`. |
+| Motor 3D | Three.js 0.160 desde CDN (`importmap`, versión fijada), con `OrbitControls` y `CSS2DRenderer`. Requiere internet al abrir. |
+| Unidades y ejes | 1 unidad = 1 mm. **Eje Z vertical** (convención CAD). Interfaz en español. |
+| Diámetros | Ø20, Ø32 y Ø40. Los cambios de Ø se resuelven con **manguito reductor** y **Te reducida**. |
+| Cotas de accesorios | Valores orientativos de PVC presión encolar, **editables** y guardados en el proyecto. |
+| Direcciones | Los tubos pueden ir en **cualquier dirección**. Al dibujar se ofrecen las 18 direcciones «limpias» (6 de ejes y 12 diagonales a 45° en los planos principales) o las del sistema de ejes de un tubo inclinado. Las uniones exigen los ángulos de un accesorio disponible: 90° y 45° en los de serie, cualquier ángulo en los personalizados. |
+| Forma de dibujo | **Polilínea** con accesorios automáticos como modo principal. Además, colocación manual de accesorios (sueltos, en el extremo de un tubo o insertados en un tubo) y unión automática entre tubos. |
+| Accesorios | Seis de serie (codo 90°, codo 45°, Te, Te reducida, manguito y reductor) y personalizados descritos en el lenguaje `.pcf`. Todos se activan o desactivan en una biblioteca. |
+| Modelos 3D | Fuera del programa, en `modelos/`. Cada accesorio tiene su `.pcf`, un código **OpenSCAD** paramétrico y un STL por variante, que es un sólido único imprimible. Los STL se generan con OpenSCAD en el navegador (WebAssembly, motor Manifold). |
+| Regla de corte | En una barra caben las piezas si `ΣL + kerf·(n−1) ≤ barra`: 2 mm por corte real y nada si la última pieza agota la barra. Se optimiza para usar el mínimo de barras. |
+| Exportación | Proyecto `.json`, despiece `.csv`, impresión / PDF, captura PNG y STL de cada accesorio. |
+| Snap | 10 mm por defecto, ajustable (1/5/10/50/100 mm), y medidas exactas por teclado. |
+| Guardado de accesorios | **Servidor local** `servidor.mjs` (Node, sin dependencias, solo `127.0.0.1` por defecto) con una API para escribir en `modelos/`. Sin servidor: una carpeta elegida en Chrome o Edge, el navegador o un `.zip`. |
+| Versiones | Repositorio en GitHub (https://github.com/Skymaker/PipeCAD), un commit por cambio y publicación en GitHub Pages. |
 
 ---
 
 ## 2. Modelo geométrico (núcleo del cálculo)
 
 La instalación es un **grafo**:
-- **Nodo**: punto 3D en el eje de la tubería. Su tipo se deduce de las conexiones:
-  - 1 tubo → extremo libre
-  - 2 tubos colineales, mismo Ø → nodo interno sin accesorio (se fusiona) o manguito si se ha partido
-  - 2 tubos colineales, distinto Ø → manguito reductor
-  - 2 tubos a 90° → codo 90° · a 45° de giro (135° entre tubos) → codo 45°
-  - 3 tubos (2 colineales + 1 perpendicular) → T (o T reducida si la derivación es de otro Ø)
-  - Cualquier otra combinación → **nodo inválido** (marcado en rojo).
-- **Tramo (segmento)**: une dos nodos, tiene diámetro.
+
+- **Nodo** `{id, pos, fit?}`: punto 3D en el eje de la tubería. Si no tiene accesorio declarado (`fit`), su tipo se deduce de los tubos que llegan:
+  - 1 tubo → extremo libre;
+  - 2 tubos colineales del mismo Ø → manguito; de distinto Ø → reductor;
+  - 2 tubos a 90° → codo 90°; con un giro de 45° (135° entre tubos) → codo 45°;
+  - 3 tubos (2 colineales + 1 perpendicular) → Te, o Te reducida si la derivación es de otro Ø;
+  - mismos ángulos y Ø que un accesorio personalizado de la biblioteca → ese accesorio (por ejemplo, cuatro tubos a 90° → «Cruz 90°»);
+  - cualquier otra combinación → **nodo no válido** (en rojo).
+- **Accesorio declarado** (`node.fit`): tiene tipo, variante, Ø exterior y sus bocas (dirección, Ø, Z, embocadura y ejes locales). Puede tener bocas libres y existir sin tubos. El proyecto guarda las medidas de los personalizados, así que se abre igual aunque falte la biblioteca.
+- **Tramo** `{id, a, b, d}`: une dos nodos y tiene un Ø.
+- **Grupo** `{id, name, nodes, segs}`: conjunto de piezas que se seleccionan, mueven y giran juntas.
 
 **Longitudes**
-- Medida a ejes: `Le = |B − A|`
-- Longitud real de corte: `Lr = Le − Z(accesorio A, boca) − Z(accesorio B, boca)`
-  - `Z` = distancia del centro del accesorio al tope de la embocadura (donde llega el tubo). Extremo libre: `Z = 0`.
-- Validaciones: `Lr > 0` (y mínimo configurable, p. ej. 10 mm de tubo visto entre accesorios); `Lr ≤ 3000` o aviso de manguito.
 
-**Cotas por defecto (mm, editables)** — valores orientativos:
+- Medida a ejes: `Le = |B − A|`.
+- Longitud real de corte: `Lr = Le − Z(accesorio A, boca) − Z(accesorio B, boca)`, donde `Z` es la distancia del centro del accesorio al tope de la embocadura. En un extremo libre, `Z = 0`.
+- Validaciones:
+  - `Lr` debe superar el tubo visto mínimo (10 mm, configurable);
+  - si `Lr` supera la barra, se avisa y se ofrece dividir el tramo con manguitos;
+  - un extremo suelto pegado a otro nodo parece unido pero no lo está, así que se avisa y se ofrece **Conectar**.
 
-| Ø | Embocadura | Z codo 90° | Z codo 45° | Z T (todas las bocas) | Z manguito |
-|---|---|---|---|---|---|
-| 20 | 16 | 11 | 5 | 11 | 2 |
-| 32 | 22 | 17 | 8 | 17 | 2 |
-| 40 | 26 | 21 | 10 | 21 | 2 |
+**Cotas por defecto (mm, editables)**
 
-Reductores (32→20, 40→20, 40→32): Z por boca en una tabla aparte, también editable.
+| Ø | Embocadura | Ø exterior | Z codo 90° | Z codo 45° | Z Te | Z manguito |
+|---|---|---|---|---|---|---|
+| 20 | 16 | 27 | 11 | 5 | 11 | 2 |
+| 32 | 22 | 41 | 17 | 8 | 17 | 2 |
+| 40 | 26 | 50 | 21 | 10 | 21 | 2 |
+
+Los reductores (32→20, 40→20 y 40→32) y las Tes reducidas tienen su propia tabla de Z por boca, también editable.
 
 ---
 
-## 3. Fases de desarrollo
+## 3. Estructura del proyecto
 
-Cada fase termina con algo funcional y verificable en el navegador.
+```
+index.html            PipeCAD: dibujo, cálculo, despiece, biblioteca, configuración y pruebas
+editor.html           Editor de accesorios (formulario → .pcf + OpenSCAD → STL)
+servidor.mjs          Servidor local con API para guardar accesorios
+iniciar-servidor.bat  / iniciar-servidor.sh   arranque con doble clic o desde la terminal
+ejemplos/ejemplo.json Proyecto de ejemplo
+modelos/
+  catalogo.json       Lista de accesorios (de serie y personalizados) y plantillas
+  pipecad.scad        Librería OpenSCAD común: accesorio_pipecad(bocas, variantes, variante, holgura)
+  serie/              Los 6 de serie: .pcf, .scad y un STL por variante
+  personalizados/     Accesorios propios (cruz90, codo30…)
+  plantillas/         Plantillas del editor (.pcf)
+```
 
-### Fase 0 — Andamiaje
-- `index.html` con `importmap` a Three.js (versión fijada) y estructura: barra de herramientas superior, visor 3D central, panel lateral (propiedades / despiece / configuración), barra de estado.
-- CSS con variables (tema claro/oscuro), layout responsive básico.
-- Organización del JS en módulos lógicos dentro del archivo: `Catalog`, `Model`, `FittingEngine`, `Renderer`, `Tools`, `UI`, `Cutlist`, `IO`.
-- ✅ Criterio: la página carga, muestra el visor vacío y los paneles.
+---
+
+## 4. Fases de desarrollo
+
+Cada fase termina con algo que funciona y se puede comprobar en el navegador. Las pruebas del motor se acumulan fase a fase.
+
+### Fase 0 — Andamiaje y repositorio
+- `index.html` con `importmap` a Three.js y esta estructura: barra superior, menú lateral, visor 3D, panel con pestañas y barra de estado.
+- CSS con variables (tema claro u oscuro según el sistema) y diseño adaptable.
+- JS en módulos lógicos dentro del archivo: catálogo, modelo, motor de accesorios, representación, herramientas, interfaz, despiece, archivo y biblioteca.
+- Repositorio en GitHub, publicación en GitHub Pages y un commit por cambio.
+- ✅ Criterio: la página carga con el visor vacío y los paneles.
 
 ### Fase 1 — Escena y navegación
-- Rejilla en mm (con subdivisiones según zoom), ejes coloreados, plano de trabajo.
-- Cámara perspectiva/ortográfica conmutables; órbita, pan, zoom (OrbitControls).
-- Vistas predefinidas: planta, alzado, perfil, isométrica; "encuadrar todo".
-- Indicador de coordenadas del cursor en la barra de estado.
-- ✅ Criterio: navegación fluida y lectura de coordenadas correcta.
+- Rejilla en mm, ejes de colores y órbita, desplazamiento y zoom.
+- **Cubo de vistas** achaflanado, que se arrastra para orbitar. Tiene 6 caras, 12 planos de arista a 45° y 8 vértices isométricos, cada zona se resalta y se pulsa para ir a esa vista con animación. Incluye el interruptor isométrica / perspectiva y «encuadrar todo».
+- **Gizmo de planos de trabajo**: tres planos XY, XZ e YZ que se cortan, cada uno con su cota editable. Fijan la rejilla, los puntos en el vacío y la orientación inicial de los accesorios.
+- La barra de estado muestra X, Y, Z del punto que se marca.
+- ✅ Criterio: navegación fluida y coordenadas correctas en los tres planos.
 
 ### Fase 2 — Modelo de datos y deshacer
-- Clases `Node`, `Segment`, `Project` con IDs estables; independientes del render.
-- Patrón comando para **deshacer/rehacer** (Ctrl+Z / Ctrl+Y).
-- Serialización a JSON (versión de formato incluida).
-- Eventos de cambio del modelo → re-render incremental.
-- ✅ Criterio: crear/borrar nodos y tramos por consola, deshacer/rehacer y serializar.
+- Nodos, tramos, accesorios declarados y grupos con IDs estables, independientes de la representación.
+- **Deshacer y rehacer** con instantáneas del modelo (Ctrl+Z / Ctrl+Y), más simple y robusto que el patrón comando. Edición en vivo (arrastres) agrupada en un solo paso de deshacer.
+- Serialización a JSON con versión de formato.
+- ✅ Criterio: crear y borrar desde la consola, deshacer, rehacer y serializar sin pérdidas.
 
 ### Fase 3 — Motor de accesorios
-- Clasificación automática de cada nodo (tabla de la sección 2) a partir de las direcciones y diámetros de sus tramos.
-- Orientación del accesorio (matriz de rotación desde las direcciones de sus bocas).
-- Cálculo de `Lr` de cada tramo con las cotas Z del catálogo.
-- Detección de errores: ángulos no permitidos, más de 3 conexiones, `Lr ≤ mínimo`, `Lr > 3000`.
-- ✅ Criterio: batería de casos de prueba con resultados numéricos conocidos (p. ej. tramo Ø20 de 1000 mm a ejes entre dos codos 90° → 978 mm).
+- Clasificación automática de cada nodo (sección 2), incluidos los accesorios declarados y los personalizados.
+- Orientación de cada accesorio a partir de las direcciones de sus bocas.
+- Cálculo de `Lr` con las cotas Z.
+- Detección de errores:
+  - ángulos sin accesorio;
+  - accesorio quitado de la biblioteca;
+  - demasiadas conexiones;
+  - `Lr` por debajo del mínimo o por encima de la barra;
+  - extremos sueltos pegados a otro nodo.
+- ✅ Criterio: casos con resultado conocido. Por ejemplo, un tramo de Ø20 de 1000 mm a ejes entre dos codos de 90° mide 978 mm de corte.
 
 ### Fase 4 — Representación 3D
-- Tubos: cilindros del diámetro exterior real, recortados a `Lr` (empiezan donde termina la embocadura).
-- Accesorios procedurales: codos (cuerpo curvo + 2 embocaduras), T, manguitos, reductores; algo más gruesos que el tubo.
-- Colores por diámetro, resaltado de selección y hover, nodos inválidos en rojo.
-- Etiquetas de cota opcionales (a ejes y/o real) sobre cada tramo.
-- ✅ Criterio: un circuito de ejemplo se ve correctamente ensamblado.
+- Tubos con su Ø exterior real, recortados a `Lr`.
+- Accesorios:
+  - los de serie, con forma procedural (cuerpo, embocaduras y esfera central);
+  - los personalizados, con su STL de la carpeta `modelos/`, orientado según sus bocas, y una forma simple mientras se descarga.
+- Colores por Ø, selección y paso del ratón resaltados, y nodos no válidos en rojo.
+- **Rótulos** de cotas (a ejes y/o reales) o marcas de pieza, con interruptor (botón y tecla L).
+- **Redibujado incremental** por firmas, que solo regenera lo que cambia.
+- ✅ Criterio: el proyecto de ejemplo se ve bien ensamblado.
 
-### Fase 5 — Herramientas de dibujo
-- **Polilínea**: clic a clic sobre el plano de trabajo o partiendo de un extremo existente; la dirección se ajusta a las 18 permitidas; los codos se insertan solos en cada cambio de dirección. Longitud por teclado durante el trazado. Cambio de cota vertical (tecla/modificador) y cambio de plano de trabajo.
-- Selector de diámetro activo (20/32/40).
-- **Derivación en T**: iniciar o terminar en mitad de un tramo lo parte e inserta una T (o T reducida si cambia el Ø).
-- **Colocación manual** de accesorios (codo 90, codo 45, T, manguito, reductor) con rotación en pasos de 45/90°, y conexión de tubos entre sus bocas.
-- Selección (clic, ventana), borrar, mover nodos con snap.
-- ✅ Criterio: dibujar en 3D un circuito con codos, T y reducción sin tocar ninguna cota.
+### Fase 5 — Dibujo por polilínea
+- Trazado clic a clic sobre el plano de trabajo o desde un extremo existente, con los codos insertados solos en cada cambio de dirección. La longitud se puede escribir mientras se dibuja.
+- **Direcciones libres**: desde un tubo inclinado se ofrecen las direcciones de su propio sistema de ejes. Las diagonales a 45° aplican el paso al avance en cada eje, para que los tramos simétricos se encuentren.
+- **Dibujo en altura sin teclas modificadoras**: se ofrecen a la vez direcciones horizontales, verticales e inclinadas, y gana la más cercana al ratón. Mayús restringe a tramos que suben o bajan.
+- **Puntos de referencia** activables por tipo y en bloque (botón / F3): extremos, mitad, tercios, cuartos y centros de accesorio.
+- Empezar o terminar sobre un tubo lo parte e inserta una Te, o una Te reducida si cambia el Ø. Prolongar en línea fusiona los tramos.
+- **Unión automática**: al pasar sobre otro tubo se propone el tramo perpendicular (o la perpendicular común si no son paralelos) y las Tes quedan giradas el ángulo necesario.
+- Selector de Ø activo.
+- ✅ Criterio: dibujar en 3D un circuito con codos, Tes y reducciones sin escribir ninguna cota.
 
-### Fase 6 — Puntos de arrastre (alargar / contraer)
-- Manejadores visibles en extremos libres y nodos de accesorio del elemento seleccionado.
-- Arrastre restringido al eje del tramo: alarga/acorta con el snap configurado; los accesorios y el resto de la red conectada se desplazan rígidamente cuando corresponde.
-- Indicador en vivo durante el arrastre: medida a ejes y longitud real.
-- Bloqueo al llegar al mínimo físico (accesorios en contacto).
-- ✅ Criterio: arrastrar un tramo entre dos codos actualiza geometría y longitudes en tiempo real.
+### Fase 6 — Accesorios manuales, giros y uniones
+- Herramienta **Accesorio**: se coloca suelto, en el extremo de un tubo o insertado en un tubo, que queda partido en dos sin duplicar piezas. Toma el Ø del tubo; el reductor cambia el Ø del tramo del lado menor.
+- **Gizmo de giro** sobre los ejes propios del accesorio (los de sus bocas y su perpendicular). El paso angular se configura (1/5/15/45/90°) y también se puede escribir un giro exacto; además, teclas R/E/W. Los tubos que dejan de coincidir con una boca se separan y conservan su longitud real.
+- **Unir tubos** alineados del mismo Ø en uno solo, quitando el manguito o cerrando el hueco.
+- **Conectar** un extremo suelto pegado a un nodo: alarga el tubo o desplaza el accesorio a lo largo de su tubo.
+- Borrar un accesorio deja sus tubos sueltos.
+- ✅ Criterio: colocar, girar e insertar accesorios en tubos con cualquier dirección sin descuadrar las longitudes.
 
-### Fase 7 — Panel de propiedades
-- Tramo: Ø, medida a ejes (editable), longitud real (editable → recalcula a ejes), nodos extremos.
-- Accesorio: tipo, Ø de cada boca, Z aplicadas, posición.
-- Edición numérica exacta con validación y deshacer.
-- ✅ Criterio: introducir 1500 mm a ejes produce la longitud real esperada.
+### Fase 7 — Selección múltiple y grupos
+- Mayús+clic añade o quita piezas y Ctrl+A selecciona todo.
+- Rectángulo con doble clic y arrastre: hacia la derecha selecciona lo que queda dentro; hacia la izquierda, lo que cruza.
+- **Grupos** guardados en el proyecto (Ctrl+G / Ctrl+Mayús+G). Al pulsar un miembro se selecciona el grupo; con Ctrl+clic, una pieza suelta. Se desagrupan desde la lista de Propiedades.
+- **Caja de grupo** con tamaño fijo en pantalla: flechas para mover por un eje, esfera para mover en el plano de trabajo y anillos para girar. Los tubos externos se separan conservando su longitud.
+- **Duplicar** (Ctrl+D), **espejo** horizontal y vertical, y borrado múltiple.
+- ✅ Criterio: mover, girar, duplicar y reflejar una estructura agrupada sin romper sus uniones internas.
 
-### Fase 8 — Despiece y optimización de corte
-- Recopilar todas las `Lr` por diámetro (redondeo a mm entero, configurable).
-- Tramos > 3000 mm: aviso y división con manguito.
-- Algoritmo de empaquetado: First-Fit Decreasing + mejora local (best-fit / intercambio) con la regla de corte `consumo = min(L+2, resto)`.
-- Resultados: nº de barras por Ø, esquema gráfico de cada barra (piezas, cortes, sobrante), aprovechamiento %, lista de retales, tabla de accesorios por tipo y Ø, identificación de cada pieza (etiqueta que se ve también en el 3D).
-- ✅ Criterio: casos de prueba verificados, p. ej.: 2 × 1499 mm → 1 barra (1501 + 1499 = 3000); 2 × 1500 mm → 2 barras (tras el primer corte quedan 1498 mm).
+### Fase 8 — Puntos de arrastre y propiedades
+- Puntos de arrastre en los extremos y accesorios de lo seleccionado. Se arrastran a lo largo del eje del tramo con snap, y lo conectado detrás se desplaza en bloque; en circuitos cerrados se estira por el plano medio. Mientras se arrastra se ven la medida a ejes y la real, y no se puede pasar del mínimo físico.
+- Panel de propiedades:
+  - tramo: Ø, medida a ejes y longitud real editables, y qué extremo se mueve;
+  - accesorio: tipo, bocas, Z, posición y giro exacto.
+- ✅ Criterio: arrastrar un tramo entre dos codos, o escribir 1500 mm a ejes, da la longitud real esperada.
 
-### Fase 9 — Guardar y exportar
-- Guardar/abrir proyecto `.json`; nuevo proyecto; autoguardado en `localStorage`.
-- Despiece a `.csv` (separador `;`, compatible con Excel en español).
-- Hoja de impresión del despiece (CSS `@media print`) → imprimir o guardar como PDF.
-- Captura PNG del visor.
-- ✅ Criterio: guardar, recargar y obtener el mismo modelo y despiece.
+### Fase 9 — Despiece y optimización de corte
+- Longitudes reales por Ø, redondeadas a mm.
+- Tramos más largos que la barra: división automática con manguitos (barras enteras y un resto ≥ 300 mm).
+- Empaquetado por **Best-Fit Decreasing** con vaciado de barras, aplicando la regla de corte de la sección 1.
+- Resultados:
+  - barras por Ø y mínimo teórico;
+  - esquema gráfico de cada barra, con cortes y retal;
+  - aprovechamiento;
+  - accesorios por tipo y Ø;
+  - **marcas de pieza**, que también se ven en el 3D.
+- ✅ Criterio: casos verificados. 2 × 1499 mm caben en 1 barra (1499 + 2 + 1499 = 3000); 2 × 1500 mm necesitan 2 barras.
 
-### Fase 10 — Configuración
-- Tabla editable de cotas Z y embocaduras por accesorio y Ø (incluidos reductores), con botón "restaurar valores por defecto"; se guarda dentro del proyecto.
-- Longitud de barra (3000) y grosor de corte (2) editables.
-- Paso de snap, unidades de visualización, mostrar/ocultar cotas.
+### Fase 10 — Guardar y exportar
+- Proyecto `.json`: nuevo, abrir y guardar, con autoguardado en el navegador.
+- Despiece `.csv` (separador `;`, coma decimal, UTF-8 con BOM para Excel en español).
+- Impresión / PDF del despiece con la imagen de la vista, y captura PNG con cotas.
+- ✅ Criterio: guardar, volver a abrir y obtener el mismo modelo y el mismo despiece.
+
+### Fase 11 — Configuración y ajustes
+- Pestaña **Configuración**, guardada en el proyecto:
+  - barra, corte y tubo visto mínimo;
+  - tabla de Z, embocaduras y Ø exteriores;
+  - reductores y Tes reducidas;
+  - nombre del proyecto y botón para restaurar los valores por defecto.
+- Desde ahí también se ejecutan las **pruebas del motor**.
+- **Ajustes** de la interfaz, guardados en el navegador: mostrar u ocultar «Ejemplo» y tamaño del cubo de vistas y del gizmo de planos (de 120 a 240 px).
 - ✅ Criterio: cambiar una Z recalcula longitudes y despiece al instante.
 
-### Fase 11 — Pruebas, ejemplo y pulido
-- Proyecto de ejemplo precargable.
-- Pruebas integradas (`?test` en la URL) del motor de accesorios y del despiece.
-- Atajos de teclado, ayuda rápida, mensajes de error claros.
-- Revisión de rendimiento con cientos de tramos.
+### Fase 12 — Biblioteca y lenguaje `.pcf`
+- Pestaña **Biblioteca**: cada accesorio (de serie o de la carpeta) se activa o desactiva con una casilla; un nudo que necesite uno desactivado se marca como no válido. Descarga del `.pcf` y del STL de cada variante.
+- **Lenguaje `.pcf`**:
+  - `ACCESORIO`, `NOMBRE` y `DESCRIPCION`;
+  - `BOCA n x y z`;
+  - `VARIANTE v DIAMETROS … Z … EMBOCADURA … [PASO …] EXTERIOR e`;
+  - `MODELO v archivo.stl`.
+
+  Los errores indican la línea. La pestaña incluye una guía y una plantilla descargable.
+- Los personalizados se reconocen solos en un nudo con los mismos ángulos y Ø, y se colocan, giran e insertan como los de serie.
+- «Cargar accesorio…» acepta `.pcf`, `.stl` y `.scad`. Con el servidor se copian a la carpeta; sin él, se guardan en el navegador y se pueden pasar a la carpeta más tarde.
+- ✅ Criterio: un accesorio cargado desde `.pcf` calcula bien sus longitudes y el proyecto se abre igual sin la biblioteca.
+
+### Fase 13 — Carpeta de modelos y STL imprimibles
+- `modelos/catalogo.json` con el `.pcf`, el `.scad` y un STL por variante de cada accesorio, más las plantillas.
+- **Librería OpenSCAD** `pipecad.scad`. Cada accesorio es un sólido único:
+  - cuerpo de cada boca;
+  - embocaduras taladradas al Ø del tubo más la holgura;
+  - **paso interior** de boca a boca, unido en una cámara central si las bocas no están alineadas.
+
+  Cada `.scad` usa la librería con `use <../pipecad.scad>`, y el Personalizador de OpenSCAD permite elegir variante, holgura y `$fn`.
+- STL de los 6 accesorios de serie (18 variantes) generados con OpenSCAD.
+- PipeCAD lee el catálogo y descarga los STL al dibujar, con una forma simple mientras tanto o si no hay carpeta. Sin servidor, permite elegir la carpeta a mano.
+- ✅ Criterio: todas las variantes salen en una sola pieza, con la superficie cerrada y el paso abierto.
+
+### Fase 14 — Editor de accesorios (`editor.html`)
+- Formulario con:
+  - identificador, nombre y descripción;
+  - bocas, con dirección rápida ±X, ±Y, ±Z o un ángulo en planta;
+  - variantes (Ø, Z, embocadura, paso y Ø exterior), holgura y resolución.
+
+  Comprueba paredes de menos de 1,2 mm y bocas a menos de 30° entre sí, y muestra los ángulos entre bocas.
+- Puntos de partida: **Nuevo** (desde cero), plantillas de `modelos/plantillas/`, «Abrir…» (`.pcf` / `.scad`) o «Editar de la biblioteca…».
+- Genera el `.pcf` y el código **OpenSCAD**, que se puede editar a mano y volver a generar desde el formulario.
+- Crea los STL con **OpenSCAD 2025.01 en WebAssembly** (motor Manifold, unos 0,2 s por pieza) en un hilo aparte, con una alternativa en la propia página. Muestra la vista 3D con las bocas y la información de la malla, y avisa si la pieza no sale en una sola.
+- Descargas: `.scad` autónomo (con la librería dentro), `.stl`, `.pcf` y `.zip` con todo y un `LEEME.txt`.
+- **Guardar en PipeCAD**: por el servidor local, en una carpeta elegida (Chrome / Edge) o en el navegador. PipeCAD lo recarga al momento por `BroadcastChannel` o por el evento de almacenamiento.
+- ✅ Criterio: crear un accesorio en el editor, guardarlo e insertarlo en un tubo en PipeCAD con su STL y sus longitudes correctas.
+
+### Fase 15 — Servidor local e instalación
+- `servidor.mjs`:
+  - sirve los archivos (sin acceso a archivos ocultos ni fuera de la carpeta);
+  - `GET /api/estado`;
+  - `POST /api/accesorios`, que escribe los archivos y actualiza el catálogo de forma atómica;
+  - `DELETE /api/accesorios/<id>`;
+  - opciones `--puerto` y `--red`.
+- `iniciar-servidor.bat` y `iniciar-servidor.sh`, y `.gitattributes` para que los STL se traten como binarios.
+- README con la instalación en un ordenador: descargar, instalar Node.js, arrancar y guardar accesorios, y alternativas con otros servidores.
+- ✅ Criterio: guardar y borrar accesorios desde el editor y desde PipeCAD sin depender de GitHub.
+
+### Fase 16 — Interfaz, ayuda, ejemplo y pruebas
+- **Menú lateral** de comandos con iconos SVG, contraíble (iconos con tooltip) o expandido, con estados activo/desactivado según la selección.
+- Ayuda rápida (botón «?» / F1, que se abre sola la primera vez), atajos de teclado y mensajes de error claros.
+- **Proyecto de ejemplo** en `ejemplos/ejemplo.json`: estructura de Ø32 sobre una base de 600 × 600, con pórticos, tramos a 45° y refuerzos (31 tubos, 7 codos y 16 Tes, agrupados).
+- **Pruebas integradas** (Configuración › Pruebas del motor, o `?test`). Sin servidor, las pruebas que dependen del ejemplo se omiten.
+- Rendimiento con cientos de tramos.
+- ✅ Criterio: con 624 tramos el arrastre baja de 36 a 4 ms por fotograma y la vista se mantiene a 60 fps.
 
 ---
 
-## 4. Estado
+## 5. Estado
 
 | Fase | Estado |
 |---|---|
-| 0–4 | ✅ Hechas (`index.html`). Deshacer implementado con instantáneas del modelo en vez de comandos (más simple y robusto). 16/16 pruebas del motor superadas. |
-| 5–7 | ✅ Hechas. Dibujo por polilínea (codos automáticos, Te al empezar/terminar sobre un tubo, prolongación en línea fusiona tramos, imán a nodos/tubos sobre la línea, longitud por teclado), accesorios sueltos con tramos cortos en sus bocas (giro R/E/W), arrastre de extremos y accesorios a lo largo del eje (lo conectado detrás se desplaza en bloque; en circuitos cerrados se estira por el plano medio), panel editable (Ø, medida a ejes, longitud real, extremo que se mueve). 21/21 pruebas. |
-| 8–10 | ✅ Hechas. Despiece por Ø con regla `ΣL + kerf·(n−1) ≤ barra` (Best-Fit Decreasing + vaciado de barras), marcas de pieza (también como cotas en 3D), esquema gráfico de barras con cortes y retal, mínimo teórico, división automática de tramos > barra con manguitos (barras enteras + resto ≥ 300 mm). Exportación CSV (`;`, coma decimal, UTF-8 con BOM), impresión/PDF con imagen de la vista, PNG con cotas. Configuración editable dentro del proyecto (barra, corte, tubo visto mínimo, cotas Z, embocaduras, Ø exterior, reductores, Tes reducidas, nombre). 31/31 pruebas. |
-| 11 | ✅ Hecha. Redibujado incremental por firmas (solo se regenera lo que cambia) y formateadores numéricos cacheados: con 624 tramos el arrastre pasa de 36 a 4 ms por fotograma, un cambio completo de 88 a 37 ms, y la vista se mantiene a 60 fps. Ayuda rápida (botón «?» / F1, se abre sola la primera vez). Proyecto de ejemplo y pruebas integradas (pestaña Pruebas o `?test`). |
+| 0 Andamiaje y repositorio | ✅ |
+| 1 Escena y navegación | ✅ |
+| 2 Modelo de datos y deshacer | ✅ |
+| 3 Motor de accesorios | ✅ |
+| 4 Representación 3D | ✅ |
+| 5 Dibujo por polilínea | ✅ |
+| 6 Accesorios manuales, giros y uniones | ✅ |
+| 7 Selección múltiple y grupos | ✅ |
+| 8 Puntos de arrastre y propiedades | ✅ |
+| 9 Despiece y optimización | ✅ |
+| 10 Guardar y exportar | ✅ |
+| 11 Configuración y ajustes | ✅ |
+| 12 Biblioteca y `.pcf` | ✅ |
+| 13 Carpeta de modelos y STL imprimibles | ✅ (21 piezas de plantilla: una sola pieza, cerradas y con paso abierto; 18 de serie: una sola pieza) |
+| 14 Editor de accesorios | ✅ |
+| 15 Servidor local e instalación | ✅ |
+| 16 Interfaz, ayuda, ejemplo y pruebas | ✅ **79/79 pruebas del motor** |
 
-### Ampliaciones posteriores
+### Pendiente y limitaciones conocidas
+- El guardado en una carpeta elegida (Chrome / Edge, sin servidor) no se ha probado en un navegador real.
+- Los STL de serie usan las cotas por defecto. Si un proyecto las cambia en Configuración, PipeCAD avisa al descargarlos.
+- En GitHub Pages la carpeta `modelos/` es de solo lectura: un accesorio nuevo se añade con el servidor local y un commit.
+- La primera vez que se usa OpenSCAD en el editor se descargan unos 11 MB, que luego quedan en la caché del navegador.
 
-| Cambio | Estado |
-|---|---|
-| Accesorios declarados en el modelo (`node.fit`): pueden tener bocas libres y existir sin tubos. Los accesorios deducidos al dibujar siguen funcionando igual. | ✅ |
-| Gizmo de giro (anillos X/Y/Z en pasos de 45°) y teclas R/E/W sobre el accesorio seleccionado. Los tubos que dejan de coincidir con una boca se separan y conservan su longitud real. Giros que dejan una boca en diagonal espacial se rechazan. | ✅ |
-| Herramienta Accesorio: sin tramos cortos; se coloca suelto, en el extremo de un tubo o insertado en un tubo (lo parte en dos, sin duplicar). Usa el Ø del tubo; el reductor cambia el Ø del tramo del lado menor. | ✅ |
-| Unir tubos alineados del mismo Ø en uno solo (a través de un manguito o cerrando un hueco). | ✅ |
-| Interruptor de rótulos (botón y tecla L). | ✅ |
-| Borrar un accesorio deja sus tubos sueltos. 44/44 pruebas. | ✅ |
-| Diagonales a 45°: el paso se aplica al avance en cada eje (250 + 250 → 353,553 a ejes), al dibujar, al arrastrar y al elegir un punto sobre un tubo, para que los tramos simétricos se encuentren. | ✅ |
-| **Direcciones libres**: los tubos ya no están limitados a ejes y diagonales; las uniones siguen exigiendo 90°/45° entre bocas. Al dibujar en el espacio se ofrecen las 18 direcciones «limpias» y, desde un tubo con dirección libre, las de su propio sistema de ejes. | ✅ |
-| Dibujo en Z sin Mayús: se ofrecen a la vez direcciones horizontales, verticales e inclinadas y gana la más cercana al ratón en pantalla (Mayús queda como restricción opcional a tramos que suben o bajan). | ✅ |
-| Puntos de referencia (extremos, mitad, tercios, cuartos, centros de accesorio), activables por tipo (▾) y en bloque (botón / F3). | ✅ |
-| Unión automática al dibujar: desde un tubo, un punto o un extremo, al pasar sobre otro tubo se propone el tramo perpendicular (o la perpendicular común si no son paralelos) y las Tes quedan giradas el ángulo necesario. | ✅ |
-| Gizmo sobre los **ejes propios** del accesorio (ejes de sus bocas y perpendicular) con paso angular configurable (1/5/15/45/90°) y giro exacto escrito en el panel. Inserción de accesorios en tubos con dirección libre. | ✅ |
-| Cubo de vistas (arriba a la derecha) que se arrastra para orbitar y lleva a caras, aristas y vértices con animación; interruptor Iso (ortográfica) / Persp. Sustituye a los botones Planta, Alzado, Perfil, Iso y Perspectiva. 55/55 pruebas. | ✅ |
-| Gizmo de planos de trabajo (arriba a la izquierda): tres planos que se cortan en cuadrantes; al pulsar uno se trabaja en XY, XZ o YZ (puntos en el vacío, rejilla y orientación inicial de los accesorios), con su cota editable. La barra de estado muestra X, Y, Z del punto que se marca (antes mostraba siempre el punto del plano XY) y el rótulo de dibujo indica el desplazamiento por eje. 57/57 pruebas. | ✅ |
-| Selección múltiple (Mayús+clic añade/quita, Ctrl+A todo) y rectángulo con doble clic + arrastre (hacia la derecha: dentro; hacia la izquierda: cruzando). Grupos guardados en el proyecto (Ctrl+G / Ctrl+Mayús+G): al pulsar un miembro se selecciona el grupo; Ctrl+clic, una pieza suelta. Caja de grupo con flechas (mover por eje), esfera (mover en el plano de trabajo) y anillos (girar); los tubos externos se separan conservando su longitud. Duplicar (Ctrl+D) crea un grupo nuevo desplazado. Borrado múltiple. 63/63 pruebas. | ✅ |
-| Manipuladores con tamaño fijo en pantalla (grupo: flechas de 110 px, anillos de 80 px, esfera de 22 px; accesorio: anillos de 64 px; zonas de agarre ≥ 22 px). Desagrupar cualquier grupo existente (botón, Ctrl+Mayús+G, lista de grupos en Propiedades). Espejo de grupos en el plano horizontal (invierte Z) y vertical (invierte izquierda/derecha según la vista). Menú lateral de comandos con iconos SVG, contraíble (solo iconos + tooltip) o expandido (icono con texto debajo); estados activo/desactivado según la selección. 66/66 pruebas. | ✅ |
-| Nuevo proyecto de ejemplo (aportado por el usuario): estructura de Ø32 con base de 600 × 600, pórticos, tramos a 45° y refuerzos; 31 tubos, 7 codos, 16 Tes, agrupada. 67/67 pruebas. | ✅ |
-| Cubo de vistas achaflanado: 6 caras (un eje), 12 planos de arista (45° entre dos ejes) y 8 triángulos de vértice (isométrica de tres ejes), cada zona resaltable y seleccionable. 68/68 pruebas. | ✅ |
-| **Ajustes** (botón del menú): mostrar u ocultar «Ejemplo» y tamaño del cubo de vistas y del gizmo de planos de 120 a 240 px; se guardan en el navegador. | ✅ |
-| **Biblioteca de accesorios** (pestaña): los de serie se cargan/quitan con una casilla (un nudo que necesite uno quitado se marca como no válido); los personalizados se cargan desde `.pcf` (+ `.stl` opcional) y se quitan uno a uno. Exportación de la definición `.pcf` y del modelo STL de cualquier accesorio y variante. | ✅ |
-| **Lenguaje .pcf**: `ACCESORIO`, `NOMBRE`, `DESCRIPCION`, `BOCA n x y z`, `VARIANTE v DIAMETROS … Z … EMBOCADURA … EXTERIOR e`, `MODELO v archivo.stl`; errores con número de línea. Guía completa en la pestaña y plantilla descargable; ejemplos en `accesorios/`. | ✅ |
-| **Modelos STL**: lectura binaria y ASCII; modelo automático imprimible (cuerpo macizo, embocaduras huecas, esfera central; sólidos cerrados) cuando no se aporta uno. Los personalizados se dibujan con su STL orientado según sus bocas, se reconocen solos en un nudo con los mismos ángulos y Ø, y el proyecto guarda sus medidas para abrirse sin la biblioteca. 76/76 pruebas. | ✅ |
-| **STL imprimible y funcional**: sólido único por operaciones booleanas (three-bvh-csg): cuerpo, embocaduras taladradas con holgura (Ajustes, 0,25 mm por defecto), paso interior de boca a boca unido en una cámara central, bocas opuestas como un solo cilindro pasante (sin caras coincidentes). `PASO` opcional en `.pcf`. Aviso de paredes < 1,2 mm. Comprobado con rayos: 21 piezas sin huecos; paso pasante en piezas rectas. Si la librería no carga, se usa el modelo simple y se avisa. 78/78 pruebas. | ✅ |
-| **Editor de accesorios** (`editor.html`): formulario (bocas, variantes, holgura, resolución) con plantillas (cruz, codos 30°/60°, Te a 45°, Te en esquina, tapón, manguito); genera el `.pcf` y un código **OpenSCAD** paramétrico (Personalizador: variante, holgura, $fn) editable a mano; crea el STL con OpenSCAD 2025.01 en WebAssembly (`openscad-wasm-prebuilt` 1.2.0, motor Manifold, ~0,2 s por pieza) y comprueba que sale en una sola pieza. Descarga de `.scad`, `.stl` y `.pcf`; «Guardar en PipeCAD» mete el accesorio con sus STL en la biblioteca y PipeCAD lo recarga al momento. En PipeCAD: botón «Editor de accesorios» y «Editar» en cada personalizado. 21 piezas de plantilla verificadas: una pieza, superficie cerrada y paso abierto. | ✅ |
-| **Modelos 3D fuera del programa**: carpeta `modelos/` con `catalogo.json`, librería `pipecad.scad` (los `.scad` de cada accesorio la usan con `use <../pipecad.scad>`), `serie/` (los 6 de serie con sus 18 STL generados con OpenSCAD), `personalizados/` y `plantillas/`. PipeCAD lee el catálogo y descarga los STL al dibujar (forma simple mientras tanto o sin carpeta); se quitan del HTML las operaciones booleanas (three-bvh-csg) y el ajuste de holgura. Proyecto de ejemplo en `ejemplos/ejemplo.json`. **Servidor local** `servidor.mjs` (Node, sin dependencias, solo 127.0.0.1 por defecto) con API para guardar y borrar accesorios; `iniciar-servidor.bat/.sh`. Editor: botón «Nuevo», plantillas de la carpeta, guardado por el servidor, en una carpeta elegida (Chrome/Edge) o en el navegador, «Descargar .zip» y «.scad» autónomo con la librería dentro. 79/79 pruebas. | ✅ |
-| Aviso de extremo suelto pegado a otro nodo (parece unido pero no lo está) y acción **Conectar**: alarga el tubo hasta el nodo o desplaza el accesorio a lo largo de su tubo hasta el cruce. Caso detectado en `Prueba.json`. 49/49 pruebas. | ✅ |
+---
 
-## 5. Orden y entregas
+## 6. Orden de entrega
 
-Fases 0–4 → visor con modelo y accesorios correctos (base de cálculo).
-Fases 5–7 → edición interactiva completa.
-Fases 8–10 → despiece, exportación y configuración.
-Fase 11 → cierre.
+| Bloque | Fases | Resultado |
+|---|---|---|
+| Base de cálculo | 0–4 | Visor con modelo y accesorios correctos |
+| Edición interactiva | 5–8 | Dibujo, accesorios, grupos y arrastre |
+| Producción | 9–11 | Despiece, exportación y configuración |
+| Accesorios ampliables | 12–15 | Biblioteca, modelos 3D, editor OpenSCAD y servidor local |
+| Cierre | 16 | Interfaz, ayuda, ejemplo, pruebas y rendimiento |
 
-Tras cada bloque se revisa contigo en el navegador antes de seguir.
+Tras cada bloque se revisa en el navegador antes de seguir, y cada cambio se registra con un commit en GitHub.
