@@ -351,7 +351,8 @@ Limitaciones previstas:
 | 19 (R2) Sesión de RA y suelo | ✅ Programada y probada con una cámara y fotogramas simulados (mirada contra el suelo, plano «floor», prueba de impacto, giro hacia el usuario). **Falta probarla en Quest 3 y Android.** |
 | 20 (R3) Física | ✅ Rapier 0.12 (WebAssembly desde CDN): cuerpo compuesto de 117 formas en el ejemplo, masa 3,67 kg repartida, suelo fijo, paso de 1/90 s. Probado: caída libre correcta (0,44 m y 2,92 m/s a los 0,3 s), desde 1 m se asienta derecha y en reposo, inclinada 80° vuelca y queda tumbada. Botones Soltar (50 cm) y Reiniciar en la vista 3D; en RA, quieta mientras se coloca y con gravedad al dejarla. |
 | 21 (R4) Agarre con las manos | ✅ Pellizco (pulgar-índice, con histéresis) o gatillo/agarre del mando; de cerca (4 cm de la superficie) o con rayo a distancia (hasta 4 m); resaltado y vibración. Seguimiento con muelle amortiguado (τ según la masa), sin atravesar el suelo; al soltar conserva la velocidad (lanzar). Dos manos: mover y girar sin escalar. Probado con poses simuladas: subir 0,5 m, girar 90°, soltar, lanzar a 2,6 m/s y girar 90° con dos manos. **Falta probarlo en las Quest 3.** |
-| 22–26 (R5–R9) Táctil, iOS, menús, QR y entorno | ⏳ Pendiente |
+| 22 (R5) Manejo táctil | ✅ Se coge por el punto tocado: un muelle amortiguado (impulsos en ese punto, más el peso) lo sube 20 cm y lo lleva bajo el dedo, a 2,5 m/s como mucho; la estructura cuelga y se balancea, y al soltar cae. Dos dedos: giro en planta hacia un rumbo objetivo (sin inercia al parar). Vista 3D con ratón o dedo (fuera de la estructura, órbita normal) y RA de Android con los toques de pantalla de WebXR. Probado: sube 20 cm en 0,5 s, arrastre de 0,5 m, giro de 90° y arrastre real con el ratón. **Falta probarlo en Android.** |
+| 23–26 (R6–R9) iOS, menús, QR y entorno | ⏳ Pendiente |
 
 ### Pendiente y limitaciones conocidas
 - El guardado en una carpeta elegida (Chrome / Edge, sin servidor) no se ha probado en un navegador real.

@@ -300,7 +300,7 @@ async function openProject(json, source) {
   document.title = `${model.name || 'Proyecto'} · PipeCAD RA`;
   showFacts(); makeGrid(Math.max(current.size.x, current.size.z) + 1); homeView(); requestRender();
   const bad = [...an.nodes.values()].filter(n => n.errors.length).length;
-  message(bad ? `⚠ El proyecto tiene ${bad} unión(es) no válida(s): se muestran tal cual` : `Proyecto «${model.name}» cargado a tamaño real`, bad ? 'err' : '');
+  message(bad ? `⚠ El proyecto tiene ${bad} unión(es) no válida(s): se muestran tal cual` : `Proyecto «${model.name}» cargado a tamaño real · arrástralo para cogerlo`, bad ? 'err' : '');
 }
 function showFacts() {
   const { analysis: an, size, mass } = current;
@@ -366,7 +366,7 @@ function physicsStep(dt) {
   let n = 0;
   while (PH.acc >= PH.step) { driveGrab(); PH.world.step(); PH.acc -= PH.step; n++; }
   if (n) syncAssembly();
-  return GRAB.hands.size > 0 || !PH.body.isSleeping();
+  return GRAB.hands.size > 0 || !!TOUCH.point || !PH.body.isSleeping();
 }
 // Derecha, apoyada en el suelo en el centro del escenario y en reposo
 function resetPose() {
@@ -453,6 +453,7 @@ function grabTarget() {
   return { p: h.offP.clone().applyQuaternion(h.pose.q).add(h.pose.p), q: h.pose.q.clone().multiply(h.offQ) };
 }
 function driveGrab() {
+  if (TOUCH.point) { drivePoint(); return; }
   if (!GRAB.hands.size || !PH.body) return;
   const T = grabTarget(); if (!T) return;
   const { p, q } = bodyPose(), tau = THREE.MathUtils.clamp(0.035 + 0.01 * PH.body.mass(), 0.035, 0.15);
@@ -524,6 +525,134 @@ function xrInputs() {
     c.line.scale.z = c.hit ?? 1.5; c.line.material.color.set(c.hit != null ? 0x5b8ff0 : 0xffffff);
   }
   if (!GRAB.hands.size) setHighlight(hover);
+}
+
+// ---------------------------------------------------------------- manejo táctil y con ratón (R5)
+// Se coge la estructura por el punto tocado: un muelle lleva ese punto a 20 cm por encima de donde
+// estaba y, después, bajo el dedo (sobre un plano horizontal a esa altura). Como tira de un solo punto,
+// la estructura cuelga de él y se balancea con su peso; al soltar, cae. Con un segundo dedo, girar los
+// dos dedos gira la estructura alrededor de la vertical. Sirve igual en la vista 3D (ratón o dedo) y en
+// la realidad aumentada de Android (toques en la pantalla, que WebXR da como rayos).
+const LIFT = 0.2, OMEGA = 11, ZETA = 0.8;
+const TOUCH = { point: null, primary: null, angle: null, yawTarget: null };
+const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
+function bodyYaw() { const x = new THREE.Vector3(1, 0, 0).applyQuaternion(bodyPose().q); return Math.atan2(-x.z, x.x); }
+// rayo { o, d } del mundo → sistema del escenario
+function rayToStage(o, d) { const qi = stageQInv(); return { o: stage.worldToLocal(o.clone()), d: d.clone().applyQuaternion(qi).normalize() }; }
+function pickStructure(rayWorld) { // punto de la estructura (escenario) bajo el rayo, o null
+  raycaster.set(rayWorld.o, rayWorld.d); raycaster.far = 50;
+  const hit = raycaster.intersectObjects(assembly.children, false)[0];
+  return hit ? stage.worldToLocal(hit.point.clone()) : null;
+}
+function rayPlaneY(ray, y) { // corte de un rayo (escenario) con el plano horizontal y; a 8 m como mucho
+  if (Math.abs(ray.d.y) < 1e-4) return null;
+  const t = (y - ray.o.y) / ray.d.y;
+  return t > 0 ? ray.o.clone().addScaledVector(ray.d, Math.min(t, 8)) : null;
+}
+function beginPointGrab(id, hitStage) {
+  if (!PH.body || TOUCH.point || GRAB.hands.size) return false;
+  const { p, q } = bodyPose();
+  TOUCH.point = { id, local: hitStage.clone().sub(p).applyQuaternion(q.invert()), height: hitStage.y + LIFT, target: hitStage.clone().setY(hitStage.y + LIFT), aim: hitStage.clone(), prev: null };
+  TOUCH.primary = id; TOUCH.angle = null; TOUCH.yawTarget = null;
+  PH.active = true; PH.body.setAngularDamping(1.8); PH.body.wakeUp(); setHighlight(true);
+  return true;
+}
+function endPointGrab() {
+  if (!TOUCH.point) return;
+  TOUCH.point = null; TOUCH.primary = null; TOUCH.angle = null; TOUCH.yawTarget = null;
+  PH.body?.setAngularDamping(0.15); PH.body?.wakeUp(); setHighlight(false);
+}
+// Rayos de los dedos (sistema del escenario): el primero mueve; dos dedos giran
+function updatePointers(rays, dt) {
+  if (!TOUCH.point) return;
+  const main = rays.get(TOUCH.primary);
+  if (main) { const t = rayPlaneY(main, TOUCH.point.height); if (t) TOUCH.point.target.copy(t); }
+  const two = [...rays.values()].slice(0, 2);
+  if (two.length === 2) {
+    const a = rayPlaneY(two[0], TOUCH.point.height), b = rayPlaneY(two[1], TOUCH.point.height);
+    if (a && b) {
+      const ang = Math.atan2(-(b.z - a.z), b.x - a.x); // ángulo en planta (giro positivo = antihorario visto desde arriba)
+      // el giro de los dos dedos se suma a un rumbo objetivo (sin inercia al parar)
+      if (TOUCH.angle == null) TOUCH.yawTarget = bodyYaw(); else TOUCH.yawTarget += wrapAngle(ang - TOUCH.angle);
+      TOUCH.angle = ang;
+    }
+  } else if (TOUCH.angle != null) { TOUCH.angle = null; TOUCH.yawTarget = null; const av = PH.body.angvel(); PH.body.setAngvel({ x: av.x, y: av.y * 0.2, z: av.z }, true); }
+}
+// Muelle amortiguado en el punto cogido (impulsos en ese punto) más el peso, para que cuelgue de él
+function drivePoint() {
+  const B = PH.body, P = TOUCH.point; if (!B || !P) return;
+  const { p, q } = bodyPose(), w = P.local.clone().applyQuaternion(q).add(p), m = B.mass(), dt = PH.step;
+  const v = P.prev ? w.clone().sub(P.prev).divideScalar(dt) : new THREE.Vector3(); P.prev = w.clone();
+  // el punto al que tira el muelle persigue al dedo a 2,5 m/s como mucho: un salto del dedo no la lanza
+  const step = P.target.clone().sub(P.aim), maxStep = 2.5 * dt; if (step.length() > maxStep) step.setLength(maxStep); P.aim.add(step);
+  const F = P.aim.clone().sub(w).multiplyScalar(m * OMEGA * OMEGA).addScaledVector(v, -2 * ZETA * OMEGA * m);
+  F.y += m * 9.81;
+  const lim = m * 60; if (F.length() > lim) F.setLength(lim);
+  B.applyImpulseAtPoint({ x: F.x * dt, y: F.y * dt, z: F.z * dt }, { x: w.x, y: w.y, z: w.z }, true);
+  if (TOUCH.yawTarget != null) { const av = B.angvel(), wy = THREE.MathUtils.clamp(wrapAngle(TOUCH.yawTarget - bodyYaw()) / 0.12, -8, 8); B.setAngvel({ x: av.x * 0.9, y: wy, z: av.z * 0.9 }, true); }
+}
+
+// ---- vista 3D: ratón o dedo (antes que la órbita, en la fase de captura)
+const ndc = new THREE.Vector2();
+function pointerRay(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  ndc.set((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  return { o: raycaster.ray.origin.clone(), d: raycaster.ray.direction.clone() };
+}
+const screenRays = new Map(); let lastMove = 0;
+view.addEventListener('pointerdown', e => {
+  if (renderer.xr.isPresenting || !PH.body) return;
+  const ray = pointerRay(e);
+  if (!TOUCH.point) {
+    const hit = pickStructure(ray); if (!hit) return; // fuera de la estructura: órbita normal
+    beginPointGrab('p' + e.pointerId, hit);
+  }
+  controls.enabled = false;
+  screenRays.set('p' + e.pointerId, rayToStage(ray.o, ray.d));
+  renderer.domElement.setPointerCapture?.(e.pointerId);
+  e.preventDefault(); e.stopPropagation(); lastMove = performance.now();
+  updatePointers(screenRays, 0); requestRender();
+}, { capture: true });
+view.addEventListener('pointermove', e => {
+  if (!TOUCH.point || !screenRays.has('p' + e.pointerId)) return;
+  const ray = pointerRay(e), now = performance.now();
+  screenRays.set('p' + e.pointerId, rayToStage(ray.o, ray.d));
+  updatePointers(screenRays, (now - lastMove) / 1000); lastMove = now; requestRender();
+}, { capture: true });
+function pointerUp(e) {
+  if (!screenRays.delete('p' + e.pointerId)) return;
+  if (TOUCH.primary === 'p' + e.pointerId || !screenRays.size) { endPointGrab(); screenRays.clear(); }
+  else updatePointers(screenRays, 0);
+  if (!screenRays.size) controls.enabled = true;
+}
+view.addEventListener('pointerup', pointerUp, { capture: true });
+view.addEventListener('pointercancel', pointerUp, { capture: true });
+
+// ---- RA en Android: cada toque es una entrada «screen» con un rayo desde la cámara
+const xrTouches = new Map(); // inputSource → id
+let xrTouchSeq = 0, xrLastT = 0;
+function xrTouchRay(frame, src) {
+  const pose = frame.getPose(src.targetRaySpace, renderer.xr.getReferenceSpace()); if (!pose) return null;
+  const { position: p, orientation: o } = pose.transform, q = new THREE.Quaternion(o.x, o.y, o.z, o.w);
+  return { o: new THREE.Vector3(p.x, p.y, p.z), d: new THREE.Vector3(0, 0, -1).applyQuaternion(q) };
+}
+function xrTouchStart(e) {
+  if (e.inputSource.targetRayMode !== 'screen' || !XR.placed) return;
+  const id = 't' + (++xrTouchSeq); xrTouches.set(e.inputSource, id);
+  const ray = xrTouchRay(e.frame, e.inputSource); if (!ray) return;
+  if (!TOUCH.point) { const hit = pickStructure(ray); if (hit) beginPointGrab(id, hit); }
+}
+function xrTouchEnd(e) {
+  const id = xrTouches.get(e.inputSource); if (!id) return;
+  xrTouches.delete(e.inputSource);
+  if (TOUCH.primary === id || !xrTouches.size) endPointGrab();
+}
+function xrTouchFrame(frame, time) {
+  if (!TOUCH.point || !xrTouches.size) return;
+  const rays = new Map();
+  for (const [src, id] of xrTouches) { const ray = xrTouchRay(frame, src); if (ray) rays.set(id, rayToStage(ray.o, ray.d)); }
+  updatePointers(rays, xrLastT ? (time - xrLastT) / 1000 : 0); xrLastT = time;
 }
 
 $('#b-drop').onclick = () => drop(0.5); // en la vista 3D, medio metro: se ve caer sin salirse del encuadre
@@ -635,7 +764,7 @@ function updateFloorFromPlanes(frame) {
 }
 function xrFrame(frame) {
   updateFloorFromPlanes(frame);
-  if (!XR.placing) { xrInputs(); return; }
+  if (!XR.placing) { xrInputs(); xrTouchFrame(frame, performance.now()); return; }
   const p = floorFromHit(frame) ?? (XR.floorY != null ? floorFromGaze(XR.floorY) : null);
   XR.target = p;
   reticle.visible = !!p; stage.visible = !!p;
@@ -650,10 +779,11 @@ function place() {
   resetPose(); PH.active = true; PH.body?.wakeUp();
   $('#xr-place').hidden = true; $('#xr-replace').hidden = false;
   const s = current.size;
-  xrMessage(`Estructura a tamaño real: ${fmt(s.x, 2)} × ${fmt(s.z, 2)} m, ${fmt(s.y, 2)} m de alto` + (XR.isPhone ? '' : ' · pellizca o aprieta el mando para cogerla'), 5000);
+  xrMessage(`Estructura a tamaño real: ${fmt(s.x, 2)} × ${fmt(s.z, 2)} m, ${fmt(s.y, 2)} m de alto` + (XR.isPhone ? ' · arrástrala con el dedo; con dos dedos, gírala' : ' · pellizca o aprieta el mando para cogerla'), 6000);
 }
 function startPlacing() {
   for (const id of [...GRAB.hands.keys()]) endGrab(id);
+  endPointGrab(); xrTouches.clear();
   XR.placing = true; XR.placed = false; XR.target = null; setGhost(true);
   PH.active = false; resetPose();
   $('#xr-place').hidden = false; $('#xr-replace').hidden = true;
@@ -685,6 +815,8 @@ async function enterAR() {
     XR.hitSource = await session.requestHitTestSource?.({ space: XR.viewerSpace }) ?? null;
   } catch { XR.hitSource = null; }
   session.addEventListener('select', () => { if (XR.placing) place(); });
+  session.addEventListener('selectstart', xrTouchStart);
+  session.addEventListener('selectend', xrTouchEnd);
   session.addEventListener('end', exitedAR);
   // en el teléfono, los toques en los botones no cuentan como «seleccionar» en la escena
   ui.addEventListener('beforexrselect', e => { if (e.target.closest('button')) e.preventDefault(); });
@@ -741,7 +873,7 @@ loadPhysics();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>
