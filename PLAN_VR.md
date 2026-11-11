@@ -57,6 +57,8 @@ js/xr/fisica.js         Rapier: cuerpo compuesto, suelo, entorno real y muelles 
 js/xr/paneles.js        Kit de paneles en CanvasTexture: botones, interruptores, listas, teclado numérico, deslizadores
 js/xr/texto.js          Texto 3D (troika) para cotas, rótulos y paneles
 js/xr/escena.js         Construcción de la estructura en 3D compartida con ra.html (mallas, cotas, colores)
+js/xr/herramientas.js   Lógica de las herramientas, sin gráficos: puntero (mano o rayo) → snap → núcleo
+js/xr/pruebas.js        Pruebas con gestos simulados (vr.html?test y node pruebas/vr.mjs)
 ```
 
 - `ra.html` pasa a usar `js/xr/*`, sin cambiar su comportamiento.
@@ -199,6 +201,21 @@ Tras cada bloque se prueba en las Meta Quest 3. Cada cambio se registra con un c
 
 ## 8. Estado
 
-| Fase | Estado |
-|---|---|
-| VR0–VR11 | ⏳ Pendiente |
+Leyenda: ✅ hecho y comprobado · 🟡 escrito, pendiente de probar en las Meta Quest 3 · ⏳ pendiente.
+Nada de lo que sigue se ha probado todavía dentro de unas gafas: lo comprobado lo está con las pruebas de lógica
+(gestos simulados, `node pruebas/vr.mjs` o `vr.html?test`: 44 en verde) y en la vista previa de `vr.html` con el ratón.
+
+| Fase | Estado | Notas |
+|---|---|---|
+| VR0 | ✅ | `js/xr/entradas.js`, `sesion.js`, `fisica.js`, `escena.js`; `ra.html` los usa y da los mismos resultados que antes (caída, agarre, agarre por un punto y mesa como obstáculo, iguales hasta la 6.ª cifra). El menú de la muñeca sigue en `ra.html`. |
+| VR1 | 🟡 | `vr.html`: proyecto del enlace, del servidor, el último o el ejemplo; maqueta 1:10, tamaño real y escala libre con paradas; teletransporte y giro por pasos. Aritmética probada; sesión y colocación sin probar en gafas. |
+| VR2 | 🟡 | `js/xr/paneles.js` (botones, listas, deslizador, teclado numérico, paneles arrastrables y anclables). «1250,5» con toques simulados en menos de 5 s, sin dobles. Falta medirlo con manos reales. |
+| VR3 | 🟡 | Paleta, selección (rayo o toque, múltiple) y propiedades. Criterio de los 450 mm, en verde en las pruebas. |
+| VR4 | 🟡 | Dibujo con snap, direcciones permitidas, codos y Tes automáticos, plano de trabajo, regla Z y medida exacta. Criterio del marco de 600 mm, en verde con mano y con rayo. |
+| VR5 | 🟡 | Accesorios (sueltos, en extremo, insertados), giro con la muñeca, estirado, unir, conectar y borrar. Mismos resultados que el núcleo en las pruebas. |
+| VR6 | 🟡 | Grupos: agarrar para mover y girar, duplicar con la copia en la mano, espejos y borrado múltiple. No hay caja con flechas por eje: el modo «Por eje» o «En el plano» se elige en la paleta. |
+| VR7 | 🟡 | Cotas 3D (real, ejes, ambas, marcas), avisos con resaltado y panel de despiece. El despiece del ejemplo coincide con el del núcleo. |
+| VR8 | ✅ / 🟡 | Servidor: `GET /api/proyectos`, `PUT /api/proyectos/<id>`, `--gafas` con clave (probado desde una dirección de red: sin clave o con clave mala se rechaza; la clave no da acceso a los accesorios). «Abrir en VR» en PipeCAD y «Enviar al ordenador». El recorrido completo ordenador → gafas → ordenador, sin probar en gafas. |
+| VR9 | 🟡 | Modo sentado, mano dominante, tamaño de paneles y texto, alto contraste, viñeta, aviso de sala y tarjetas de ayuda. **Falta** el vídeo corto de la ayuda y la prueba con una persona que no conozca el programa. |
+| VR10 | 🟡 | Instancias para tubos y accesorios de serie, foveated rendering, sombra de contacto, rótulos limitados por distancia, `vr.html?carga=600` y `vr.html?emulador` (IWER). **Falta** medir los 72 Hz en las Quest 3; el emulador se carga pero no se ha recorrido una sesión con él. |
+| VR11 | 🟡 | Eventos del servidor (`GET /api/vivo/<id>`) y sincronización en `vr.html` e `index.html` (el último cambio gana, deshacer local). Probado el reenvío del servidor; no el retardo entre ordenador y gafas. **Falta** el avatar del otro participante. |

@@ -266,6 +266,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <button id="b-fit" data-icon="fit" data-tip="Encuadrar todo (F)"><span class="sb-txt">Encuadrar</span></button>
       <button id="b-png" data-icon="camera" data-tip="Guardar imagen PNG de la vista"><span class="sb-txt">Imagen</span></button>
       <button id="b-ar" data-icon="ar" data-tip="Ver el proyecto a tamaño real en realidad aumentada (Meta Quest 3, Android, iPhone)"><span class="sb-txt">Ver en RA</span></button>
+      <button id="b-vr" data-icon="ar" data-tip="Diseñar dentro de las gafas (Meta Quest 3): dibujar, colocar accesorios, estirar y agrupar con las manos (PipeCAD VR)"><span class="sb-txt">Abrir en VR</span></button>
       <button id="b-labels" class="on" role="switch" aria-checked="true" data-icon="label" data-tip="Mostrar u ocultar rótulos (L)"><span class="sb-txt">Rótulos</span></button>
       <div class="sb-fill"></div>
       <button id="b-prefs" data-icon="settings" data-tip="Ajustes de la interfaz"><span class="sb-txt">Ajustes</span></button>
@@ -3031,23 +3032,35 @@ function drawQR(qrcode, canvas, text) {
   return n;
 }
 let arHost = null; // dirección elegida si el ordenador tiene varias
-async function shareAR() {
-  if (!model.segments.size) { status('El proyecto está vacío: dibuja algo antes de verlo en realidad aumentada'); return; }
+let arPage = 'ra.html'; // 'ra.html' (ver a tamaño real) o 'vr.html' (diseñar dentro de las gafas)
+async function shareAR(page = arPage) {
+  arPage = page; const vr = page === 'vr.html';
+  if (!vr && !model.segments.size) { status('El proyecto está vacío: dibuja algo antes de verlo en realidad aumentada'); return; }
   const dlg = $('#ar-dialog'), notes = [];
+  $('#ar-title').textContent = vr ? 'Abrir en VR (diseñar dentro de las gafas)' : 'Ver en realidad aumentada';
+  $('#ar-dialog .ar-devs').hidden = vr;
+  $('#ar-dialog p.hint').textContent = vr ? 'Escanea el código con las Meta Quest 3 (o abre el enlace en su navegador) para seguir diseñando este proyecto dentro de las gafas, como maqueta o a tamaño real.'
+    : 'Escanea el código con el móvil o con las Meta Quest 3 (o abre el enlace en ellos) para ver este proyecto a tamaño real sobre el suelo.';
   $('#ar-url').value = 'Preparando el enlace…'; $('#ar-notes').innerHTML = ''; $('#ar-qr-box').hidden = true;
   if (!dlg.open) dlg.showModal();
   const json = model.toJSON();
-  let base = new URL('ra.html', location.href);
+  let base = new URL(page, location.href);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   if (location.protocol === 'file:') notes.push(['warn', 'PipeCAD está abierto como archivo: el enlace solo sirve en este ordenador. Para verlo en las gafas o el móvil, usa GitHub Pages o el servidor local con «--https» (ver el README).']);
   else if (local) {
     const urls = MODELS.serverInfo?.https?.urls || [], u = urls[arHost] ?? urls[0];
-    if (u) base = new URL('ra.html', u);
+    if (u) base = new URL(page, u);
     if (urls.length > 1) notes.push(['host', urls]);
     else notes.push(['warn', 'Con el servidor local sin «--https», el código QR no sirve en otros dispositivos: arráncalo con «node servidor.mjs --https» (ver el README) o conecta las gafas o el móvil por USB con «adb reverse tcp:8080 tcp:8080» y abre el enlace en ellos.']);
   }
   let url = base.href + '#p=' + await packProject(json);
-  if (url.length > 300 && MODELS.server) { // con servidor local: el proyecto se guarda en él y el QR queda sencillo
+  if (vr && MODELS.server) { // VR con servidor local: el proyecto se comparte en vivo entre el ordenador y las gafas
+    try {
+      VIVO.id ||= 'pc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const r = await fetch(`api/proyectos/${VIVO.id}?origen=${VIVO.cliente}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) });
+      if (r.ok) { url = base.href + '?proyecto=' + VIVO.id; VIVO.conectar(); notes.push(['ok', `Proyecto compartido en vivo (proyectos/${VIVO.id}.json): lo que cambies aquí aparece en las gafas, y al revés.` + (MODELS.serverInfo?.gafas ? '' : ' Para que las gafas puedan guardar, arranca el servidor con «--gafas» y escribe su clave en ellas.')]); }
+    } catch { /* se queda el enlace con el proyecto dentro */ }
+  } else if (url.length > 300 && MODELS.server) { // con servidor local: el proyecto se guarda en él y el QR queda sencillo
     try {
       const r = await fetch('api/proyectos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) }), j = await r.json();
       if (r.ok) { url = base.href + '?proyecto=' + j.id; notes.push(['ok', `Proyecto guardado en el servidor local (proyectos/${j.id}.json): el código QR queda más sencillo.`]); }
@@ -3064,9 +3077,56 @@ async function shareAR() {
     : `<div class="msg ${k}">${esc(t)}</div>`).join('');
   $('#ar-host')?.addEventListener('change', e => { arHost = +e.target.value; shareAR(); });
 }
-$('#b-ar').onclick = shareAR;
+$('#b-ar').onclick = () => shareAR('ra.html');
+$('#b-vr').onclick = () => shareAR('vr.html');
+// ---------- PipeCAD VR con el servidor local: proyecto enviado desde las gafas y edición compartida en vivo
+// El servidor reenvía los cambios (eventos del servidor, api/vivo/<id>); se aplican como un paso del historial
+// («Cambio remoto»), con «el último cambio gana» y deshacer local.
+const VIVO = { id: null, es: null, t: 0, remoto: false, cliente: Math.random().toString(36).slice(2, 10) };
+VIVO.conectar = () => {
+  VIVO.es?.close(); VIVO.es = null;
+  if (!VIVO.id || typeof EventSource === 'undefined') return;
+  VIVO.es = new EventSource('api/vivo/' + VIVO.id);
+  VIVO.es.onmessage = async ev => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.tipo !== 'cambio' || m.origen === VIVO.cliente || drag || boxOp || rot) return;
+    try {
+      const r = await fetch(`proyectos/${VIVO.id}.json`, { cache: 'no-store' }); if (!r.ok) return;
+      const json = await r.json(), antes = model.beginLive(); if (JSON.stringify(json) === antes) return;
+      VIVO.remoto = true; model.load(json); model.commitLive(antes, 'Cambio remoto'); VIVO.remoto = false;
+      status('Cambio recibido de las gafas');
+    } catch { VIVO.remoto = false; }
+  };
+};
+model.on((m, live) => {
+  if (live || !VIVO.es || VIVO.remoto) return;
+  clearTimeout(VIVO.t);
+  VIVO.t = setTimeout(() => fetch(`api/proyectos/${VIVO.id}?origen=${VIVO.cliente}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(model.toJSON()) }).catch(() => {}), 120);
+});
+function watchHeadset() { // «Enviar al ordenador» desde las gafas: PipeCAD ofrece abrir el proyecto al momento
+  if (!MODELS.server || typeof EventSource === 'undefined' || VIVO.avisos) return;
+  VIVO.avisos = new EventSource('api/vivo/_avisos');
+  VIVO.avisos.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.tipo !== 'enviado') return;
+    let box = $('#vr-inbox');
+    if (!box) { box = document.createElement('div'); box.id = 'vr-inbox'; box.style.cssText = 'position:fixed;right:16px;bottom:44px;z-index:50;background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:320px'; document.body.append(box); }
+    box.innerHTML = `<b>Proyecto enviado desde las gafas</b><div class="hint">«${esc(m.nombre)}»</div><div class="btns" style="margin-top:6px"><button id="vr-inbox-open">Abrir</button><button id="vr-inbox-no">Ahora no</button></div>`;
+    $('#vr-inbox-no').onclick = () => box.remove();
+    $('#vr-inbox-open').onclick = async () => {
+      box.remove();
+      try {
+        const r = await fetch(`proyectos/${m.id}.json`, { cache: 'no-store' }); if (!r.ok) throw new Error('error ' + r.status);
+        const json = await r.json();
+        model.transact('Abrir proyecto de las gafas', () => model.load(json));
+        VIVO.id = m.id; VIVO.conectar(); fitAll();
+        status(`Proyecto «${model.name}» abierto desde las gafas · se comparte en vivo · Ctrl+Z vuelve al anterior`);
+      } catch (err) { status('✘ No se pudo abrir el proyecto de las gafas: ' + err.message); }
+    };
+  };
+}
 $('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText($('#ar-url').value); status('Enlace del visor RA copiado'); } catch { $('#ar-url').select(); status('Selecciona el enlace y cópialo con Ctrl+C'); } };
-$('#ar-open').onclick = () => window.open($('#ar-url').value, 'pipecad-ra');
+$('#ar-open').onclick = () => window.open($('#ar-url').value, arPage === 'vr.html' ? 'pipecad-vr' : 'pipecad-ra');
 $('#b-png').onclick = () => snapshotCanvas().toBlob(b => { download(fileBase() + '.png', b, 'image/png'); status('Imagen PNG guardada'); });
 $$('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 $$('[data-d]').forEach(b => b.onclick = () => setDiameter(+b.dataset.d));
@@ -3118,7 +3178,7 @@ initPlaneGizmo();
 if (PLANES[store.get('pipecad-wp')]) setWorkPlane(store.get('pipecad-wp'), true);
 loadLib(); syncActive(); renderFitSelect(); renderLibrary(); applyPrefs();
 hooks.stlLoaded = () => { clearCache(); rebuild(); };
-hooks.modelsChanged = () => { clearCache(); renderFitSelect(); renderLibrary(); model.emit(); };
+hooks.modelsChanged = () => { clearCache(); renderFitSelect(); renderLibrary(); model.emit(); watchHeadset(); };
 loadModels(); // catálogo y accesorios de la carpeta modelos (en segundo plano)
 new ResizeObserver(resize).observe(viewport);
 makeMaterials();

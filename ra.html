@@ -152,6 +152,10 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 </div>
 
 <script src="js/nucleo.js"></script>
+<script src="js/xr/entradas.js"></script>
+<script src="js/xr/sesion.js"></script>
+<script src="js/xr/fisica.js"></script>
+<script src="js/xr/escena.js"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -233,15 +237,8 @@ function makeMaterials() {
 }
 makeMaterials();
 const Y = new THREE.Vector3(0, 1, 0);
-// Cilindro en mm entre dos distancias a lo largo de dir, como geometría sin índice y solo con posición y normal
-function cylGeo(origin, dir, from, to, r) {
-  const g = new THREE.CylinderGeometry(r, r, to - from, SEG, 1, false);
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(Y, dir));
-  g.translate(...origin.clone().addScaledVector(dir, (from + to) / 2).toArray());
-  return clean(g);
-}
-function ballGeo(c, r) { const g = new THREE.SphereGeometry(r, SEG, Math.round(SEG / 2)); g.translate(c.x, c.y, c.z); return clean(g); }
-function clean(g) { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k); if (!n.attributes.normal) n.computeVertexNormals(); return n; }
+// La geometría de la estructura (tubos, accesorios y formas para la física) la construye js/xr/escena.js
+const ESC = globalThis.crearEscenaXR(THREE, N, { seg: SEG, mergeGeometries });
 
 // Cotas: la longitud real de corte de cada tubo, en una etiqueta que mira siempre a la cámara
 const dims = new THREE.Group(); dims.visible = false; stage.add(dims);
@@ -263,71 +260,15 @@ function buildDims(list) {
   dims.visible = OPTS.dims;
 }
 function buildAssembly() {
-  for (const c of [...assembly.children]) { assembly.remove(c); c.geometry?.dispose(); }
-  if (!current) return;
-  const { model, analysis: an } = current, F = model.config.fittings;
-  const byMat = { tube20: [], tube32: [], tube40: [], fitting: [] }, shapes = [], labelsData = [];
-  let mass = 0;
-  // Tubos: del tope de una embocadura al de la otra (longitud real de corte)
-  for (const s of an.segs.values()) {
-    if (s.Le < 1e-6 || s.Lr <= 0) continue;
-    const A = an.nodes.get(s.a).pos, r = s.d / 2;
-    byMat['tube' + s.d]?.push(cylGeo(A, s.dir, s.zA, s.zA + s.Lr, r));
-    const a = A.clone().addScaledVector(s.dir, s.zA), b = A.clone().addScaledVector(s.dir, s.zA + s.Lr);
-    const t = WALL[s.d] ?? s.d * 0.075, m = PVC_DENSITY * Math.PI * (r * r - (r - t) * (r - t)) * s.Lr * 1e-9;
-    shapes.push({ type: 'cyl', a, b, r, mass: m });
-    mass += m;
-    labelsData.push({ p: a.clone().add(b).multiplyScalar(0.5), r, text: fmt(s.Lr, 0) });
-  }
-  // Accesorios
-  for (const n of an.nodes.values()) {
-    if (['end', 'invalid', 'isolated'].includes(n.kind)) continue;
-    const ports = [...n.ports, ...n.open], first = shapes.length;
-    let rMax = 0, vol = 0;
-    if (n.kind === 'custom') {
-      const g = clean(customGeometry(n).clone());
-      g.applyQuaternion(localToWorldQuat(ports.filter(p => p.local).map(p => ({ local: p.local, world: p.dir }))));
-      g.translate(n.pos.x, n.pos.y, n.pos.z);
-      byMat.fitting.push(g);
-    }
-    for (const p of ports) {
-      const R = (F[p.d]?.od ?? n.od ?? p.d * 1.3) / 2; rMax = Math.max(rMax, R);
-      if (n.kind !== 'custom') {
-        if (p.z > 0) byMat.fitting.push(cylGeo(n.pos, p.dir, 0, p.z, R * 0.94));
-        byMat.fitting.push(cylGeo(n.pos, p.dir, p.z, p.z + p.socket, R));
-      }
-      shapes.push({ type: 'cyl', a: n.pos.clone(), b: n.pos.clone().addScaledVector(p.dir, p.z + p.socket), r: R });
-      vol += Math.PI * (R * R - (p.d / 2) ** 2) * p.socket + Math.PI * (R * 0.94) ** 2 * p.z * 0.35; // embocadura hueca + cuerpo
-    }
-    const branched = ports.some(a => ports.some(b => Math.abs(a.dir.dot(b.dir)) < 1 - 1e-6));
-    if (branched) { if (n.kind !== 'custom') byMat.fitting.push(ballGeo(n.pos, rMax * 0.94)); shapes.push({ type: 'ball', c: n.pos.clone(), r: rMax * 0.94 }); vol += 4 / 3 * Math.PI * rMax ** 3 * 0.35; }
-    const m = PVC_DENSITY * vol * 1e-9, k = shapes.length - first;
-    for (let i = first; i < shapes.length; i++) shapes[i].mass = m / k; // la masa del accesorio, repartida entre sus formas
-    mass += m;
-  }
-  // mm (Z vertical) → metros (Y vertical): giro de −90° sobre X y escala 0,001
-  const toM = new THREE.Matrix4().makeRotationX(-Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(MM, MM, MM));
-  const box = new THREE.Box3();
-  for (const [k, list] of Object.entries(byMat)) {
-    if (!list.length) continue;
-    const g = mergeGeometries(list, false); list.forEach(x => x.dispose());
-    g.applyMatrix4(toM); g.computeBoundingBox(); box.union(g.boundingBox);
-    const m = new THREE.Mesh(g, mats[k]); m.castShadow = true; m.receiveShadow = true; assembly.add(m);
-  }
-  if (box.isEmpty()) { current.size = new THREE.Vector3(); return; }
-  // apoyada en el suelo y centrada en planta
-  const c = box.getCenter(new THREE.Vector3());
-  const shift = new THREE.Vector3(-c.x, -box.min.y, -c.z);
-  for (const m of assembly.children) m.geometry.translate(shift.x, shift.y, shift.z);
-  current.size = box.getSize(new THREE.Vector3());
-  current.mass = mass;
-  current.toWorld = toM.clone().premultiply(new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z)); // mm del proyecto → metros de la escena
-  current.shapes = shapes;
-  buildDims(labelsData);
+  if (!current) { for (const c of [...assembly.children]) { assembly.remove(c); c.geometry?.dispose(); } return; }
+  const r = ESC.ensamblar(current.model, current.analysis, mats, assembly); // mallas unidas por material, en metros y apoyadas en el suelo
+  if (!r) { current.size = new THREE.Vector3(); return; }
+  current.size = r.size; current.mass = r.mass; current.toWorld = r.toWorld; current.shapes = r.shapes;
+  buildDims(r.labelsData);
   buildPhysics();
   const half = Math.max(current.size.x, current.size.z) / 2 + 0.3, cam = sun.shadow.camera;
   cam.left = cam.bottom = -half * 1.4; cam.right = cam.top = half * 1.4; cam.near = 0.1; cam.far = 12; cam.updateProjectionMatrix();
-  current.triangles = assembly.children.reduce((t, m) => t + m.geometry.attributes.position.count / 3, 0);
+  current.triangles = r.triangles;
 }
 
 // ---------------------------------------------------------------- carga
@@ -357,165 +298,20 @@ function showFacts() {
     <dt>Peso aprox.</dt><dd>${fmt(mass, mass < 10 ? 2 : 1)} kg</dd>`;
 }
 
-// ---------------------------------------------------------------- física (Rapier)
-// La estructura encolada es un único cuerpo rígido compuesto: un cilindro por tubo y por boca de
-// accesorio y una bola en el centro de los que ramifican, con la masa del PVC repartida entre ellos
-// (el centro de gravedad sale solo). El suelo es fijo, en y = 0 del escenario (el suelo real en RA).
-// Paso fijo de 1/90 s, independiente de la frecuencia de la pantalla o de las gafas.
-const PH = { R: null, world: null, body: null, loading: null, active: true, acc: 0, error: '', step: 1 / 90 };
-function loadPhysics() {
-  PH.loading ||= import('@dimforge/rapier3d-compat')
-    .then(async mod => { const R = mod.default ?? mod; await R.init(); PH.R = R; buildPhysics(); return R; })
-    .catch(err => { PH.error = err.message; console.warn('Física no disponible', err); message('No se ha podido cargar la física (Rapier): la estructura se verá sin gravedad', 'err', 8000); return null; });
-  return PH.loading;
-}
-function buildPhysics() {
-  const R = PH.R; if (!R || !current?.shapes) return;
-  if (PH.world) { PH.world.free(); PH.world = PH.body = null; }
-  const world = new R.World({ x: 0, y: -9.81, z: 0 });
-  world.timestep = PH.step;
-  world.createCollider(R.ColliderDesc.cuboid(100, 0.5, 100).setTranslation(0, -0.5, 0).setFriction(0.8).setRestitution(0.05)); // suelo
-  const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinearDamping(0.05).setAngularDamping(0.15).setCanSleep(true));
-  const M = current.toWorld, a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Quaternion();
-  PH.local = [];
-  for (const sh of current.shapes) {
-    let desc;
-    if (sh.type === 'cyl') {
-      a.copy(sh.a).applyMatrix4(M); b.copy(sh.b).applyMatrix4(M);
-      const len = a.distanceTo(b); if (len < 1e-4) continue;
-      PH.local.push({ type: 'cyl', a: a.clone(), b: b.clone(), r: sh.r * MM });
-      q.setFromUnitVectors(Y, b.clone().sub(a).normalize());
-      desc = R.ColliderDesc.cylinder(len / 2, sh.r * MM).setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
-    } else {
-      a.copy(sh.c).applyMatrix4(M);
-      PH.local.push({ type: 'ball', c: a.clone(), r: sh.r * MM });
-      desc = R.ColliderDesc.ball(sh.r * MM).setTranslation(a.x, a.y, a.z);
-    }
-    desc.setMass(Math.max(sh.mass ?? 0, 1e-4)).setFriction(0.7).setRestitution(0.05);
-    world.createCollider(desc, body);
-  }
-  PH.world = world; PH.body = body; PH.acc = 0; ENV.colliders = []; ENV.count = 0; ENV.sig = '';
-  resetPose(); applyPhysicsOpts();
-  $('#b-drop').disabled = $('#b-reset').disabled = false;
-}
-function syncAssembly() {
-  if (!PH.body) return;
-  const t = PH.body.translation(), q = PH.body.rotation();
-  assembly.position.set(t.x, t.y, t.z); assembly.quaternion.set(q.x, q.y, q.z, q.w);
-  dims.position.copy(assembly.position); dims.quaternion.copy(assembly.quaternion);
-}
-// Avanza la simulación; devuelve true si la estructura se está moviendo
-function physicsStep(dt) {
-  if (!PH.world || !PH.active) return false;
-  PH.acc = Math.min(PH.acc + dt, 0.1); // tras una pausa larga no se recupera de golpe
-  let n = 0;
-  while (PH.acc >= PH.step) { driveGrab(); PH.world.step(); PH.acc -= PH.step; n++; }
-  if (n) syncAssembly();
-  return GRAB.hands.size > 0 || !!TOUCH.point || !PH.body.isSleeping();
-}
-// Derecha, apoyada en el suelo en el centro del escenario y en reposo
-function resetPose() {
-  const B = PH.body; if (!B) { assembly.position.set(0, 0, 0); assembly.quaternion.identity(); return; }
-  B.setTranslation({ x: 0, y: 0, z: 0 }, false); B.setRotation({ x: 0, y: 0, z: 0, w: 1 }, false);
-  B.setLinvel({ x: 0, y: 0, z: 0 }, false); B.setAngvel({ x: 0, y: 0, z: 0 }, false);
-  B.sleep(); syncAssembly(); requestRender();
-}
-function applyPhysicsOpts() { // tras crear el cuerpo o cambiar una opción
-  const B = PH.body, R = PH.R; if (!B || !R) return;
-  PH.world.gravity = { x: 0, y: OPTS.gravity ? -9.81 : 0, z: 0 };
-  B.setLinearDamping(OPTS.gravity ? 0.05 : 1.2); B.setAngularDamping(OPTS.gravity ? 0.15 : 1.2); // sin gravedad flota y se frena sola
-  B.setBodyType(OPTS.fixed ? R.RigidBodyType.Fixed : R.RigidBodyType.Dynamic, true);
-  if (!OPTS.fixed) B.wakeUp();
-}
-// La levanta (1 m por defecto) con una pequeña inclinación y la suelta
-function drop(height = 1, tiltDeg = 8) {
-  const B = PH.body; if (!B) return;
-  const e = new THREE.Euler(THREE.MathUtils.degToRad(tiltDeg), Math.random() * 0.4 - 0.2, THREE.MathUtils.degToRad(tiltDeg * 0.6)), q = new THREE.Quaternion().setFromEuler(e);
-  B.setTranslation({ x: 0, y: height, z: 0 }, false); B.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, false);
-  B.setLinvel({ x: 0, y: 0, z: 0 }, false); B.setAngvel({ x: 0, y: 0, z: 0 }, false);
-  PH.active = true; B.wakeUp(); syncAssembly(); requestRender();
-}
-// Simulación sin dibujar (pruebas): devuelve el estado al cabo de «seconds»
-function simulate(seconds) {
-  const steps = Math.round(seconds / PH.step);
-  for (let i = 0; i < steps; i++) { driveGrab(); PH.world.step(); }
-  syncAssembly();
-  const t = PH.body.translation(), q = PH.body.rotation(), up = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
-  return { y: t.y, x: t.x, z: t.z, upY: up.y, sleeping: PH.body.isSleeping(), speed: Math.hypot(...Object.values(PH.body.linvel())), mass: PH.body.mass() };
-}
-// ---------------------------------------------------------------- agarre (R4)
-// Cada mano o mando que agarra guarda dónde estaba la estructura respecto a ella. Mientras agarra,
-// la estructura sigue a la pose objetivo con un muelle amortiguado: se le fija la velocidad que la lleva
-// hacia allí en un tiempo τ que crece con la masa (las pesadas «cuestan» un poco). Como sigue siendo un
-// cuerpo dinámico, no atraviesa el suelo. Al soltar conserva la velocidad que llevaba: cae o sale lanzada.
-// Con dos manos: se mueve con el punto medio y gira con la recta entre ellas, sin escalar (tamaño real).
-const GRAB = { hands: new Map(), two: null };
-const _p = new THREE.Vector3(), _q2 = new THREE.Quaternion();
-function bodyPose() {
-  const t = PH.body.translation(), q = PH.body.rotation();
-  return { p: new THREE.Vector3(t.x, t.y, t.z), q: new THREE.Quaternion(q.x, q.y, q.z, q.w) };
-}
-// Distancia (m) de un punto del escenario a la superficie de la estructura (negativa si está dentro)
-function distanceToStructure(pStage) {
-  if (!PH.body || !PH.local) return Infinity;
-  const { p, q } = bodyPose(), l = pStage.clone().sub(p).applyQuaternion(q.invert());
-  let best = Infinity;
-  for (const sh of PH.local) {
-    let d;
-    if (sh.type === 'cyl') {
-      const ab = _p.copy(sh.b).sub(sh.a), t = THREE.MathUtils.clamp(l.clone().sub(sh.a).dot(ab) / ab.lengthSq(), 0, 1);
-      d = l.distanceTo(sh.a.clone().addScaledVector(ab, t)) - sh.r;
-    } else d = l.distanceTo(sh.c) - sh.r;
-    if (d < best) best = d;
-  }
-  return best;
-}
-function anchorHand(h) { // posición y giro de la estructura respecto a la mano
-  const { p, q } = bodyPose(), inv = h.pose.q.clone().invert();
-  h.offP = p.sub(h.pose.p).applyQuaternion(inv); h.offQ = inv.multiply(q);
-}
-function startTwoHands() {
-  const [a, b] = [...GRAB.hands.values()], { p, q } = bodyPose();
-  GRAB.two = { mid: a.pose.p.clone().add(b.pose.p).multiplyScalar(0.5), dir: b.pose.p.clone().sub(a.pose.p).normalize(), p, q, a, b };
-}
-// pose = { p: Vector3, q: Quaternion } en el sistema del escenario
-function beginGrab(id, pose) {
-  if (!PH.body || GRAB.hands.has(id)) return false;
-  if (OPTS.fixed) { xrMessage?.('Está fijada al suelo: quita «Fijar al suelo» en el menú para moverla', 3000); return false; }
-  const h = { pose: { p: pose.p.clone(), q: pose.q.clone() } };
-  anchorHand(h); GRAB.hands.set(id, h);
-  if (GRAB.hands.size === 2) startTwoHands();
-  PH.active = true; PH.body.wakeUp(); setHighlight(true); requestRender();
-  return true;
-}
-function moveGrab(id, pose) { const h = GRAB.hands.get(id); if (h) { h.pose.p.copy(pose.p); h.pose.q.copy(pose.q); } }
-function endGrab(id) {
-  if (!GRAB.hands.delete(id)) return;
-  GRAB.two = null;
-  for (const h of GRAB.hands.values()) anchorHand(h); // la que queda vuelve a anclarse donde está: sin saltos
-  if (!GRAB.hands.size) { setHighlight(false); PH.body?.wakeUp(); }
-}
-function grabTarget() {
-  if (GRAB.two && GRAB.hands.size === 2) {
-    const { a, b } = GRAB.two, mid = a.pose.p.clone().add(b.pose.p).multiplyScalar(0.5), dir = b.pose.p.clone().sub(a.pose.p);
-    if (dir.lengthSq() < 1e-6) return null;
-    const dq = new THREE.Quaternion().setFromUnitVectors(GRAB.two.dir, dir.normalize());
-    return { p: GRAB.two.p.clone().sub(GRAB.two.mid).applyQuaternion(dq).add(mid), q: dq.multiply(GRAB.two.q) };
-  }
-  const h = GRAB.hands.values().next().value; if (!h) return null;
-  return { p: h.offP.clone().applyQuaternion(h.pose.q).add(h.pose.p), q: h.pose.q.clone().multiply(h.offQ) };
-}
-function driveGrab() {
-  if (TOUCH.point) { drivePoint(); return; }
-  if (!GRAB.hands.size || !PH.body) return;
-  const T = grabTarget(); if (!T) return;
-  const { p, q } = bodyPose(), tau = THREE.MathUtils.clamp(0.035 + 0.01 * PH.body.mass(), 0.035, 0.15);
-  const v = T.p.sub(p).divideScalar(tau); if (v.length() > 8) v.setLength(8);
-  const dq = T.q.multiply(q.invert()); if (dq.w < 0) dq.set(-dq.x, -dq.y, -dq.z, -dq.w);
-  const ang = 2 * Math.acos(Math.min(1, dq.w)), s = Math.sqrt(Math.max(1e-12, 1 - dq.w * dq.w));
-  const w = new THREE.Vector3(dq.x / s, dq.y / s, dq.z / s).multiplyScalar(ang / tau); if (w.length() > 14) w.setLength(14);
-  PH.body.setLinvel({ x: v.x, y: v.y, z: v.z }, true); PH.body.setAngvel({ x: w.x, y: w.y, z: w.z }, true);
-}
+// ---------------------------------------------------------------- física (Rapier) y agarre (R4)
+// El cuerpo rígido compuesto, el suelo, el agarre con manos o mandos (muelle amortiguado), el agarre por un punto
+// (dedo o ratón) y el entorno real están en js/xr/fisica.js, compartido con la edición en VR (vr.html).
+const FIS = globalThis.crearFisicaXR(THREE, {
+  importar: () => import('@dimforge/rapier3d-compat'), fuente: () => current, OPTS, stage,
+  alSincronizar: (t, q) => { assembly.position.set(t.x, t.y, t.z); assembly.quaternion.set(q.x, q.y, q.z, q.w); dims.position.copy(assembly.position); dims.quaternion.copy(assembly.quaternion); },
+  alCrear: () => { $('#b-drop').disabled = $('#b-reset').disabled = false; },
+  alError: () => message('No se ha podido cargar la física (Rapier): la estructura se verá sin gravedad', 'err', 8000),
+  resaltar: on => setHighlight(on), pedirDibujo: () => requestRender(),
+  avisoFijada: donde => (donde === 'menu' ? xrMessage('Está fijada al suelo: quita «Fijar al suelo» en el menú para moverla', 3000)
+    : (renderer.xr.isPresenting ? xrMessage : message)('Está fijada al suelo: quita «Fijar al suelo» en Opciones para moverla', 3000)),
+});
+const { PH, GRAB, TOUCH, ENV, loadPhysics, buildPhysics, physicsStep, resetPose, applyPhysicsOpts, drop, simulate, bodyPose, distanceToStructure,
+  beginGrab, moveGrab, endGrab, beginPointGrab, endPointGrab, updatePointers, clearEnv, setEnvironment } = FIS;
 let highlighted = false;
 function setHighlight(on) {
   if (on === highlighted) return; highlighted = on;
@@ -523,34 +319,13 @@ function setHighlight(on) {
   requestRender();
 }
 
-// ---- entradas de las gafas: manos (pellizco del pulgar y el índice) y mandos (gatillo o botón de agarre)
-const PINCH_ON = 0.02, PINCH_OFF = 0.032, NEAR = 0.04, RAY_MAX = 4;
+// ---- entradas de las gafas: manos (pellizco del pulgar y el índice) y mandos (gatillo o botón de agarre): js/xr/entradas.js
+const NEAR = 0.04, RAY_MAX = 4;
 const raycaster = new THREE.Raycaster();
-const INPUTS = [0, 1].map(i => {
-  const c = { id: 'xr' + i, ray: renderer.xr.getController(i), grip: renderer.xr.getControllerGrip(i), hand: renderer.xr.getHand(i), source: null, trigger: false, squeeze: false, was: false, pinch: false, frame: 0, hit: null };
-  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  c.line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })); c.line.visible = false; c.ray.add(c.line);
-  c.ray.addEventListener('connected', e => { c.source = e.data; });
-  c.ray.addEventListener('disconnected', () => { c.source = null; endGrab(c.id); c.line.visible = false; });
-  for (const [ev, k, v] of [['selectstart', 'trigger', true], ['selectend', 'trigger', false], ['squeezestart', 'squeeze', true], ['squeezeend', 'squeeze', false]]) c.ray.addEventListener(ev, () => { c[k] = v; });
-  scene.add(c.ray, c.grip, c.hand);
-  return c;
-});
+const ENT = globalThis.crearEntradasXR(THREE, renderer, scene, { alDesconectar: c => endGrab(c.id) });
+const { INPUTS, readInput, palmNormal, inputByHand } = ENT;
 const stageQInv = () => stage.getWorldQuaternion(new THREE.Quaternion()).invert();
 function toStage(pWorld, qWorld) { return { p: stage.worldToLocal(pWorld.clone()), q: stageQInv().multiply(qWorld) }; }
-// Pose de agarre (en el mundo) y si está agarrando, para una mano o un mando
-function readInput(c) {
-  const src = c.source; if (!src || src.targetRayMode === 'screen') return null;
-  if (src.hand) {
-    const t = c.hand.joints?.['thumb-tip'], ix = c.hand.joints?.['index-finger-tip'], wr = c.hand.joints?.wrist;
-    if (!t?.visible || !ix?.visible || !wr?.visible) return null;
-    const pt = t.getWorldPosition(new THREE.Vector3()), pi = ix.getWorldPosition(new THREE.Vector3()), d = pt.distanceTo(pi);
-    c.pinch = c.pinch ? d < PINCH_OFF : d < PINCH_ON; // con histéresis
-    return { p: pt.add(pi).multiplyScalar(0.5), q: wr.getWorldQuaternion(new THREE.Quaternion()), grabbing: c.pinch };
-  }
-  const g = c.grip.visible ? c.grip : c.ray;
-  return { p: g.getWorldPosition(new THREE.Vector3()), q: g.getWorldQuaternion(new THREE.Quaternion()), grabbing: c.trigger || c.squeeze };
-}
 // Rayo de la mano o del mando contra la estructura: distancia o null
 function rayHit(c) {
   const o = c.ray.getWorldPosition(new THREE.Vector3()), d = new THREE.Vector3(0, 0, -1).applyQuaternion(c.ray.getWorldQuaternion(new THREE.Quaternion()));
@@ -595,10 +370,6 @@ function xrInputs() {
 // la estructura cuelga de él y se balancea con su peso; al soltar, cae. Con un segundo dedo, girar los
 // dos dedos gira la estructura alrededor de la vertical. Sirve igual en la vista 3D (ratón o dedo) y en
 // la realidad aumentada de Android (toques en la pantalla, que WebXR da como rayos).
-const LIFT = 0.2, OMEGA = 11, ZETA = 0.8;
-const TOUCH = { point: null, primary: null, angle: null, yawTarget: null };
-const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
-function bodyYaw() { const x = new THREE.Vector3(1, 0, 0).applyQuaternion(bodyPose().q); return Math.atan2(-x.z, x.x); }
 // rayo { o, d } del mundo → sistema del escenario
 function rayToStage(o, d) { const qi = stageQInv(); return { o: stage.worldToLocal(o.clone()), d: d.clone().applyQuaternion(qi).normalize() }; }
 function pickStructure(rayWorld) { // punto de la estructura (escenario) bajo el rayo, o null
@@ -606,55 +377,6 @@ function pickStructure(rayWorld) { // punto de la estructura (escenario) bajo el
   const hit = raycaster.intersectObjects(assembly.children, false)[0];
   return hit ? stage.worldToLocal(hit.point.clone()) : null;
 }
-function rayPlaneY(ray, y) { // corte de un rayo (escenario) con el plano horizontal y; a 8 m como mucho
-  if (Math.abs(ray.d.y) < 1e-4) return null;
-  const t = (y - ray.o.y) / ray.d.y;
-  return t > 0 ? ray.o.clone().addScaledVector(ray.d, Math.min(t, 8)) : null;
-}
-function beginPointGrab(id, hitStage) {
-  if (!PH.body || TOUCH.point || GRAB.hands.size) return false;
-  if (OPTS.fixed) { (renderer.xr.isPresenting ? xrMessage : message)('Está fijada al suelo: quita «Fijar al suelo» en Opciones para moverla', 3000); return false; }
-  const { p, q } = bodyPose();
-  TOUCH.point = { id, local: hitStage.clone().sub(p).applyQuaternion(q.invert()), height: hitStage.y + LIFT, target: hitStage.clone().setY(hitStage.y + LIFT), aim: hitStage.clone(), prev: null };
-  TOUCH.primary = id; TOUCH.angle = null; TOUCH.yawTarget = null;
-  PH.active = true; PH.body.setAngularDamping(1.8); PH.body.wakeUp(); setHighlight(true);
-  return true;
-}
-function endPointGrab() {
-  if (!TOUCH.point) return;
-  TOUCH.point = null; TOUCH.primary = null; TOUCH.angle = null; TOUCH.yawTarget = null;
-  PH.body?.setAngularDamping(0.15); PH.body?.wakeUp(); setHighlight(false);
-}
-// Rayos de los dedos (sistema del escenario): el primero mueve; dos dedos giran
-function updatePointers(rays, dt) {
-  if (!TOUCH.point) return;
-  const main = rays.get(TOUCH.primary);
-  if (main) { const t = rayPlaneY(main, TOUCH.point.height); if (t) TOUCH.point.target.copy(t); }
-  const two = [...rays.values()].slice(0, 2);
-  if (two.length === 2) {
-    const a = rayPlaneY(two[0], TOUCH.point.height), b = rayPlaneY(two[1], TOUCH.point.height);
-    if (a && b) {
-      const ang = Math.atan2(-(b.z - a.z), b.x - a.x); // ángulo en planta (giro positivo = antihorario visto desde arriba)
-      // el giro de los dos dedos se suma a un rumbo objetivo (sin inercia al parar)
-      if (TOUCH.angle == null) TOUCH.yawTarget = bodyYaw(); else TOUCH.yawTarget += wrapAngle(ang - TOUCH.angle);
-      TOUCH.angle = ang;
-    }
-  } else if (TOUCH.angle != null) { TOUCH.angle = null; TOUCH.yawTarget = null; const av = PH.body.angvel(); PH.body.setAngvel({ x: av.x, y: av.y * 0.2, z: av.z }, true); }
-}
-// Muelle amortiguado en el punto cogido (impulsos en ese punto) más el peso, para que cuelgue de él
-function drivePoint() {
-  const B = PH.body, P = TOUCH.point; if (!B || !P) return;
-  const { p, q } = bodyPose(), w = P.local.clone().applyQuaternion(q).add(p), m = B.mass(), dt = PH.step;
-  const v = P.prev ? w.clone().sub(P.prev).divideScalar(dt) : new THREE.Vector3(); P.prev = w.clone();
-  // el punto al que tira el muelle persigue al dedo a 2,5 m/s como mucho: un salto del dedo no la lanza
-  const step = P.target.clone().sub(P.aim), maxStep = 2.5 * dt; if (step.length() > maxStep) step.setLength(maxStep); P.aim.add(step);
-  const F = P.aim.clone().sub(w).multiplyScalar(m * OMEGA * OMEGA).addScaledVector(v, -2 * ZETA * OMEGA * m);
-  F.y += m * 9.81;
-  const lim = m * 60; if (F.length() > lim) F.setLength(lim);
-  B.applyImpulseAtPoint({ x: F.x * dt, y: F.y * dt, z: F.z * dt }, { x: w.x, y: w.y, z: w.z }, true);
-  if (TOUCH.yawTarget != null) { const av = B.angvel(), wy = THREE.MathUtils.clamp(wrapAngle(TOUCH.yawTarget - bodyYaw()) / 0.12, -8, 8); B.setAngvel({ x: av.x * 0.9, y: wy, z: av.z * 0.9 }, true); }
-}
-
 // ---- vista 3D: ratón o dedo (antes que la órbita, en la fase de captura)
 const ndc = new THREE.Vector2();
 function pointerRay(e) {
@@ -820,13 +542,7 @@ function menuAction(k) {
   else if (k === 'exit') XR.session?.end();
   for (const c of INPUTS) c.source?.gamepad?.hapticActuators?.[0]?.pulse?.(0.3, 20);
 }
-function inputByHand(side) { return INPUTS.find(c => c.source?.handedness === side && c.source.targetRayMode !== 'screen'); }
 const _n = new THREE.Vector3(), _h = new THREE.Vector3();
-// Normal de la palma (hacia fuera de la palma) a partir de la muñeca y los metacarpianos del índice y el meñique
-function palmNormal(wrist, index, pinky, side) {
-  const a = index.clone().sub(wrist), b = pinky.clone().sub(wrist);
-  return (side === 'left' ? b.cross(a) : a.cross(b)).normalize();
-}
 function updateWristMenu() {
   const M = wristMenu, left = inputByHand('left');
   const head = renderer.xr.getCamera().getWorldPosition(_h);
@@ -918,7 +634,8 @@ async function detectAR() {
 // altura 0 de «local-floor») y la estructura la acompaña en transparente. Seleccionar (pellizco en las
 // gafas, toque en el teléfono o «Colocar aquí») la deja apoyada, mirando hacia el usuario.
 renderer.xr.enabled = true;
-const XR = { session: null, refType: '', hitSource: null, placing: false, placed: false, floorY: null, target: null, viewerSpace: null };
+const SES = globalThis.crearSesionXR(THREE, renderer, { alSalir: () => exitedAR() });
+const XR = Object.assign(SES.XR, { placing: false, placed: false, target: null });
 const reticle = new THREE.Group(); reticle.visible = false; scene.add(reticle);
 {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.09, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false }));
@@ -944,79 +661,11 @@ function yawTowardViewer(pos) {
   const cam = renderer.xr.getCamera().getWorldPosition(new THREE.Vector3());
   return Math.atan2(cam.x - pos.x, cam.z - pos.z);
 }
-// Impacto horizontal (suelo o mesa) de la prueba de impacto, o null
-function floorFromHit(frame) {
-  if (!XR.hitSource) return null;
-  const refSpace = renderer.xr.getReferenceSpace();
-  for (const hit of frame.getHitTestResults(XR.hitSource)) {
-    const pose = hit.getPose(refSpace); if (!pose) continue;
-    const { position: p, orientation: o } = pose.transform;
-    _q.set(o.x, o.y, o.z, o.w); _v.set(0, 1, 0).applyQuaternion(_q);
-    if (_v.y > 0.9) return new THREE.Vector3(p.x, p.y, p.z); // superficie horizontal
-  }
-  return null;
-}
-// Sin prueba de impacto: rayo de la mirada contra el plano del suelo (altura conocida)
-function floorFromGaze(floorY) {
-  const cam = renderer.xr.getCamera(), o = cam.getWorldPosition(new THREE.Vector3()), d = cam.getWorldDirection(new THREE.Vector3());
-  if (d.y > -0.05) d.y = -0.05; // mirando al horizonte: delante, a unos metros como mucho
-  const t = Math.min((floorY - o.y) / d.y, 6);
-  return t > 0 ? o.addScaledVector(d, t).setY(floorY) : null;
-}
-// Altura del suelo: «local-floor» la da (0) y, en las Quest 3, el plano detectado con la etiqueta «floor»
-// ---- entorno real (R9): las Quest 3 dan las mallas de la sala (mesas, sofás, paredes…) con «mesh-detection»;
-// se convierten en colisionadores fijos de la física (en el sistema del escenario), así la estructura se
-// apoya en una mesa o choca con una pared. Sin mallas, se usan los planos detectados (como placas de 2 cm).
-// El suelo detectado no se usa: ya lo pone el escenario. Se relee cada medio segundo y solo se rehace si cambia.
-const ENV = { colliders: [], sig: '', count: 0, lastCheck: 0, announced: false };
-function clearEnv() { if (PH.world) for (const c of ENV.colliders) PH.world.removeCollider(c, false); ENV.colliders = []; ENV.count = 0; }
-// items: [{ label, vertices: Float32Array (mundo), indices: Uint32Array }] o [{ label, hull: Float32Array (mundo) }]
-function setEnvironment(items) {
-  clearEnv();
-  const R = PH.R; if (!R || !PH.world || !OPTS.env) return 0;
-  stage.updateMatrixWorld(true);
-  const inv = stage.matrixWorld.clone().invert(), p = new THREE.Vector3();
-  for (const it of items) {
-    const src = it.vertices || it.hull, v = new Float32Array(src.length);
-    for (let i = 0; i < src.length; i += 3) { p.set(src[i], src[i + 1], src[i + 2]).applyMatrix4(inv); v[i] = p.x; v[i + 1] = p.y; v[i + 2] = p.z; }
-    const desc = it.indices ? R.ColliderDesc.trimesh(v, it.indices) : R.ColliderDesc.convexHull(v);
-    if (!desc) continue;
-    desc.setFriction(0.7).setRestitution(0.05);
-    ENV.colliders.push(PH.world.createCollider(desc));
-  }
-  ENV.count = ENV.colliders.length;
-  if (ENV.count) PH.body?.wakeUp();
-  return ENV.count;
-}
+// La sesión, el suelo (prueba de impacto, mirada y planos detectados) y la lectura del entorno real (R9: mallas y
+// planos de la sala) están en js/xr/sesion.js; los colisionadores del entorno, en js/xr/fisica.js.
+const { floorFromHit, floorFromGaze, updateFloorFromPlanes } = SES;
 const stageKey = () => [stage.position.x, stage.position.y, stage.position.z, stage.rotation.y].map(x => x.toFixed(3)).join(',');
-function readEnvironment(frame) {
-  const ref = renderer.xr.getReferenceSpace(), items = [], M = new THREE.Matrix4(), p = new THREE.Vector3();
-  let sig = stageKey();
-  const meshes = frame.detectedMeshes;
-  if (meshes?.size) {
-    const all = [...meshes], objs = all.filter(m => !['floor', 'global mesh'].includes(m.semanticLabel));
-    for (const m of objs.length ? objs : all.filter(x => x.semanticLabel !== 'floor')) { // objetos sueltos; si no hay, la malla de toda la sala
-      const pose = frame.getPose(m.meshSpace, ref); if (!pose || !m.vertices?.length) continue;
-      sig += '|' + m.semanticLabel + m.lastChangedTime;
-      M.fromArray(pose.transform.matrix);
-      const v = new Float32Array(m.vertices.length);
-      for (let i = 0; i < v.length; i += 3) { p.set(m.vertices[i], m.vertices[i + 1], m.vertices[i + 2]).applyMatrix4(M); v[i] = p.x; v[i + 1] = p.y; v[i + 2] = p.z; }
-      items.push({ label: m.semanticLabel, vertices: v, indices: new Uint32Array(m.indices) });
-    }
-  } else if (frame.detectedPlanes?.size) {
-    for (const pl of frame.detectedPlanes) {
-      if (pl.semanticLabel === 'floor' || !pl.polygon?.length) continue;
-      const pose = frame.getPose(pl.planeSpace, ref); if (!pose) continue;
-      M.fromArray(pose.transform.matrix);
-      if (pl.orientation === 'horizontal' && XR.floorY != null && Math.abs(pose.transform.position.y - XR.floorY) < 0.05) continue; // es el suelo
-      sig += '|' + (pl.semanticLabel || pl.orientation) + pl.lastChangedTime;
-      const v = [];
-      for (const q of pl.polygon) for (const y of [0, -0.02]) { p.set(q.x, y, q.z).applyMatrix4(M); v.push(p.x, p.y, p.z); } // placa de 2 cm detrás de la superficie
-      items.push({ label: pl.semanticLabel || pl.orientation, hull: new Float32Array(v) });
-    }
-  }
-  return { items, sig };
-}
+const readEnvironment = frame => SES.readEnvironment(frame, stageKey());
 function updateEnvironment(frame) {
   const now = performance.now(); if (!OPTS.env || now - ENV.lastCheck < 500) return;
   ENV.lastCheck = now;
@@ -1024,16 +673,6 @@ function updateEnvironment(frame) {
   ENV.sig = sig;
   const n = setEnvironment(items);
   if (n && !ENV.announced) { ENV.announced = true; xrMessage(`${n} superficie${n > 1 ? 's' : ''} de la sala detectada${n > 1 ? 's' : ''}: la estructura se apoya en los muebles y choca con las paredes`, 5000); }
-}
-function updateFloorFromPlanes(frame) {
-  const planes = frame.detectedPlanes; if (!planes?.size) return;
-  const refSpace = renderer.xr.getReferenceSpace();
-  for (const plane of planes) {
-    if (plane.semanticLabel !== 'floor' && plane.orientation !== 'horizontal') continue;
-    const pose = frame.getPose(plane.planeSpace, refSpace); if (!pose) continue;
-    const y = pose.transform.position.y;
-    if (plane.semanticLabel === 'floor' || XR.floorY == null || y < XR.floorY) XR.floorY = y; // el plano horizontal más bajo
-  }
 }
 function xrFrame(frame) {
   updateFloorFromPlanes(frame);
@@ -1073,29 +712,13 @@ async function enterAR() {
   const ui = $('#xr-ui');
   let session;
   ui.hidden = false; // la raíz de la interfaz superpuesta tiene que estar visible al pedir la sesión
-  try {
-    session = await navigator.xr.requestSession('immersive-ar', {
-      optionalFeatures: ['local-floor', 'hit-test', 'dom-overlay', 'hand-tracking', 'plane-detection', 'mesh-detection'],
-      domOverlay: { root: ui },
-    });
-  } catch (err) { ui.hidden = true; message('No se pudo iniciar la realidad aumentada: ' + err.message, 'err', 8000); return; }
-  XR.session = session;
-  // «local-floor» (suelo a la altura 0) si el dispositivo lo da; si no, «local» y el suelo lo pone la prueba de impacto
-  try { await session.requestReferenceSpace('local-floor'); XR.refType = 'local-floor'; } catch { XR.refType = 'local'; }
-  XR.floorY = XR.refType === 'local-floor' ? 0 : null;
-  renderer.xr.setReferenceSpaceType(XR.refType);
-  XR.isPhone = !!session.domOverlayState; // Android con interfaz superpuesta; en las gafas no la hay
-  try {
-    XR.viewerSpace = await session.requestReferenceSpace('viewer');
-    XR.hitSource = await session.requestHitTestSource?.({ space: XR.viewerSpace }) ?? null;
-  } catch { XR.hitSource = null; }
+  try { session = await SES.entrar('immersive-ar', { domOverlay: ui }); }
+  catch (err) { ui.hidden = true; message('No se pudo iniciar la realidad aumentada: ' + err.message, 'err', 8000); return; }
   session.addEventListener('select', () => { if (XR.placing) place(); });
   session.addEventListener('selectstart', xrTouchStart);
   session.addEventListener('selectend', xrTouchEnd);
-  session.addEventListener('end', exitedAR);
   // en el teléfono, los toques en los botones no cuentan como «seleccionar» en la escena
   ui.addEventListener('beforexrselect', e => { if (e.target.closest('button')) e.preventDefault(); });
-  await renderer.xr.setSession(session);
   // escena de RA: sin rejilla ni fondo (se ve la cámara), con la estructura colocada sobre la retícula
   scene.background = null; ui.hidden = false;
   for (const id of ['#top', '#bar', '#info', '#msg']) $(id).dataset.wasHidden = $(id).hidden, $(id).hidden = true;
@@ -1105,7 +728,7 @@ async function enterAR() {
 function exitedAR() {
   clearEnv(); ENV.sig = ''; ENV.announced = false;
   wristMenu.mesh.visible = false; $('#xr-opts').hidden = true;
-  XR.session = null; XR.hitSource?.cancel?.(); XR.hitSource = null; XR.placing = XR.placed = false;
+  XR.placing = XR.placed = false;
   for (const id of [...GRAB.hands.keys()]) endGrab(id);
   reticle.visible = false; setGhost(false); PH.active = true; resetPose();
   stage.position.set(0, 0, 0); stage.rotation.set(0, 0, 0); stage.visible = true;
@@ -1152,7 +775,7 @@ loadPhysics();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { ENV, setEnvironment, clearEnv, readEnvironment, OPTS, setOpt, dims, wristMenu, menuItemAt, palmNormal, drawWristMenu, QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { FIS, ENT, SES, ESC, ENV, setEnvironment, clearEnv, readEnvironment, OPTS, setOpt, dims, wristMenu, menuItemAt, palmNormal, drawWristMenu, QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>

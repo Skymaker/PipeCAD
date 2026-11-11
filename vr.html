@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15181c">
+<title>PipeCAD VR</title>
+<style>
+:root{
+  --bg:#15181c; --panel:#1d2127; --panel-2:#22272e; --border:#323840; --text:#e2e6eb; --muted:#8b95a1;
+  --accent:#5b8ff0; --accent-soft:#24324a; --accent-text:#ffffff; --hover:#2a3038; --ok:#4cbf7d; --warn:#e8a33a; --err:#f0616a;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:#20252b;color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+#view{position:fixed;inset:0;touch-action:none}
+#view canvas{display:block}
+button,select,input{font:inherit;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:8px 14px;min-height:44px}
+button{cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button:hover:not(:disabled){background:var(--hover)}
+button:disabled{opacity:.5;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+.card{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--border);border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.25);backdrop-filter:blur(6px)}
+#top{position:fixed;left:12px;top:12px;padding:8px 12px;max-width:calc(100% - 24px)}
+#top b{font-size:15px} #top b span{color:var(--accent)}
+#name{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bar{position:fixed;right:12px;top:12px;display:flex;gap:8px;padding:8px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 260px)}
+#msg{position:fixed;left:0;right:0;margin:0 auto;width:fit-content;bottom:14px;padding:8px 14px;font-size:13px;max-width:calc(100% - 24px);text-align:center}
+#msg.err{border-color:var(--err);color:var(--err)}
+#start{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.35);overflow:auto}
+#start .card{padding:20px;max-width:520px;width:100%}
+#start h1{font-size:20px;margin:0 0 6px}
+#start p{margin:6px 0 12px;color:var(--muted)}
+#start .btns{display:grid;gap:8px;grid-template-columns:1fr 1fr}
+#start .btns .wide{grid-column:1 / -1}
+#start h2{font-size:14px;margin:16px 0 6px;color:var(--muted);font-weight:600}
+#sup{font-size:13px;color:var(--muted);margin-top:10px}
+#sup b{color:var(--text)}
+#clave-row{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;color:var(--muted)}
+#clave{width:120px;min-height:36px;padding:4px 10px}
+#tests{position:fixed;inset:12px;overflow:auto;padding:16px;z-index:5}
+#tests h1{font-size:18px;margin:0 0 8px}
+#tests li{margin:2px 0;list-style:none} #tests ul{padding:0;margin:0}
+#tests .ok{color:var(--ok)} #tests .bad{color:var(--err)} #tests pre{margin:2px 0 6px 18px;color:var(--muted);white-space:pre-wrap;font-size:12px}
+@media (max-width:760px){ #bar{left:12px;top:auto;bottom:60px;max-width:none;justify-content:center} }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/rapier.es.js",
+  "troika-three-text": "https://esm.sh/troika-three-text@0.52.4?external=three"
+} }
+</script>
+</head>
+<body>
+<div id="view" aria-label="Vista 3D del proyecto"></div>
+<div id="top" class="card"><b>Pipe<span>CAD</span> VR</b><span id="name">Sin proyecto</span></div>
+<div id="bar" class="card" hidden>
+  <button id="b-ar" class="primary" disabled title="Diseñar en realidad mixta: la habitación real de fondo">Realidad mixta</button>
+  <button id="b-vr" disabled title="Diseñar en realidad virtual: fondo neutro">Realidad virtual</button>
+  <button id="b-open" title="Abrir un proyecto .json">Abrir…</button>
+  <button id="b-save" title="Guardar el proyecto como archivo .json">Guardar .json</button>
+  <button id="b-menu" title="Volver a la pantalla inicial">Inicio</button>
+</div>
+<div id="msg" class="card" hidden></div>
+<div id="start">
+  <div class="card">
+    <h1>PipeCAD VR</h1>
+    <p>Diseña dentro de las gafas: dibuja tubos, coloca accesorios, estira, agrupa y consulta el despiece con las manos o los mandos. En el ordenador, esta página es una vista previa que se maneja con el ratón.</p>
+    <div class="btns">
+      <button id="s-ar" class="primary" disabled>Entrar en realidad mixta</button>
+      <button id="s-vr" disabled>Entrar en realidad virtual</button>
+    </div>
+    <div id="sup"></div>
+    <h2>Proyecto</h2>
+    <div class="btns">
+      <button id="s-last" hidden>Seguir con el último</button>
+      <button id="s-example">Proyecto de ejemplo</button>
+      <button id="s-new">Proyecto nuevo</button>
+      <button id="s-open">Abrir .json…</button>
+      <select id="s-server" class="wide" hidden></select>
+    </div>
+    <div id="clave-row" hidden><label for="clave">Clave del servidor para guardar desde las gafas:</label><input id="clave" inputmode="numeric" maxlength="8" placeholder="000000"></div>
+    <div class="btns" style="margin-top:14px"><button id="s-go" class="wide">Vista previa en esta pantalla</button></div>
+  </div>
+</div>
+<div id="tests" class="card" hidden></div>
+<input id="file" type="file" accept=".json,application/json" hidden>
+
+<script src="js/nucleo.js"></script>
+<script src="js/xr/entradas.js"></script>
+<script src="js/xr/sesion.js"></script>
+<script src="js/xr/fisica.js"></script>
+<script src="js/xr/escena.js"></script>
+<script src="js/xr/texto.js"></script>
+<script src="js/xr/paneles.js"></script>
+<script src="js/xr/herramientas.js"></script>
+<script src="js/xr/pruebas.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =====================================================================
+   PIPECAD VR — edición del proyecto dentro de las gafas (WebXR, Meta Quest 3)
+   El proyecto sigue en mm con Z vertical. El grupo «mundo» aplica la escala (maqueta o tamaño real), el giro y la
+   posición; dentro, «proy» pasa de Z vertical a Y vertical. Las herramientas (js/xr/herramientas.js) trabajan en
+   coordenadas del proyecto: mano → mundo del proyecto → snap → núcleo. En el ordenador, el ratón hace de rayo.
+   ===================================================================== */
+const params = new URLSearchParams(location.search);
+const hooks = {};
+const N = globalThis.crearNucleoPipeCAD(THREE, hooks);
+const { Model, fmt, store, loadModels, loadExampleJSON, unpackProject, numStr, nodesBox, DIAMETERS } = N;
+const S = globalThis.crearSesionXR, MM = 0.001;
+const $ = s => document.querySelector(s);
+const V3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const leerJSON = (k, def) => { try { return JSON.parse(store.get(k)) ?? def; } catch { return def; } };
+const CFG = Object.assign({ diestro: true, sentado: false, panel: 1, texto: 1, contraste: false, vineta: true, giro: 30, puntero: 'auto', cotas: 'real', plano: true, sombra: true }, leerJSON('pipecad-vr-ajustes', {}));
+const guardarCFG = () => store.set('pipecad-vr-ajustes', JSON.stringify(CFG));
+
+// ---------------------------------------------------------------- mensajes
+let msgTimer = 0;
+const TOAST = { texto: '', hasta: 0 };
+function aviso(text, ms = 4000) {
+  const m = $('#msg'), err = /^✘|^⚠/.test(text); m.textContent = text; m.className = 'card ' + (err ? 'err' : ''); m.hidden = !text;
+  clearTimeout(msgTimer); if (text && ms) msgTimer = setTimeout(() => { m.hidden = true; }, ms);
+  TOAST.texto = text; TOAST.hasta = performance.now() + ms;
+}
+
+// ---------------------------------------------------------------- escena (metros, Y vertical)
+const view = $('#view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.xr.enabled = true;
+view.append(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
+camera.position.set(0.5, 0.55, 0.75);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.target.set(0, 0.1, 0);
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a9199, 1.7));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(2, 4, 1.5); scene.add(sun);
+// Entorno virtual (solo en realidad virtual y en la vista previa): suelo, rejilla de 1 m y horizonte estable
+const entorno = new THREE.Group(); scene.add(entorno);
+{
+  const cielo = new THREE.Mesh(new THREE.SphereGeometry(90, 32, 16), new THREE.MeshBasicMaterial({ side: THREE.BackSide, vertexColors: true, depthWrite: false }));
+  const pos = cielo.geometry.attributes.position, cols = [], a = new THREE.Color('#6d8fb8'), b = new THREE.Color('#c9d3de'), c = new THREE.Color('#3b4149'), t = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) { const h = pos.getY(i) / 90; (h >= 0 ? t.copy(b).lerp(a, Math.min(1, h * 2.2)) : t.copy(b).lerp(c, Math.min(1, -h * 14))); cols.push(t.r, t.g, t.b); }
+  cielo.geometry.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  const suelo = new THREE.Mesh(new THREE.CircleGeometry(60, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3b4149, roughness: 1 }));
+  suelo.position.y = -0.002;
+  const rej = new THREE.GridHelper(40, 40, 0x7b8794, 0x545c66); rej.material.transparent = true; rej.material.opacity = 0.5;
+  entorno.add(cielo, suelo, rej); entorno.userData.suelo = suelo;
+}
+// Mundo del proyecto: escala (maqueta o real), giro alrededor de la vertical y posición
+const mundo = new THREE.Group(), proy = new THREE.Group(); proy.rotation.x = -Math.PI / 2; mundo.add(proy); scene.add(mundo);
+const W = { modo: 'maqueta', escala: 0.1, yaw: 0, pos: V3() };
+const proyQInv = new THREE.Quaternion();
+function aplicarMundo() {
+  mundo.position.copy(W.pos); mundo.rotation.set(0, W.yaw, 0); mundo.scale.setScalar(W.escala * MM); mundo.updateMatrixWorld(true);
+  proy.getWorldQuaternion(proyQInv).invert();
+}
+aplicarMundo();
+const aProy = v => proy.worldToLocal(v.clone());                       // punto del mundo (m) → proyecto (mm)
+const dirAProy = v => v.clone().applyQuaternion(proyQInv).normalize(); // dirección del mundo → proyecto
+const quatAProy = q => proyQInv.clone().multiply(q);
+
+const ESC = globalThis.crearEscenaXR(THREE, N, { seg: 32, mergeGeometries });
+const vista = ESC.crearVista({ seg: 20 }); proy.add(vista.grupo);
+const model = new Model();
+const sucio = { vista: true, cotas: true, plano: true };
+const ed = globalThis.crearEditorVR(THREE, N, model, {
+  cambio: live => refrescar(live), estado: t => aviso(t), paso: () => vibraDom(0.25, 12),
+  seleccion: () => { sucio.vista = true; kit.refrescar(); },
+});
+window.pipecadVR = { ed, model, W, CFG, N, THREE }; // para pruebas desde la consola
+
+// ---- vista previa transparente de lo que se está dibujando o colocando
+const Y = V3(0, 1, 0);
+const prevG = new THREE.Group(); proy.add(prevG);
+const fantasma = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+const MAT = { ghost: fantasma(0x6ea0ff, 0.5), snap: fantasma(0x3fd07f, 0.6), bad: fantasma(0xe5484d, 0.55), asa: new THREE.MeshBasicMaterial({ color: 0x2f6fde }) };
+const GEO = { cyl: new THREE.CylinderGeometry(1, 1, 1, 20, 1, false).translate(0, 0.5, 0), bola: new THREE.SphereGeometry(1, 20, 10) };
+const pool = { cyl: [], dot: [], asa: [] };
+const linea = (color, n = 2) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: n }, () => V3())), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false })); l.visible = false; l.renderOrder = 12; l.frustumCulled = false; return l; };
+const lineaEje = linea(0xffd166), lineaRegla = linea(0x9cc4ff); prevG.add(lineaEje, lineaRegla);
+function usar(lista, i, geo) { let m = lista[i]; if (!m) { m = lista[i] = new THREE.Mesh(geo, MAT.ghost); m.renderOrder = 10; prevG.add(m); } m.visible = true; return m; }
+function dibujarPrevia() {
+  const pv = ed.previa; let i = 0;
+  for (const c of pv.cyls) { const m = usar(pool.cyl, i++, GEO.cyl); m.material = MAT[c.tipo] || MAT.ghost; m.position.copy(c.a); m.quaternion.setFromUnitVectors(Y, c.dir); m.scale.set(c.r, Math.max(c.len, 0.01), c.r); }
+  for (; i < pool.cyl.length; i++) pool.cyl[i].visible = false;
+  i = 0;
+  for (const d of pv.dots) { const m = usar(pool.dot, i++, GEO.bola); m.material = MAT[d.tipo] || MAT.ghost; m.position.copy(d.pos); m.scale.setScalar(d.r); }
+  for (; i < pool.dot.length; i++) pool.dot[i].visible = false;
+  lineaEje.visible = !!pv.eje;
+  if (pv.eje) { const k = 250; lineaEje.geometry.setFromPoints([pv.eje.pos.clone().addScaledVector(pv.eje.dir, -k), pv.eje.pos.clone().addScaledVector(pv.eje.dir, k)]); }
+  lineaRegla.visible = !!pv.regla;
+  if (pv.regla) { const b = pv.regla.pos.clone(); b[pv.regla.eje] = pv.regla.base; lineaRegla.geometry.setFromPoints([b, pv.regla.pos]); }
+}
+// ---- puntos de arrastre de la selección y caja del grupo
+const cajaGrupo = new THREE.Box3Helper(new THREE.Box3(), 0xffd166); cajaGrupo.visible = false; cajaGrupo.material.depthTest = false; proy.add(cajaGrupo);
+function dibujarAsas() {
+  const hs = ed.state.tool === 'select' ? ed.handles() : []; let i = 0;
+  for (const h of hs) { const m = usar(pool.asa, i++, GEO.bola); m.material = MAT.asa; m.position.copy(h.pos); m.scale.setScalar(h.r); }
+  for (; i < pool.asa.length; i++) pool.asa[i].visible = false;
+  const st = ed.state, g = st.group && model.groups.get(st.group);
+  const ids = g ? g.nodes : st.multi.size > 1 ? [...new Set([...st.multi.values()].flatMap(p => p.type === 'node' ? [p.id] : [model.segments.get(p.id)?.a, model.segments.get(p.id)?.b]))].filter(Boolean) : null;
+  cajaGrupo.visible = !!ids?.length;
+  if (ids?.length) cajaGrupo.box.copy(nodesBox(model, ids));
+}
+// ---- plano de trabajo (rejilla de 100 mm) y sombra de contacto
+let planoMesh = null, planoKey = '';
+const sombra = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0.55 }));
+{
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(0,0,0,.55)'); gr.addColorStop(0.6, 'rgba(0,0,0,.28)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  sombra.material.map = new THREE.CanvasTexture(c); sombra.renderOrder = 1; proy.add(sombra);
+}
+function dibujarPlano() {
+  const st = ed.state, b = vista.caja(ed.analysis), ax = ed.PLANES[st.wp].axis, off = st.planeOff[st.wp];
+  const paso = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z) > 6000 ? 500 : 100, r = x => Math.round(x / paso) * paso;
+  const lo = V3(r(b.min.x) - 3 * paso, r(b.min.y) - 3 * paso, r(b.min.z) - 3 * paso), hi = V3(r(b.max.x) + 3 * paso, r(b.max.y) + 3 * paso, r(b.max.z) + 3 * paso);
+  const key = [st.wp, off, paso, ...lo.toArray(), ...hi.toArray(), CFG.plano, st.tool].join();
+  // sombra de contacto: en la base de la estructura
+  sombra.visible = CFG.sombra && ed.analysis.segs.size > 0;
+  sombra.position.set((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.min.z + 3); sombra.scale.set((b.max.x - b.min.x) * 1.5 + 200, (b.max.y - b.min.y) * 1.5 + 200, 1);
+  if (key === planoKey) return; planoKey = key;
+  if (planoMesh) { proy.remove(planoMesh); planoMesh.geometry.dispose(); }
+  const [u, v] = ['x', 'y', 'z'].filter(k => k !== ax), pts = [], P = (a, b2) => { const p = V3(); p[ax] = off; p[u] = a; p[v] = b2; return p; };
+  for (let x = lo[u]; x <= hi[u] + 1; x += paso) pts.push(P(x, lo[v]), P(x, hi[v]));
+  for (let y = lo[v]; y <= hi[v] + 1; y += paso) pts.push(P(lo[u], y), P(hi[u], y));
+  planoMesh = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x9cc4ff, transparent: true, opacity: 0.28, depthWrite: false }));
+  planoMesh.visible = CFG.plano && st.tool !== 'select'; planoMesh.frustumCulled = false; proy.add(planoMesh);
+}
+// ---- cotas y rótulos en 3D
+let troika = null;
+try { if (!params.has('sintroika')) troika = await Promise.race([import('troika-three-text'), new Promise((_, no) => setTimeout(() => no(new Error('tiempo agotado')), 6000))]); }
+catch (err) { console.warn('troika-three-text no disponible: los rótulos se dibujan con canvas', err.message); }
+const TXT = globalThis.crearTextoXR(THREE, troika), rot = TXT.rotulos(90); scene.add(rot.grupo);
+let cotas = [], avisosMapa = new Map();
+function calcularCotas() {
+  const an = ed.analysis, marks = ed.state.cut?.marks; cotas = [];
+  if (CFG.cotas === 'no') return;
+  for (const g of an.segs.values()) {
+    if (g.Le < 1e-6) continue;
+    const texto = CFG.cotas === 'real' ? fmt(g.Lr, 0) : CFG.cotas === 'ejes' ? fmt(g.Le, 0) : CFG.cotas === 'ambas' ? `${fmt(g.Lr, 0)} (${fmt(g.Le, 0)})` : marks?.get(g.id) || '—';
+    cotas.push({ id: g.id, len: g.Le, p: an.nodes.get(g.a).pos.clone().addScaledVector(g.dir, g.Le / 2), r: g.d / 2, texto, color: g.errors.length ? '#ff8087' : g.warnings.length ? '#ffc766' : '#ffffff', pos: V3() });
+  }
+}
+function refrescar(live) {
+  sucio.vista = true; sucio.cotas = true;
+  if (live) return;
+  avisosMapa = new Map(); for (const i of ed.issues()) { const k = i.pick.type + ':' + i.pick.id; if (avisosMapa.get(k) !== 'err') avisosMapa.set(k, i.cls); }
+  sucio.plano = true; kit.refrescar(); autoguardar(); VIVO.enviar();
+  $('#name').textContent = model.name || 'Proyecto sin título'; document.title = `${model.name || 'Proyecto'} · PipeCAD VR`;
+}
+hooks.stlLoaded = () => { sucio.vista = true; };
+hooks.modelsChanged = () => { if (model.nodes.size) model.emit(); kit?.refrescar(); };
+
+// ---------------------------------------------------------------- sesión, cabeza y colocación de la maqueta
+const SES = globalThis.crearSesionXR(THREE, renderer, { alSalir: () => salioXR() });
+const XR = SES.XR;
+const enXR = () => renderer.xr.isPresenting;
+const camAct = () => (enXR() ? renderer.xr.getCamera() : camera);
+const cabeza = () => camAct().getWorldPosition(V3());
+const miraXZ = () => { const d = camAct().getWorldDirection(V3()); d.y = 0; return d.lengthSq() < 1e-6 ? V3(0, 0, -1) : d.normalize(); };
+let mesa = null; // mesa real detectada cerca (altura), para apoyar la maqueta
+// Maqueta: a 50 cm, a la altura de la cintura (o sobre la mesa real si hay una). Tamaño real: sobre el suelo, delante.
+function colocar(modo = W.modo, escala) {
+  W.modo = modo; W.escala = escala ?? (modo === 'real' ? 1 : modo === 'maqueta' ? 0.1 : W.escala);
+  const b = vista.caja(ed.analysis), c = b.getCenter(V3()), medio = Math.max(b.max.x - b.min.x, b.max.y - b.min.y) / 2 * MM * W.escala;
+  const cab = cabeza(), dir = miraXZ(), destino = V3();
+  if (!enXR()) { W.yaw = 0; destino.set(0, 0, 0); }
+  else {
+    W.yaw = Math.atan2(-dir.x, -dir.z);
+    const suelo = XR.floorY ?? 0;
+    if (W.escala >= 0.5) destino.copy(cab).addScaledVector(dir, Math.max(1.2, medio + 0.8)).setY(suelo);
+    else {
+      let y = cab.y - (CFG.sentado ? 0.32 : 0.45);
+      if (mesa && Math.abs(mesa.y - y) < 0.4) y = mesa.y + 0.002;
+      destino.copy(cab).addScaledVector(dir, Math.max(0.5, medio + 0.25)).setY(Math.max(suelo, y));
+    }
+  }
+  W.pos.set(0, 0, 0); aplicarMundo();
+  W.pos.copy(destino).sub(proy.localToWorld(V3(c.x, c.y, b.min.z))); aplicarMundo();
+  if (!enXR()) { const h = (b.max.z - b.min.z) * MM * W.escala, r = Math.max(0.1, Math.hypot(medio * 2, h) * 1.15); controls.target.set(0, h / 2, 0); camera.position.set(r * 0.9, h / 2 + r * 0.8, r * 1.3); controls.update(); }
+  entorno.userData.suelo.position.y = (CFG.sentado && enXR() ? 0 : 0) - 0.002;
+  avisoSala(); kit?.refrescar();
+}
+// Aviso si el proyecto no cabe en la sala a tamaño real (límite de seguridad de las gafas, si lo dan)
+function avisoSala() {
+  if (!enXR() || W.escala < 0.99) return;
+  const b = vista.caja(ed.analysis), sx = (b.max.x - b.min.x) * MM, sy = (b.max.y - b.min.y) * MM;
+  const lim = XR.limites; let sala = null;
+  if (lim?.length) { const xs = lim.map(p => p.x), zs = lim.map(p => p.z); sala = [Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)]; }
+  const cabe = sala ? Math.max(sx, sy) <= Math.max(...sala) && Math.min(sx, sy) <= Math.min(...sala) : Math.max(sx, sy) < 5;
+  if (!cabe) aviso(`⚠ El proyecto mide ${fmt(sx, 1)} × ${fmt(sy, 1)} m y puede no caber en la sala a tamaño real: usa el teletransporte o la maqueta`, 7000);
+}
+
+// ---------------------------------------------------------------- paneles 3D
+const kit = globalThis.crearPanelesXR(THREE, { tema: CFG.contraste ? 'contraste' : 'oscuro' });
+kit.setEscala(CFG.panel, CFG.texto); scene.add(kit.grupo);
+const st = ed.state;
+let tab = 'Dibujo', multi = false, gravedad = false;
+const haySel = () => st.multi.size > 0 || !!st.selected;
+function ciclarFit(k) { const L = ed.fitList(), i = L.findIndex(f => f[0] === st.fit); st.fit = L[(Math.max(0, i) + k + L.length) % L.length]?.[0] ?? st.fit; ed.placeRot.identity(); if (st.tool !== 'place') ed.setTool('place'); }
+const T = (texto, extra = {}) => ({ t: 'texto', texto, ...extra });
+const Bt = (texto, accion, extra = {}) => ({ texto, accion, ...extra });
+const herr = (k, texto) => Bt(texto, () => { ed.setTool(k); sucio.plano = true; }, { on: st.tool === k });
+function abrirTeclado(o) { const p = kit.teclado(o); p.frente(cabeza(), miraXZ(), enXR() ? 0.42 : 0.5, (CFG.diestro ? 1 : -1) * 0.1, -0.16); return p; }
+function tecladoLongitud() {
+  const c = ed.draw.cand; if (!ed.draw.start || !c) { aviso('Empieza un tubo e indica su dirección; después escribe la longitud'); return; }
+  abrirTeclado({ titulo: 'Longitud a ejes', valor: numStr(c.len), alAceptar: v => { ed.typedLength(v); } });
+}
+const paleta = kit.panel({ id: 'paleta', titulo: 'PipeCAD VR', ancho: 0.21, cerrable: false, construir: () => {
+  const filas = [{ h: 0.022, celdas: ['Dibujo', 'Edición', 'Vista', 'Más'].map(t => Bt(t, () => { tab = t; }, { on: tab === t, chico: true })) }];
+  if (gravedad) { filas.push([T('Prueba con gravedad: coge la copia con la mano', { lineas: 2, chico: true })], [Bt('Soltar otra vez', () => GRAV.soltar()), Bt('Volver a editar', () => GRAV.fin(), { on: true })]); return filas; }
+  if (tab === 'Dibujo') {
+    const ax = ed.PLANES[st.wp].axis, off = st.planeOff[st.wp], pl = k => Bt(k.toUpperCase(), () => { ed.setPlane(k); sucio.plano = true; }, { on: st.wp === k });
+    filas.push(
+      { h: 0.03, celdas: [herr('select', 'Seleccionar'), herr('draw', 'Tubo'), herr('place', 'Accesorio')] },
+      [T('Ø', { w: 0.6 }), ...DIAMETERS.map(d => Bt(String(d), () => { st.d = d; }, { on: st.d === d }))],
+      [Bt('◀', () => ciclarFit(-1), { w: 0.6 }), Bt(ed.fitName(st.fit), () => ed.setTool('place'), { w: 3, on: st.tool === 'place' }), Bt('▶', () => ciclarFit(1), { w: 0.6 })],
+      [T('Rejilla', { w: 1.3, chico: true }), ...ed.SNAPS.map(s => Bt(String(s), () => ed.setSnap(s), { on: st.snap === s, chico: true }))],
+      [Bt('Referencias', () => { st.osnap.on = !st.osnap.on; model.emit(true); }, { on: st.osnap.on, chico: true }), Bt('Tercios', () => { st.osnap.third = !st.osnap.third; model.emit(true); }, { on: st.osnap.third, chico: true }), Bt('Regla Z', () => { st.regla = !st.regla; }, { on: st.regla, chico: true })],
+      [T('Plano', { w: 1.1, chico: true }), pl('xy'), pl('xz'), pl('yz')],
+      [Bt('−', () => { ed.setPlane(st.wp, off - Math.max(st.snap, 10)); sucio.plano = true; }, { w: 0.7 }),
+        Bt(`${ax.toUpperCase()} = ${fmt(off)} mm`, () => abrirTeclado({ titulo: 'Altura del plano ' + st.wp.toUpperCase(), valor: numStr(off), alAceptar: v => { ed.setPlane(st.wp, v); sucio.plano = true; kit.refrescar(); } }), { w: 3 }),
+        Bt('+', () => { ed.setPlane(st.wp, off + Math.max(st.snap, 10)); sucio.plano = true; }, { w: 0.7 })],
+      [Bt('Medida exacta', tecladoLongitud, { off: !ed.draw.start }), Bt('Terminar', () => ed.drawFinish(), { off: !ed.draw.start })],
+      { h: 0.03, celdas: [Bt('Deshacer', () => ed.undo(), { off: !model.undoStack.length }), Bt('Rehacer', () => ed.redo(), { off: !model.redoStack.length }), Bt('Borrar', () => ed.deleteSelection(), { off: !haySel(), err: true })] });
+  } else if (tab === 'Edición') {
+    const g1 = !!ed.oneGroup();
+    filas.push(
+      [Bt('Agrupar', () => ed.groupSelection(), { off: st.multi.size < 2 || !!st.group }), Bt('Desagrupar', () => ed.ungroupSelection(), { off: !ed.selectedGroups().length })],
+      [Bt('Duplicar', () => duplicarEnMano(), { off: !haySel() }), Bt('Espejo ↔', () => ed.mirrorSelection('v', dirAProy(miraXZ())), { off: !g1 }), Bt('Espejo ↕', () => ed.mirrorSelection('h'), { off: !g1 })],
+      [Bt('Todo', () => ed.selectAll()), Bt('Nada', () => ed.select(null)), Bt('Añadir', () => { multi = !multi; }, { on: multi, sub: 'selección múltiple' })],
+      [T('Mover', { chico: true }), ...[['libre', 'Libre'], ['plano', 'En el plano'], ['eje', 'Por eje']].map(([k, t]) => Bt(t, () => { st.mover = k; }, { on: st.mover === k, chico: true }))],
+      [T('Giro', { chico: true }), ...[15, 45, 90].map(a => Bt(a + '°', () => { st.angStep = a; }, { on: st.angStep === a, chico: true }))],
+      [Bt('Propiedades', () => abrir(pProps)), Bt('Borrar', () => ed.deleteSelection(), { off: !haySel(), err: true })],
+      { h: 0.03, celdas: [Bt('Deshacer', () => ed.undo(), { off: !model.undoStack.length }), Bt('Rehacer', () => ed.redo(), { off: !model.redoStack.length })] });
+  } else if (tab === 'Vista') {
+    filas.push(
+      { h: 0.03, celdas: [Bt('Maqueta 1:10', () => colocar('maqueta'), { on: W.escala === 0.1 }), Bt('Tamaño real', () => colocar('real'), { on: W.escala === 1 })] },
+      [Bt('−', () => escalar(-1), { w: 0.7 }), T('Escala ' + S.nombreEscala(W.escala), { w: 2.4 }), Bt('+', () => escalar(1), { w: 0.7 })],
+      [Bt('Recolocar delante', () => colocar(W.escala === 1 ? 'real' : W.escala === 0.1 ? 'maqueta' : 'libre')), Bt('Sentado', () => { CFG.sentado = !CFG.sentado; guardarCFG(); colocar(); }, { on: CFG.sentado })],
+      [T('Cotas', { chico: true, w: 1.2 }), ...[['real', 'Real'], ['ejes', 'Ejes'], ['ambas', 'Ambas'], ['marcas', 'Marcas'], ['no', 'No']].map(([k, t]) => Bt(t, () => { CFG.cotas = k; guardarCFG(); sucio.cotas = true; }, { on: CFG.cotas === k, chico: true }))],
+      [Bt('Plano de trabajo', () => { CFG.plano = !CFG.plano; guardarCFG(); sucio.plano = true; }, { on: CFG.plano, chico: true }), Bt('Sombra', () => { CFG.sombra = !CFG.sombra; guardarCFG(); sucio.plano = true; }, { on: CFG.sombra, chico: true })],
+      [Bt('Probar con gravedad', () => GRAV.inicio(), { off: !ed.analysis.segs.size })]);
+  } else {
+    const n = ed.issues().length;
+    filas.push(
+      [Bt('Propiedades', () => abrir(pProps)), Bt('Despiece', () => abrir(pCut))],
+      [Bt(`Avisos (${n})`, () => abrir(pAvisos), { warn: n > 0 }), Bt('Proyectos', () => { abrir(pProy); SRV.listar(); })],
+      [Bt('Ajustes', () => abrir(pAjustes)), Bt('Ayuda', () => abrir(pAyuda))],
+      [Bt('Guardar', () => SRV.guardar(), { off: !SRV.ok }), Bt('Enviar al ordenador', () => SRV.guardar(true), { off: !SRV.ok, chico: true })],
+      [T(SRV.ok ? (SRV.escribir ? 'Servidor local: se puede guardar' : 'Servidor local: solo lectura (falta la clave)') : 'Sin servidor local: autoguardado en este navegador', { chico: true, tenue: true, lineas: 2 })],
+      [Bt('Salir de las gafas', () => SES.salir(), { off: !enXR(), err: true })]);
+  }
+  return filas;
+} });
+function escalar(k) { const i = S.ESCALAS.findIndex(e => e >= W.escala - 1e-9), j = THREE.MathUtils.clamp((S.ESCALAS[i] === W.escala ? i : k > 0 ? i - 1 : i) + k, 0, S.ESCALAS.length - 1); escalaEnSitio(S.ESCALAS[j]); }
+function escalaEnSitio(e) { // cambia la escala dejando fijo el centro de la base de la maqueta
+  const b = vista.caja(ed.analysis), c = b.getCenter(V3()); c.z = b.min.z; const antes = proy.localToWorld(c.clone());
+  W.escala = e; W.modo = e === 1 ? 'real' : e === 0.1 ? 'maqueta' : 'libre'; aplicarMundo();
+  W.pos.add(antes.sub(proy.localToWorld(c.clone()))); aplicarMundo(); kit.refrescar(); avisoSala();
+}
+// ---- propiedades de la selección
+const linea2 = (a, b) => [T(a, { izq: true, tenue: true, chico: true }), T(b, { izq: true, w: 1.6 })];
+const pProps = kit.panel({ id: 'props', titulo: 'Propiedades', ancho: 0.25, construir: p => {
+  const d = ed.props(), f = [];
+  if (d.tipo === 'nada') {
+    p.titulo = 'Propiedades';
+    f.push([T('Pellizca un tubo o un accesorio para ver sus datos.', { lineas: 2, tenue: true })]);
+    if (d.grupos?.length) f.push([T('Grupos', { izq: true, tenue: true, chico: true })], { t: 'lista', id: 'grupos', n: 5, items: d.grupos.map(g => ({ texto: `${g.name} · ${g.n} tubos`, accion: () => { const gg = model.groups.get(g.id); ed.setSelection(ed.groupPicks(gg), null, g.id); } })) });
+  } else if (d.tipo === 'seg') {
+    p.titulo = `Tubo Ø${d.d} (${d.id})`;
+    f.push({ h: 0.034, celdas: [T(`${fmt(d.Lr)} mm`, { grande: true, sub: 'longitud real de corte' })] },
+      [T('Ø', { w: 0.6 }), ...DIAMETERS.map(x => Bt(String(x), () => ed.setSegD(d.id, x), { on: d.d === x }))],
+      [T('A ejes', { izq: true, tenue: true }), Bt(`${numStr(d.Le)} mm`, () => abrirTeclado({ titulo: 'Medida a ejes', valor: numStr(d.Le), negativo: false, alAceptar: v => ed.setSegLength(d.id, v) }), { w: 1.6 })],
+      [T('Real', { izq: true, tenue: true }), Bt(`${numStr(d.Lr)} mm`, () => abrirTeclado({ titulo: 'Longitud real', valor: numStr(d.Lr), negativo: false, alAceptar: v => ed.setSegLength(d.id, v, true) }), { w: 1.6 })],
+      [T('Se mueve', { izq: true, tenue: true, chico: true }), Bt('A · ' + d.extA, () => { st.moveEnd = { seg: d.id, end: 'a' }; }, { on: d.mueve === 'a', chico: true }), Bt('B · ' + d.extB, () => { st.moveEnd = { seg: d.id, end: 'b' }; }, { on: d.mueve === 'b', chico: true })],
+      linea2('Descuentos', `A ${fmt(d.zA)} · B ${fmt(d.zB)} mm`), linea2('Tubo visto', `${fmt(d.free)} mm · mínimo a ejes ${fmt(d.min)}`), linea2('Dirección · marca', `${d.dir} · ${d.marca}`));
+    for (const t of d.errors) f.push({ h: 0.03, celdas: [T(t, { err: true, lineas: 2, chico: true, izq: true })] });
+    for (const t of d.warnings) f.push({ h: 0.03, celdas: [T(t, { warn: true, lineas: 2, chico: true, izq: true })] });
+    const ord = [];
+    if (d.loose) ord.push(Bt('Conectar con ' + d.loose.nodeId, () => ed.connect(d.loose), { chico: true }));
+    if (d.largo) ord.push(Bt('Dividir con manguitos', () => ed.splitLong([d.id]), { chico: true }));
+    if (d.unir.length) ord.push(Bt('Unir con ' + d.unir[0].id, () => ed.joinFirst(d.id), { chico: true }));
+    if (ord.length) f.push(ord);
+  } else if (d.tipo === 'node') {
+    p.titulo = `${d.nombre} (${d.id})`;
+    f.push(linea2('Posición', `X ${fmt(d.pos.x)} · Y ${fmt(d.pos.y)} · Z ${fmt(d.pos.z)}`), [T('Boca', { chico: true, tenue: true }), T('Ø', { chico: true, tenue: true }), T('Z', { chico: true, tenue: true }), T('Emboc.', { chico: true, tenue: true }), T('Hacia', { chico: true, tenue: true })]);
+    for (const b of d.bocas) f.push({ h: 0.02, celdas: [T(b.tramo, { chico: true }), T(String(b.d), { chico: true }), T(fmt(b.z), { chico: true }), T(fmt(b.socket), { chico: true }), T(b.dir, { chico: true })] });
+    for (const t of d.errors) f.push({ h: 0.03, celdas: [T(t, { err: true, lineas: 2, chico: true, izq: true })] });
+    if (d.esAccesorio && d.ejes.length) {
+      p.giro ||= { eje: 0, ang: st.angStep }; p.giro.eje %= d.ejes.length;
+      f.push([Bt('◀', () => { p.giro.eje = (p.giro.eje + d.ejes.length - 1) % d.ejes.length; }, { w: 0.6 }), T('Eje: ' + d.ejes[p.giro.eje].name, { w: 3.4, chico: true, lineas: 2 }), Bt('▶', () => { p.giro.eje = (p.giro.eje + 1) % d.ejes.length; }, { w: 0.6 })],
+        [Bt(`${numStr(p.giro.ang)}°`, () => abrirTeclado({ titulo: 'Ángulo de giro', unidad: '°', valor: numStr(p.giro.ang), alAceptar: v => { p.giro.ang = v; p.refrescar(); } })), Bt('Girar', () => ed.commitRotation(d.id, d.ejes[p.giro.eje].axis, THREE.MathUtils.degToRad(p.giro.ang)), { on: true })]);
+    }
+    if (d.unir) f.push([Bt('Quitar el manguito y unir los tubos', () => ed.joinNode(d.id), { chico: true })]);
+  } else {
+    p.titulo = d.nombre;
+    f.push([T(`${d.segs} tubos · ${d.nodes} accesorios`)], [Bt('Agrupar', () => ed.groupSelection(), { off: d.grupo }), Bt('Desagrupar', () => ed.ungroupSelection(), { off: !d.grupos })],
+      [Bt('Duplicar', () => duplicarEnMano()), Bt('Espejo ↔', () => ed.mirrorSelection('v', dirAProy(miraXZ())), { off: !ed.oneGroup() }), Bt('Espejo ↕', () => ed.mirrorSelection('h'), { off: !ed.oneGroup() })],
+      [Bt('Borrar', () => ed.deleteSelection(), { err: true })], [T('Agárralo con la mano para moverlo por la rejilla; gira la muñeca para girarlo por pasos.', { lineas: 2, tenue: true, chico: true })]);
+  }
+  return f;
+} });
+// ---- despiece: barras por Ø con su esquema de cortes, piezas y accesorios (una «pizarra» que se coloca en la habitación)
+const COLD = { 20: '#3f86b8', 32: '#77828e', 40: '#b97d38' };
+const pCut = kit.panel({ id: 'despiece', titulo: 'Despiece', ancho: 0.4, construir: () => {
+  const cut = st.cut, B = model.config.barLength, f = [];
+  if (!ed.analysis.segs.size) return [[T('Dibuja tubos para obtener el despiece.', { tenue: true })]];
+  f.push([T(`Barras de ${fmt(B, 0)} mm · ${fmt(model.config.kerf)} mm por corte · longitudes reales al mm`, { tenue: true, chico: true })]);
+  if (cut.oversize.length) f.push([T(`⚠ ${cut.oversize.length} pieza(s) más largas que la barra`, { warn: true, chico: true, w: 2 }), Bt('Dividir con manguitos', () => ed.splitLong(cut.oversize.map(p => p.segId)), { chico: true })]);
+  if (cut.invalid.length) f.push([T('No incluidos por errores: ' + cut.invalid.map(s => s.id).join(', '), { err: true, chico: true })]);
+  if (ed.analysis.loose.length) f.push([T(`⚠ ${ed.analysis.loose.length} extremo(s) suelto(s): el despiece no es fiable hasta conectarlos`, { warn: true, chico: true })]);
+  const barras = [];
+  for (const d of DIAMETERS) {
+    const r = cut.byD[d]; if (!r.pieces.length) continue;
+    barras.push([T(`Ø${d} · ${r.bars.length} barra${r.bars.length === 1 ? '' : 's'} · ${r.pieces.length} piezas · ${fmt(r.sum / 1000, 2)} m · aprovechamiento ${fmt(r.util * 100, 0)} %`, { izq: true, fondo: COLD[d] })]);
+    r.bars.forEach((b, i) => {
+      barras.push([{ t: 'texto', barra: [...b.items.map(p => ({ L: p.L, c: COLD[d], t: p.L >= B * 0.1 ? p.mark : '' })), ...(b.retal > 0 ? [{ L: b.retal, c: 'rgba(255,255,255,.1)', t: '' }] : [])] }]);
+      barras.push([T(`Barra ${i + 1}: ${b.items.map(p => `${p.L} (${p.mark})`).join(' · ')} — ${b.cuts} corte${b.cuts === 1 ? '' : 's'} · retal ${fmt(b.retal, 0)}`, { izq: true, chico: true, lineas: 2 })]);
+    });
+  }
+  f.push({ t: 'lista', id: 'barras', n: 9, h: 0.024, items: barras });
+  const all = DIAMETERS.flatMap(d => cut.byD[d].pieces);
+  f.push([T(`Piezas (${all.length}) — toca una para localizarla`, { izq: true, tenue: true, chico: true })],
+    { t: 'lista', id: 'piezas', n: 5, h: 0.022, items: all.map(p => [Bt(p.mark + (p.L > B ? ' ⚠' : ''), () => ed.select({ type: 'seg', id: p.segId }, { single: true }), { chico: true }), T(`${p.L} mm`, { chico: true }), T(`ejes ${fmt(p.Le)}`, { chico: true, tenue: true }), T(p.segId, { chico: true, tenue: true })]) },
+    [T(`Accesorios (${cut.fittings.reduce((s, x) => s + x.n, 0)})`, { izq: true, tenue: true, chico: true })],
+    { t: 'lista', id: 'acc', n: 4, h: 0.022, vacio: 'Sin accesorios', items: cut.fittings.map(x => [T(x.name, { izq: true, chico: true, w: 3 }), T('× ' + x.n, { chico: true })]) });
+  return f;
+} });
+const pAvisos = kit.panel({ id: 'avisos', titulo: 'Avisos', ancho: 0.32, construir: p => {
+  const is = ed.issues(); p.titulo = `Avisos (${is.length})`;
+  if (!is.length) return [[T('Sin errores ni avisos.', { ok: true })]];
+  return [[T('Toca un aviso para resaltar la pieza', { tenue: true, chico: true })], { t: 'lista', id: 'avisos', n: 7, h: 0.034, items: is.map(i => {
+    const c = [Bt(`${i.pick.id}: ${i.t}`, () => { ed.setTool('select'); ed.select(i.pick, { single: true }); }, { [i.cls]: true, lineas: 2, chico: true, izq: true, w: 4 })];
+    if (i.loose) c.push(Bt('Conectar', () => ed.connect(i.loose), { chico: true }));
+    return c;
+  }) }];
+} });
+// ---- ajustes de comodidad y accesibilidad
+let hz = 0;
+const pAjustes = kit.panel({ id: 'ajustes', titulo: 'Ajustes', ancho: 0.27, construir: () => {
+  const sw = (texto, k, fn) => Bt(texto, () => { CFG[k] = !CFG[k]; guardarCFG(); fn?.(); }, { on: !!CFG[k] });
+  const op = (k, lista, fn) => lista.map(([v, t]) => Bt(t, () => { CFG[k] = v; guardarCFG(); fn?.(); }, { on: CFG[k] === v, chico: true }));
+  return [
+    [T('Mano dominante', { izq: true, chico: true }), Bt('Izquierda', () => { CFG.diestro = false; guardarCFG(); }, { on: !CFG.diestro, chico: true }), Bt('Derecha', () => { CFG.diestro = true; guardarCFG(); }, { on: CFG.diestro, chico: true })],
+    [sw('Modo sentado', 'sentado', () => colocar()), sw('Alto contraste', 'contraste', () => kit.setTema(CFG.contraste ? 'contraste' : 'oscuro'))],
+    [T('Paneles', { izq: true, chico: true }), ...op('panel', [[1, 'Normal'], [1.25, 'Grande'], [1.5, 'Muy grande']], () => kit.setEscala(CFG.panel, CFG.texto))],
+    [T('Texto', { izq: true, chico: true }), ...op('texto', [[1, 'Normal'], [1.2, 'Grande']], () => kit.setEscala(CFG.panel, CFG.texto))],
+    [T('Puntero', { izq: true, chico: true }), ...op('puntero', [['auto', 'Automático'], ['mano', 'Mano'], ['rayo', 'Rayo']])],
+    [T('Giro por pasos', { izq: true, chico: true }), ...op('giro', [[30, '30°'], [45, '45°'], [90, '90°']])],
+    [sw('Viñeta de comodidad', 'vineta'), sw('Sombra de contacto', 'sombra', () => { sucio.plano = true; })],
+    [T(`${hz ? Math.round(hz) + ' Hz' : '—'} · ${vista.stats.tubos} tubos · ${vista.stats.instancias} instancias · ${Math.round(vista.stats.triangulos / 1000)} k triángulos · texto ${TXT.troika ? 'troika' : 'canvas'}`, { tenue: true, chico: true, lineas: 2 })],
+  ];
+} });
+// ---- ayuda: tarjetas con los gestos
+const AYUDA = [
+  ['Empezar', ['Mira la palma de la mano que no usas para dibujar: aparece la paleta. Con mandos, pulsa el joystick de esa mano.', 'Toca los botones con el índice de la otra mano, o apunta con el rayo y pellizca.', '«Fijar» deja la paleta o un panel quieto en la habitación; arrástralos por el título.']],
+  ['Dibujar un tubo', ['Paleta → Tubo. Pellizca donde empieza, arrastra en la dirección y suelta: el punto queda fijado en la rejilla.', 'Vuelve a pellizcar y soltar para seguir: los codos se ponen solos. Soltar sobre un tubo crea una Te.', 'Un pellizco corto sin moverte termina. Verde = engancha a un punto; rojo = unión no válida.']],
+  ['Medida exacta', ['Mientras dibujas, toca la cota que flota sobre el tramo (o «Medida exacta», o el botón A / X).', 'Escribe los milímetros a ejes en el teclado y pulsa OK. Para 1 m: 1000.', 'Con el mando, el joystick arriba y abajo cambia la longitud por pasos.']],
+  ['Accesorios', ['Paleta → Accesorio y elige con ◀ ▶. Acércalo al extremo de un tubo, a un tubo (lo parte) o al plano.', 'Mientras lo sujetas, gira la muñeca: gira por pasos. Suelta para colocarlo.', 'Para girar uno ya colocado: agárralo y gira la muñeca (con mandos, botón de agarre).']],
+  ['Seleccionar y estirar', ['Paleta → Seleccionar. Pellizca una pieza para seleccionarla; aparecen sus puntos azules.', 'Pellizca un punto azul (o un accesorio) y desliza a lo largo del tubo: lo conectado se desplaza.', 'Para varias piezas: mantén el pellizco en una y pellizca otra con la otra mano, o usa «Añadir».']],
+  ['Mover la maqueta', ['Pellizca en el vacío con la mano de la paleta y mueve: la maqueta te sigue.', 'Con las dos manos: gira y cambia la escala (paradas en 1:20, 1:10, 1:5, 1:2 y 1:1).', 'A tamaño real: apunta con la palma hacia abajo y pellizca para teletransportarte (joystick adelante con mandos).']],
+  ['Grupos y despiece', ['Edición → Agrupar. Un grupo se agarra para moverlo por la rejilla y se gira con la muñeca.', '«Duplicar» deja la copia en la mano: llévala a su sitio y pellizca para soltarla.', 'Más → Despiece: barras, cortes y marcas. Ponlo donde quieras y pulsa «Fijar».']],
+];
+const pAyuda = kit.panel({ id: 'ayuda', titulo: 'Ayuda', ancho: 0.34, construir: p => {
+  p.pag = ((p.pag || 0) + AYUDA.length) % AYUDA.length; const [tit, lineas] = AYUDA[p.pag];
+  return [{ h: 0.03, celdas: [T(`${p.pag + 1}/${AYUDA.length} · ${tit}`, { grande: true })] }, ...lineas.map(t => ({ h: 0.046, celdas: [T(t, { izq: true, lineas: 3 })] })),
+    [Bt('◀ Anterior', () => { p.pag--; }), Bt('Siguiente ▶', () => { p.pag++; }, { on: true })]];
+} });
+// ---- mensaje de estado, siempre delante y abajo (no se toca)
+const toast = kit.panel({ id: 'estado', ancho: 0.34, sinTitulo: true, inerte: true, construir: () => [{ h: 0.034, celdas: [T(TOAST.linea || '', { lineas: 2, chico: true, err: /^✘|^⚠/.test(TOAST.linea || '') })] }] });
+const LADO = new Map([[pProps, 0.3], [pCut, -0.36], [pAvisos, 0.3], [pAjustes, -0.3], [pAyuda, 0], [null, 0]]);
+function abrir(p) { p.mostrar(true); if (!p.anclado) p.frente(cabeza(), miraXZ(), p === pCut ? 0.8 : 0.62, LADO.get(p) ?? 0.28, p === pCut ? 0 : -0.05); p.refrescar(); }
+async function duplicarEnMano() {
+  const q = punteroDom(); if (!q) { ed.duplicateAt(V3(Math.max(100, st.snap * 10), 0, 0)); return; }
+  ed.setTool('select'); ed.dupBegin(q);
+}
+
+// ---------------------------------------------------------------- probar con gravedad (física del visor RA sobre una copia)
+const GRAV = { fis: null, stage: new THREE.Group(), copia: new THREE.Group(), src: null, envT: 0 };
+GRAV.stage.add(GRAV.copia); GRAV.stage.visible = false; scene.add(GRAV.stage);
+{
+  const std = c => new THREE.MeshStandardMaterial({ color: new THREE.Color(c), roughness: 0.55, metalness: 0.05 });
+  GRAV.mats = { tube20: std('#4f9fd6'), tube32: std('#8e99a5'), tube40: std('#d4954a'), fitting: std('#d9dde2') }; GRAV.mats.fitting.side = THREE.DoubleSide;
+}
+GRAV.inicio = async () => {
+  ed.setTool('select'); ed.select(null);
+  const r = ESC.ensamblar(model, ed.analysis, GRAV.mats, GRAV.copia); if (!r) return;
+  GRAV.src = r;
+  // el escenario de la física: en el suelo real (o virtual), bajo la maqueta, a su escala y con su giro
+  const b = vista.caja(ed.analysis), c = b.getCenter(V3()), base = proy.localToWorld(V3(c.x, c.y, b.min.z + 15)), suelo = enXR() ? XR.floorY ?? 0 : 0;
+  GRAV.stage.position.set(base.x, suelo, base.z); GRAV.stage.rotation.set(0, W.yaw, 0); GRAV.stage.scale.setScalar(W.escala); GRAV.stage.updateMatrixWorld(true);
+  GRAV.altura = Math.max(0, (base.y - suelo) / W.escala);
+  GRAV.fis ||= globalThis.crearFisicaXR(THREE, { importar: () => import('@dimforge/rapier3d-compat'), fuente: () => GRAV.src, OPTS: { gravity: true, fixed: false, env: true }, stage: GRAV.stage,
+    alSincronizar: (t, q) => { GRAV.copia.position.set(t.x, t.y, t.z); GRAV.copia.quaternion.set(q.x, q.y, q.z, q.w); },
+    resaltar: on => { for (const m of Object.values(GRAV.mats)) { m.emissive.set(on ? 0x2f6fde : 0); m.emissiveIntensity = on ? 0.35 : 1; } },
+    alError: () => aviso('✘ No se ha podido cargar la física (Rapier)', 6000) });
+  aviso('Cargando la física…', 2000);
+  const R = await GRAV.fis.loadPhysics(); if (!R) return;
+  GRAV.fis.buildPhysics();
+  GRAV.fis.PH.world.gravity = { x: 0, y: -9.81 / W.escala, z: 0 }; // en la maqueta la caída se ve a velocidad natural
+  gravedad = true; vista.grupo.visible = false; prevG.visible = false; GRAV.stage.visible = true; GRAV.fis.ENV.sig = '';
+  GRAV.soltar(); kit.refrescar(); aviso('Copia suelta sobre el suelo: cógela con la mano · «Volver a editar» en la paleta', 5000);
+};
+GRAV.soltar = () => { const B = GRAV.fis?.PH.body; if (!B) return; GRAV.fis.resetPose(); B.setTranslation({ x: 0, y: GRAV.altura + 0.02 / W.escala, z: 0 }, false); GRAV.fis.PH.active = true; B.wakeUp(); };
+GRAV.fin = () => { gravedad = false; for (const id of [...(GRAV.fis?.GRAB.hands.keys() || [])]) GRAV.fis.endGrab(id); vista.grupo.visible = true; prevG.visible = true; GRAV.stage.visible = false; kit.refrescar(); };
+GRAV.pose = l => { const qi = GRAV.stage.getWorldQuaternion(new THREE.Quaternion()).invert(); return { p: GRAV.stage.worldToLocal(l.p.clone()), q: qi.multiply(l.q) }; };
+
+// ---------------------------------------------------------------- entradas: manos, mandos y ratón → herramientas
+const ENT = globalThis.crearEntradasXR(THREE, renderer, scene, { alDesconectar: c => { const e = EST.get(c.id); if (e?.op) cancelar(e); EST.delete(c.id); } });
+const EST = new Map();   // por entrada: { ap, ag, op }
+const estado = id => { let e = EST.get(id); if (!e) EST.set(id, e = { ap: false, ag: false, op: null }); return e; };
+let domAct = null, ultOcupados = new Set(), hoverKey = null;
+const vibraDom = (f, ms) => { if (domAct?.c) ENT.vibrar(domAct.c, f, ms); };
+// Puntero en coordenadas del proyecto: directo (la mano dentro de la maqueta) o rayo (mando, ratón o tamaño real)
+function puntero(l) {
+  const k = W.escala * MM, directo = !l.soloRayo && (CFG.puntero === 'mano' || (CFG.puntero === 'auto' && W.escala < 0.5));
+  if (directo) return { p: aProy(l.p), tol: 0.015 / k };
+  return { o: aProy(l.o), d: dirAProy(l.d), tolAng: l.soloRayo ? 0.02 : 0.035, tolMin: 0.004 / k, max: 8 / k };
+}
+const punteroDom = () => (domAct ? puntero(domAct) : null);
+const giroDesde = (l, q0) => quatAProy(l.q).multiply(q0.clone().invert()); // giro de la mano desde q0, en ejes del proyecto
+function cancelar(e) {
+  const t = e.op?.tipo; e.op = null;
+  if (t === 'estirar') ed.stretchEnd(true); else if (t === 'rot') ed.rotEnd(true); else if (t === 'grp') ed.grpEnd(true); else if (t === 'colocar') ed.placeTwistEnd();
+  if (t === 'grab') GRAV.fis?.endGrab(e.id);
+}
+function empezar(l, e, q, esDom, por) {
+  const otra = [...EST.entries()].find(([id]) => id !== l.id)?.[1];
+  if (gravedad) { // se coge la copia si la mano está cerca o el rayo la toca
+    const F = GRAV.fis, ps = GRAV.pose(l), cerca = F.distanceToStructure(ps.p) < 0.05 / W.escala;
+    if (cerca && F.beginGrab(l.id, ps)) { e.op = { tipo: 'grab', por }; e.id = l.id; ENT.vibrar(l.c, 0.5, 30); } else e.op = { tipo: 'mundo', por };
+    return;
+  }
+  if (por === 'ag') { // botón de agarre del mando: girar el accesorio apuntado o mover la maqueta
+    const pk = esDom && st.tool === 'select' ? ed.pickAny(q) : null, n = pk?.type === 'node' && ed.analysis.nodes.get(pk.id);
+    if (n && (n.isFitting || n.explicit)) { ed.select(pk, { single: true }); if (ed.rotBegin(pk.id)) { e.op = { tipo: 'rot', por, q0: quatAProy(l.q) }; return; } }
+    e.op = { tipo: 'mundo', por }; return;
+  }
+  if (!esDom) {
+    if (otra?.op?.tipo === 'sel') { // segundo pellizco manteniendo el primero: selección múltiple
+      const pk = ed.pickAny(q);
+      if (pk) { if (!st.multi.has(otra.op.pick.type + ':' + otra.op.pick.id)) ed.select(otra.op.pick); ed.select(pk, { add: true }); otra.op.consumido = true; e.op = { tipo: 'nada', por }; return; }
+    }
+    const palmaAbajo = l.palma && l.palma.n.y < -0.55;
+    e.op = W.escala >= 0.5 && palmaAbajo ? { tipo: 'tele', por } : { tipo: 'mundo', por };
+    return;
+  }
+  if (ed.grp?.copia) { e.op = { tipo: 'grp', por }; return; }        // la copia en la mano: soltarla
+  if (st.tool === 'draw') { ed.drawPress(q); e.op = { tipo: 'dibujo', por }; return; }
+  if (st.tool === 'place') { e.op = { tipo: 'colocar', por, q0: quatAProy(l.q) }; return; }
+  const h = ed.pickHandle(q);
+  if (h) { e.op = ed.stretchBegin(h.nodeId, h.segId, q) ? { tipo: 'estirar', por } : { tipo: 'nada', por }; return; }
+  const pk = ed.pickAny(q);
+  e.op = pk ? { tipo: 'sel', por, pick: pk, q0: quatAProy(l.q), p0: l.p.clone(), q } : { tipo: 'mundo', por, vacio: true, t0: performance.now(), p0: l.p.clone() };
+}
+function continuar(l, e, q) {
+  const op = e.op;
+  if (kit.tecladoAbierto() && op.tipo !== 'mundo') return; // mientras se escribe una medida, la mano no mueve la herramienta
+  switch (op.tipo) {
+    case 'dibujo': ed.drawMove(q); break;
+    case 'colocar': ed.placeTwist(giroDesde(l, op.q0)); ed.placeMove(q); break;
+    case 'estirar': ed.stretchMove(q); break;
+    case 'rot': ed.rotMove(giroDesde(l, op.q0)); break;
+    case 'grp': ed.grpMove(q, op.q0 && !l.soloRayo ? giroDesde(l, op.q0) : null); break;
+    case 'grab': GRAV.fis.moveGrab(l.id, GRAV.pose(l)); break;
+    case 'sel': {
+      const mov = l.p.distanceTo(op.p0), gd = giroDesde(l, op.q0), giro = 2 * Math.acos(Math.min(1, Math.abs(gd.w)));
+      const pk = op.pick, n = pk.type === 'node' && ed.analysis.nodes.get(pk.id), enGrupo = st.group && st.multi.has(pk.type + ':' + pk.id);
+      if (enGrupo) { if (mov > 0.012 || giro > 0.3) { if (ed.grpBegin(st.group, op.q)) { op.tipo = 'grp'; } else e.op = { tipo: 'nada', por: op.por }; } }
+      else if (n && (n.isFitting || n.explicit) && giro > 0.35 && mov < 0.03 && !l.soloRayo) { ed.select(pk, { single: true }); if (ed.rotBegin(pk.id)) op.tipo = 'rot'; }
+      else if (n && mov > 0.012) { e.op = ed.stretchBegin(pk.id, null, op.q) ? { tipo: 'estirar', por: op.por } : { tipo: 'nada', por: op.por }; }
+      break;
+    }
+  }
+}
+function terminar(l, e, q) {
+  const op = e.op; e.op = null;
+  switch (op.tipo) {
+    case 'dibujo': if (!kit.tecladoAbierto()) ed.drawRelease(q); break;
+    case 'colocar': ed.placeMove(q); ed.placeCommit(); ed.placeTwistEnd(); break;
+    case 'estirar': ed.stretchEnd(); break;
+    case 'rot': ed.rotEnd(); break;
+    case 'grp': ed.grpEnd(); break;
+    case 'grab': GRAV.fis.endGrab(l.id); break;
+    case 'sel': if (!op.consumido) ed.select(op.pick, { add: multi }); break;
+    case 'mundo': if (op.vacio && performance.now() - op.t0 < 350 && l.p.distanceTo(op.p0) < 0.02) ed.select(null); break;
+    case 'tele': if (TELE.destino) saltar(TELE.destino); TELE.destino = null; arco.visible = marca.visible = false; break;
+  }
+}
+function gestos(l, esDom, ocupado) {
+  const e = estado(l.id), sube = l.apretando && !e.ap, baja = !l.apretando && e.ap, subeG = l.agarre && !e.ag, bajaG = !l.agarre && e.ag;
+  e.ap = l.apretando; e.ag = l.agarre;
+  const q = puntero(l);
+  if (!e.op) {
+    if (sube) { if (ocupado) e.op = { tipo: 'nada', por: 'ap' }; else empezar(l, e, q, esDom, 'ap'); }
+    else if (subeG && !ocupado) empezar(l, e, q, esDom, 'ag');
+  }
+  if (e.op) continuar(l, e, q);
+  else if (esDom && !gravedad) hover(l, q, ocupado);
+  if (e.op && ((baja && e.op.por === 'ap') || (bajaG && e.op.por === 'ag'))) terminar(l, e, q);
+}
+let hoverN = 0;
+function hover(l, q, ocupado) {
+  if (ocupado || kit.tecladoAbierto()) { if (!kit.tecladoAbierto()) ed.clearPrev(); if (hoverKey) { hoverKey = null; sucio.vista = true; } return; }
+  if (ed.grp?.copia) { ed.grpMove(q); return; }
+  if (st.tool === 'draw') ed.drawMove(q);
+  else if (st.tool === 'place') ed.placeMove(q);
+  else if (++hoverN % 2 === 0) { const pk = ed.pickHandle(q) ? null : ed.pickAny(q), k = pk ? pk.type + ':' + pk.id : null; if (k !== hoverKey) { hoverKey = k; sucio.vista = true; } }
+}
+// ---- mover, girar y escalar la maqueta con una o dos manos
+const MG = { ids: '', ini: null };
+function agarreMundo(L) {
+  const act = L.filter(l => EST.get(l.id)?.op?.tipo === 'mundo'), ids = act.map(l => l.id).join('+');
+  if (ids !== MG.ids) { MG.ids = ids; MG.ini = act.length ? { a: act[0].p.clone(), b: act[1]?.p.clone(), pos: W.pos.clone(), yaw: W.yaw, escala: W.escala } : null; if (!act.length) kit.refrescar(); }
+  if (!MG.ini || gravedad) return;
+  const r = act.length === 2 ? S.agarreDosManos(MG.ini, act[0].p, act[1].p) : S.agarreUnaMano(MG.ini, act[0].p);
+  if (r.escala !== W.escala && S.ESCALAS.includes(r.escala)) for (const l of act) ENT.vibrar(l.c, 0.6, 30); // parada de escala
+  if (r.escala !== W.escala) { W.modo = r.escala === 1 ? 'real' : r.escala === 0.1 ? 'maqueta' : 'libre'; TOAST.texto = 'Escala ' + S.nombreEscala(r.escala); TOAST.hasta = performance.now() + 1500; }
+  W.pos.set(r.pos.x, r.pos.y, r.pos.z); W.yaw = r.yaw; W.escala = r.escala; aplicarMundo();
+}
+// ---- locomoción a tamaño real: teletransporte (rayo en arco) y giro por pasos, con viñeta de comodidad
+const TELE = { destino: null };
+const arco = linea(0x7fd0ff, 25), marca = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.2, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x7fd0ff, transparent: true, opacity: 0.9, depthTest: false }));
+marca.visible = false; marca.renderOrder = 20; scene.add(arco, marca);
+const vineta = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 8), new THREE.MeshBasicMaterial({ color: 0, side: THREE.BackSide, transparent: true, opacity: 0, depthTest: false })); vineta.renderOrder = 99; vineta.visible = false; scene.add(vineta);
+let fundido = 0;
+function apuntarTele(l) {
+  const a = S.arcoTeleport(l.o, l.d, XR.floorY ?? 0);
+  arco.visible = a.puntos.length > 0; if (arco.visible) arco.geometry.setFromPoints(a.puntos.map(p => V3(p.x, p.y, p.z)));
+  TELE.destino = a.destino; marca.visible = !!a.destino; if (a.destino) marca.position.set(a.destino.x, a.destino.y + 0.01, a.destino.z);
+  arco.material.color.set(a.destino ? 0x7fd0ff : 0xe5484d);
+}
+function saltar(destino) { if (CFG.vineta) fundido = 1; SES.teletransportar(destino); }
+const BT = new Map();
+function botones(L, t) {
+  let apuntando = false;
+  for (const l of L) {
+    if (l.mano) { if (EST.get(l.id)?.op?.tipo === 'tele') { apuntarTele(l); apuntando = true; } continue; }
+    const b = BT.get(l.id) || {}, esDom = l === domAct, dib = esDom && !!ed.draw.start && !!ed.draw.cand;
+    if (l.a && !b.a) { if (ed.draw.start) tecladoLongitud(); else abrir(pProps); }
+    if (l.b && !b.b) { if (l.lado === 'right') ed.undo(); else ed.redo(); }
+    if (l.stickClic && !b.s && !esDom) { paletaMando = !paletaMando; }
+    const x = l.stick.x, y = l.stick.y;
+    if (Math.abs(x) > 0.6 && !b.gx) { if (CFG.vineta) fundido = 0.7; SES.girar(-Math.sign(x) * THREE.MathUtils.degToRad(CFG.giro)); }
+    let tele = b.tele || false, rep = b.rep || 0;
+    if (dib && Math.abs(y) > 0.6) { if (t > rep) { ed.drawStep(y < 0 ? 1 : -1); rep = t + (b.gy ? 160 : 380); } }
+    else if (y < -0.6 && !dib) { tele = true; apuntarTele(l); apuntando = true; }
+    else if (tele && y > -0.3) { tele = false; if (TELE.destino) saltar(TELE.destino); TELE.destino = null; }
+    BT.set(l.id, { a: l.a, b: l.b, s: l.stickClic, gx: Math.abs(x) > 0.35, gy: Math.abs(y) > 0.6, tele, rep });
+  }
+  if (!apuntando) { arco.visible = marca.visible = false; }
+}
+// ---- paleta en la mano no dominante (al mirar la palma) o sobre el mando (clic del joystick)
+let paletaMando = false, paletaEnMano = false, paletaVista = false;
+function colocarPaleta(nod, cab) {
+  if (paleta.anclado) { paleta.mostrar(true); paletaEnMano = false; return; }
+  let ver = false;
+  if (nod?.mano && nod.palma) {
+    const f = nod.palma.n.dot(cab.clone().sub(nod.palma.centro).normalize());
+    ver = paletaVista ? f > 0.3 : f > 0.55; // con histéresis
+    if (ver) { paleta.mesh.position.copy(nod.palma.centro).addScaledVector(nod.palma.n, 0.05).add(V3(0, paleta.alto / 2 + 0.04, 0)); paleta.mirar(cab); }
+  } else if (nod && !nod.mano && paletaMando) { ver = true; paleta.mesh.position.copy(nod.gripPos || nod.p).add(V3(0, paleta.alto / 2 + 0.08, 0)); paleta.mirar(cab); }
+  paletaVista = ver; paletaEnMano = ver; paleta.mostrar(ver);
+}
+// Paneles sin anclar: si el usuario se aleja o se gira, vuelven a ponerse delante
+function seguir(cab, dir) {
+  for (const p of kit.paneles) {
+    if (!p.visible || p.anclado || p === paleta || p === toast) continue;
+    const v = p.mesh.position.clone().sub(cab), d = v.length(); v.y = 0;
+    if (d > 1.5 || (v.lengthSq() > 1e-6 && v.normalize().dot(dir) < 0.2)) p.frente(cab, dir, p === pCut ? 0.8 : p === kit.tecladoPanel ? 0.42 : 0.62, LADO.get(p) ?? (p === kit.tecladoPanel ? 0.1 : 0.28), p === kit.tecladoPanel ? -0.16 : -0.05);
+  }
+}
+function ponerToast(cab, dir, cq) {
+  const ahora = performance.now(), linea = ahora < TOAST.hasta ? TOAST.texto : ed.previa.msg || '';
+  if (linea !== TOAST.linea) { TOAST.linea = linea; toast.refrescar(); }
+  toast.mostrar(!!linea);
+  if (!linea) return;
+  const obj = V3().copy(cab).addScaledVector(dir, 0.6).add(V3(0, -0.24, 0));
+  if (toast.mesh.position.distanceTo(obj) > 1) toast.mesh.position.copy(obj); else toast.mesh.position.lerp(obj, 0.12);
+  toast.mirar(cab);
+}
+// ---- rótulos: cotas de los tramos y cota viva de la herramienta
+const lista = [];
+function ponerRotulos(cab, cq) {
+  lista.length = 0;
+  if (!gravedad) {
+    const e = W.escala * MM;
+    for (const c of cotas) { // solo los rótulos que caben a lo largo de su tubo (o el de la pieza seleccionada): sin amontonarse
+      proy.localToWorld(c.pos.copy(c.p)); const alto = THREE.MathUtils.clamp(c.pos.distanceTo(cab) * ROT.angulo, ROT.minimo, ROT.maximo);
+      if (c.len * e < alto * 2.6 && !st.multi.has('seg:' + c.id) && hoverKey !== 'seg:' + c.id) continue;
+      c.pos.y += c.r * e + alto * 0.75; lista.push(c);
+    }
+    const pc = ed.previa.cota;
+    if (pc) { const pos = proy.localToWorld(pc.pos.clone()); pos.y += 0.035; lista.push({ pos, texto: pc.texto + (pc.sub ? ` · ${pc.sub}` : '') + ' mm', color: ed.previa.ok ? '#8fe0ae' : '#ff8087', grande: true, siempre: true }); COTA.pos = pos; } else COTA.pos = null;
+  }
+  rot.poner(lista, cab, cq, ROT);
+}
+const ROT = { angulo: 0.019, minimo: 0.0035, maximo: 0.16, alcance: 8 }; // ≈1,1° del campo visual
+const COTA = { pos: null, t: 0 };
+
+function cuadroXR(frame, t) {
+  SES.updateFloorFromPlanes(frame);
+  const cab = cabeza(), dir = miraXZ(), cq = camAct().getWorldQuaternion(new THREE.Quaternion());
+  if (frame.detectedPlanes?.size && Math.round(t / 500) % 4 === 0) mesa = SES.alturaMesa(frame, cab);
+  const L = ENT.INPUTS.map(c => ENT.leer(c)).filter(Boolean);
+  for (const c of ENT.INPUTS) if (!L.some(l => l.c === c)) { const e = EST.get(c.id); if (e?.op) cancelar(e); if (e) e.ap = e.ag = false; c.line.visible = false; }
+  const ladoDom = CFG.diestro ? 'right' : 'left';
+  domAct = L.find(l => l.lado === ladoDom) || (L.length === 1 ? L[0] : null);
+  const nod = L.find(l => l !== domAct) || null;
+  colocarPaleta(nod, cab);
+  const punteros = L.map(l => { const suya = paletaEnMano && l === nod; return { id: l.id, o: suya ? null : l.o, d: l.d, apretando: l.apretando, punta: suya ? null : l.punta, cabeza: cab, vibra: (f, ms) => ENT.vibrar(l.c, f, ms) }; });
+  const { ocupados, rayos } = kit.actualizar(punteros, t); ultOcupados = ocupados;
+  botones(L, t);
+  // tocar con el índice la cota viva del tramo abre el teclado numérico
+  if (COTA.pos && domAct && ed.draw.start && !kit.tecladoAbierto() && !domAct.apretando && t > COTA.t && domAct.punta.distanceTo(COTA.pos) < 0.03) { COTA.t = t + 1500; tecladoLongitud(); }
+  for (const l of L) gestos(l, l === domAct, ocupados.has(l.id));
+  agarreMundo(L);
+  // rayos: visibles al apuntar a un panel o al trabajar con rayo
+  for (const l of L) {
+    const d = rayos.get(l.id), conRayo = !!puntero(l).d && l === domAct && !gravedad;
+    l.c.line.visible = d != null || conRayo; l.c.line.scale.z = d ?? 1.5; l.c.line.material.color.set(d != null ? 0xffd166 : 0xffffff);
+  }
+  if (gravedad) {
+    GRAV.fis.physicsStep(dtAct);
+    if (XR.modo === 'immersive-ar' && t > GRAV.envT) { GRAV.envT = t + 1000; const { items, sig } = SES.readEnvironment(frame, 'g'); if (sig !== GRAV.fis.ENV.sig) { GRAV.fis.ENV.sig = sig; GRAV.fis.setEnvironment(items); } }
+  }
+  seguir(cab, dir); ponerToast(cab, dir, cq); comun(cab, cq);
+  if (fundido > 0) { fundido = Math.max(0, fundido - dtAct * 4); vineta.visible = true; vineta.position.copy(cab); vineta.material.opacity = Math.min(1, fundido); } else vineta.visible = false;
+}
+function comun(cab, cq) {
+  if (sucio.vista) { vista.actualizar(model, ed.analysis, { sel: st.multi, hover: hoverKey, avisos: avisosMapa }); dibujarAsas(); sucio.vista = false; }
+  if (sucio.cotas) { calcularCotas(); sucio.cotas = false; }
+  if (sucio.plano) { dibujarPlano(); sucio.plano = false; }
+  dibujarPrevia(); ponerRotulos(cab, cq); kit.dibujar();
+}
+
+// ---------------------------------------------------------------- vista previa en el ordenador: el ratón hace de rayo
+const RATON = { id: 'raton', lado: 'right', mano: false, soloRayo: true, apretando: false, agarre: false, o: V3(), d: V3(0, 0, -1), p: V3(), q: new THREE.Quaternion(), dentro: false, c: null };
+const rc = new THREE.Raycaster();
+function rayoRaton(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  rc.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  RATON.o.copy(rc.ray.origin); RATON.d.copy(rc.ray.direction); RATON.p.copy(rc.ray.origin).addScaledVector(rc.ray.direction, 1); RATON.dentro = true;
+}
+view.addEventListener('pointermove', e => { if (!enXR()) rayoRaton(e); });
+view.addEventListener('pointerleave', () => { RATON.dentro = false; });
+view.addEventListener('pointerdown', e => {
+  if (enXR() || e.button !== 0) return;
+  rayoRaton(e);
+  const q = puntero(RATON), enPanel = kit.paneles.some(p => p.visible && !p.inerte && p.rayo(RATON.o, RATON.d));
+  const toma = enPanel || gravedad || st.tool !== 'select' || ed.grp?.copia || ed.pickHandle(q) || ed.pickAny(q);
+  if (!toma) { RATON.orbita = { x: e.clientX, y: e.clientY }; return; } // en el vacío: la cámara gira
+  controls.enabled = false; RATON.apretando = true; renderer.domElement.setPointerCapture?.(e.pointerId); e.stopPropagation();
+  pulsoRaton(); // el flanco se procesa en el propio evento: un clic rápido no se pierde entre dos fotogramas
+}, { capture: true });
+addEventListener('pointerup', e => {
+  if (RATON.orbita) { if (Math.hypot(e.clientX - RATON.orbita.x, e.clientY - RATON.orbita.y) < 4) ed.select(null); RATON.orbita = null; }
+  const era = RATON.apretando; RATON.apretando = false; controls.enabled = true;
+  if (era && !enXR()) { rayoRaton(e); pulsoRaton(); }
+});
+addEventListener('keydown', e => {
+  if (e.target?.matches?.('input,select,textarea') || enXR()) return;
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (kit.tecladoAbierto()) { // el teclado del ordenador escribe en el teclado numérico
+    const m = { enter: 'ok', escape: 'x', backspace: '<', ',': ',', '.': ',', '-': '±' }[k] ?? (/^[0-9]$/.test(k) ? k : null);
+    if (m) { e.preventDefault(); kit.tecla(m); } return;
+  }
+  if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); ed.undo(); }
+  else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); ed.redo(); }
+  else if (mod) return;
+  else if (k === 'delete') ed.deleteSelection();
+  else if (k === 'escape') { if (ed.draw.start) ed.drawFinish(); else if (ed.grp) ed.grpEnd(true); else if (st.tool !== 'select') { ed.setTool('select'); sucio.plano = true; } else ed.select(null); kit.refrescar(); }
+  else if (k === 'enter' && ed.draw.start) ed.drawFinish();
+  else if (/^[0-9]$/.test(k) && ed.draw.start && ed.draw.cand) { tecladoLongitud(); kit.tecla('c'); kit.tecla(k); }
+  else if (k === 's') { ed.setTool('select'); sucio.plano = true; kit.refrescar(); } else if (k === 'd') { ed.setTool('draw'); sucio.plano = true; kit.refrescar(); } else if (k === 'a') { ed.setTool('place'); sucio.plano = true; kit.refrescar(); }
+  else if (k === 'shift') multi = true;
+});
+addEventListener('keyup', e => { if (e.key === 'Shift') multi = false; });
+// En la pantalla, los paneles van pegados a la cámara: la paleta a la izquierda y los demás a la derecha
+function panelesPantalla() {
+  const asp = camera.aspect, h = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), D = innerHeight < 700 ? 0.75 : 0.95, alto = 2 * h * D, ancho = alto * asp;
+  const pon = (p, x, y, k = 1) => { p.mesh.position.copy(camera.localToWorld(V3(x, y, -D * k))); p.mesh.quaternion.copy(camera.quaternion); };
+  paleta.mostrar(true); pon(paleta, -ancho / 2 + paleta.mesh.scale.x / 2 + 0.012, alto * 0.39 - paleta.alto / 2);
+  let y = alto * 0.39;
+  for (const p of kit.paneles) { if (!p.visible || p === paleta || p === toast || p === kit.tecladoPanel || p.arrastrado) continue; pon(p, ancho / 2 - p.mesh.scale.x / 2 - 0.012, y - p.alto / 2); y -= p.alto + 0.01; }
+  if (kit.tecladoPanel.visible) pon(kit.tecladoPanel, 0, -alto / 2 + kit.tecladoPanel.alto / 2 + 0.06, 0.98);
+  const linea = performance.now() < TOAST.hasta ? '' : ed.previa.msg || ''; // los avisos ya salen en la barra de la página
+  if (linea !== TOAST.linea) { TOAST.linea = linea; toast.refrescar(); }
+  toast.mostrar(!!linea); if (linea) pon(toast, 0, -alto / 2 + 0.03 + (kit.tecladoPanel.visible ? kit.tecladoPanel.alto + 0.05 : 0.02));
+}
+function cuadroPantalla(t) {
+  controls.update(); camera.updateMatrixWorld(true);
+  panelesPantalla();
+  pulsoRaton(t);
+  if (gravedad) GRAV.fis.physicsStep(dtAct);
+  comun(camera.position, camera.quaternion);
+}
+function pulsoRaton(t = performance.now()) {
+  domAct = RATON;
+  const { ocupados } = kit.actualizar(RATON.dentro ? [{ id: 'raton', o: RATON.o, d: RATON.d, apretando: RATON.apretando }] : [], t); ultOcupados = ocupados;
+  if (RATON.dentro || RATON.apretando || EST.get('raton')?.op) gestos(RATON, true, ocupados.has('raton'));
+}
+let dtAct = 0.016, tAnt = 0, hzN = 0, hzT = 0;
+renderer.setAnimationLoop((time, frame) => {
+  dtAct = Math.min(0.1, (time - tAnt) / 1000 || 0.016); tAnt = time;
+  hzN++; if (time - hzT > 1000) { hz = hzN * 1000 / (time - hzT); hzN = 0; hzT = time; if (pAjustes.visible) pAjustes.refrescar(); }
+  if (frame) cuadroXR(frame, time); else cuadroPantalla(time);
+  renderer.render(scene, camera);
+});
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+// ---------------------------------------------------------------- entrar y salir de las gafas
+async function entrar(modo) {
+  if (XR.session) return;
+  try { await SES.entrar(modo, { features: ['local-floor', 'bounded-floor', 'hit-test', 'hand-tracking', 'plane-detection', 'mesh-detection'] }); }
+  catch (err) { aviso('✘ No se pudo iniciar la sesión: ' + err.message, 8000); return; }
+  $('#start').hidden = true; panelesEncima(false);
+  entorno.visible = modo === 'immersive-vr'; scene.background = null;
+  XR.limites = null;
+  try { const b = await XR.session.requestReferenceSpace('bounded-floor'); XR.limites = [...b.boundsGeometry].map(p => ({ x: p.x, z: p.z })); } catch { /* sin límite de seguridad */ }
+  // pausa automática al salir del límite de seguridad o al quitarse las gafas
+  XR.session.addEventListener('visibilitychange', () => { if (XR.session?.visibilityState !== 'visible') { for (const e of EST.values()) if (e.op) cancelar(e); ed.drawFinish(true); } });
+  for (const p of kit.paneles) if (p !== paleta) p.mostrar(false);
+  paleta.anclado = false;
+  setTimeout(() => { colocar(W.modo === 'libre' ? 'maqueta' : W.modo); if (!store.get('pipecad-vr-ayuda')) { store.set('pipecad-vr-ayuda', '1'); abrir(pAyuda); } aviso('Mira la palma de tu mano ' + (CFG.diestro ? 'izquierda' : 'derecha') + ' para abrir la paleta', 6000); }, 400); // con la cabeza ya situada
+}
+function salioXR() {
+  for (const e of EST.values()) if (e.op) cancelar(e);
+  EST.clear(); entorno.visible = true; arco.visible = marca.visible = vineta.visible = false;
+  for (const c of ENT.INPUTS) c.line.visible = false;
+  if (gravedad) GRAV.fin();
+  $('#bar').hidden = false; panelesEncima(true);
+  setTimeout(() => { resize(); colocar(W.escala === 1 ? 'real' : 'maqueta'); }, 50); // cuando three ya ha cerrado la sesión
+}
+// En la pantalla los paneles se dibujan siempre encima; en las gafas, con su profundidad real
+function panelesEncima(b) { for (const p of kit.paneles) { p.mesh.material.depthTest = !b; } }
+panelesEncima(true);
+for (const [id, modo] of [['#s-ar', 'immersive-ar'], ['#b-ar', 'immersive-ar'], ['#s-vr', 'immersive-vr'], ['#b-vr', 'immersive-vr']]) $(id).onclick = () => entrar(modo);
+
+// ---------------------------------------------------------------- proyectos: autoguardado, recientes, servidor local y edición en vivo
+const CLIENTE = Math.random().toString(36).slice(2, 10);
+const PROY = { id: null };
+let autoT = 0;
+function autoguardar() {
+  clearTimeout(autoT);
+  autoT = setTimeout(() => {
+    const json = model.toJSON(); store.set('pipecad-autosave', JSON.stringify(json)); // la misma clave que PipeCAD: se sigue donde se dejó
+    if (!model.segments.size) return;
+    const rec = leerJSON('pipecad-vr-recientes', []).filter(r => r.name !== model.name).slice(0, 5);
+    rec.unshift({ name: model.name, fecha: new Date().toISOString(), tubos: model.segments.size, json }); store.set('pipecad-vr-recientes', JSON.stringify(rec));
+  }, 400);
+}
+function abrirProyecto(json, { id = null, nombre = '' } = {}) {
+  model.load(json); if (!json.name && nombre) model.name = nombre;
+  model.undoStack = []; model.redoStack = []; PROY.id = id;
+  ed.setTool('select'); ed.setSelection([]); model.emit(); colocar(enXR() ? (W.modo === 'libre' ? 'maqueta' : W.modo) : 'maqueta');
+  VIVO.conectar(id);
+  aviso(`Proyecto «${model.name}» abierto` + (ed.issues().some(i => i.cls === 'err') ? ' · ⚠ tiene uniones no válidas' : ''));
+}
+const SRV = { ok: false, escribir: false, gafas: false, lista: [], clave: store.get('pipecad-vr-clave') || '' };
+SRV.cab = () => (SRV.clave ? { 'X-PipeCAD-Clave': SRV.clave } : {});
+SRV.estado = async () => {
+  if (!location.protocol.startsWith('http')) return;
+  try { const r = await fetch('api/estado', { cache: 'no-store', headers: SRV.cab() }), j = r.ok ? await r.json() : {}; SRV.ok = !!j.pipecad; SRV.escribir = SRV.ok && (j.proyectos ?? j.escribir) !== false; SRV.gafas = !!j.gafas; }
+  catch { SRV.ok = false; }
+  $('#clave-row').hidden = !(SRV.ok && SRV.gafas && !SRV.escribir); kit.refrescar();
+};
+SRV.listar = async () => {
+  if (!SRV.ok) return;
+  try { const r = await fetch('api/proyectos', { cache: 'no-store' }); SRV.lista = r.ok ? (await r.json()).proyectos || [] : []; } catch { SRV.lista = []; }
+  pProy.refrescar();
+  const sel = $('#s-server'); sel.hidden = !SRV.lista.length;
+  sel.innerHTML = '<option value="">Abrir del servidor local…</option>' + SRV.lista.map(p => `<option value="${p.id}">${N.esc(p.nombre)} · ${new Date(p.fecha).toLocaleString('es-ES')}</option>`).join('');
+};
+SRV.abrir = async id => {
+  try { const r = await fetch(`proyectos/${id}.json`, { cache: 'no-cache' }); if (!r.ok) throw new Error('error ' + r.status); abrirProyecto(await r.json(), { id }); return true; }
+  catch (err) { aviso('✘ No se pudo abrir del servidor: ' + err.message, 6000); return false; }
+};
+// Guarda en proyectos/ del servidor local; enviar = true avisa además a PipeCAD en el ordenador
+SRV.guardar = async (enviar = false, silencio = false) => {
+  if (!SRV.ok) { aviso('Sin servidor local: el proyecto se guarda solo en este navegador'); return false; }
+  const id = PROY.id || ('vr' + Date.now().toString(36) + CLIENTE.slice(0, 4));
+  try {
+    const r = await fetch(`api/proyectos/${id}?origen=${CLIENTE}${enviar ? '&enviar=1' : ''}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...SRV.cab() }, body: JSON.stringify(model.toJSON()) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'error ' + r.status);
+    if (PROY.id !== id) { PROY.id = id; VIVO.conectar(id); }
+    if (!silencio) { aviso(enviar ? 'Enviado al ordenador: PipeCAD ofrece abrirlo' : `Guardado en el servidor (proyectos/${id}.json)`); SRV.listar(); }
+    return true;
+  } catch (err) { if (!silencio) aviso('✘ No se pudo guardar: ' + err.message, 7000); return false; }
+};
+// Edición compartida en vivo (opcional): el servidor reenvía los cambios; el último cambio gana y el deshacer es local
+const VIVO = { es: null, id: null, t: 0, remoto: false, activo: false };
+VIVO.conectar = id => {
+  VIVO.es?.close(); VIVO.es = null; VIVO.id = id; VIVO.activo = false;
+  if (!id || !SRV.ok || typeof EventSource === 'undefined') return;
+  const es = VIVO.es = new EventSource('api/vivo/' + id);
+  es.onopen = () => { VIVO.activo = true; };
+  es.onmessage = async ev => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.tipo !== 'cambio' || m.origen === CLIENTE || [...EST.values()].some(e => e.op && e.op.tipo !== 'mundo')) return;
+    try {
+      const r = await fetch(`proyectos/${id}.json`, { cache: 'no-store' }); if (!r.ok) return;
+      const json = await r.json(), antes = model.beginLive(); if (JSON.stringify(json) === antes) return;
+      VIVO.remoto = true; model.load(json); model.commitLive(antes, 'Cambio remoto'); VIVO.remoto = false;
+    } catch { VIVO.remoto = false; }
+  };
+  es.onerror = () => { VIVO.activo = false; };
+};
+VIVO.enviar = () => { if (!VIVO.activo || VIVO.remoto || !SRV.escribir) return; clearTimeout(VIVO.t); VIVO.t = setTimeout(() => SRV.guardar(false, true), 120); };
+const pProy = kit.panel({ id: 'proyectos', titulo: 'Proyectos', ancho: 0.3, construir: () => {
+  const rec = leerJSON('pipecad-vr-recientes', []), f = [];
+  f.push([T(model.name || 'Proyecto sin título', { grande: true })], [T(`${model.segments.size} tubos` + (PROY.id ? ` · servidor: ${PROY.id}` : '') + (VIVO.activo ? ' · en vivo' : ''), { tenue: true, chico: true })],
+    [Bt('Nuevo', () => abrirProyecto(proyectoNuevo())), Bt('Ejemplo', async () => { try { abrirProyecto(structuredClone(await loadExampleJSON()), { nombre: 'Ejemplo' }); } catch (e) { aviso('✘ ' + e.message); } })],
+    [Bt('Guardar en el servidor', () => SRV.guardar(), { off: !SRV.ok, chico: true }), Bt('Enviar al ordenador', () => SRV.guardar(true), { off: !SRV.ok, chico: true })]);
+  if (SRV.ok && SRV.gafas && !SRV.escribir) f.push([T('Para guardar desde las gafas hace falta la clave del servidor', { warn: true, chico: true, w: 2.4, lineas: 2 }), Bt('Escribir clave', () => abrirTeclado({ titulo: 'Clave del servidor', unidad: '', negativo: false, alAceptar: async v => { SRV.clave = String(Math.round(v)).padStart(6, '0'); store.set('pipecad-vr-clave', SRV.clave); await SRV.estado(); aviso(SRV.escribir ? 'Clave correcta: ya se puede guardar' : '✘ Clave incorrecta'); } }), { chico: true })]);
+  f.push([T('Recientes en estas gafas', { izq: true, tenue: true, chico: true })], { t: 'lista', id: 'rec', n: 3, vacio: 'Aún no hay proyectos recientes', items: rec.map(r => ({ texto: r.name, sub: `${r.tubos} tubos · ${new Date(r.fecha).toLocaleString('es-ES')}`, h: 0.03, accion: () => abrirProyecto(r.json) })), h: 0.032 });
+  if (SRV.ok) f.push([T('En el servidor local (proyectos/)', { izq: true, tenue: true, chico: true, w: 3 }), Bt('Actualizar', () => SRV.listar(), { chico: true })], { t: 'lista', id: 'srv', n: 4, h: 0.032, vacio: 'No hay proyectos en el servidor', items: SRV.lista.map(p => ({ texto: p.nombre, sub: `${new Date(p.fecha).toLocaleString('es-ES')} · ${fmt(p.bytes / 1024, 1)} kB`, accion: () => SRV.abrir(p.id) })) });
+  else f.push([T('Sin servidor local: abre un proyecto con el enlace de PipeCAD («Abrir en VR») o usa los recientes.', { tenue: true, chico: true, lineas: 2 })]);
+  return f;
+} });
+
+// ---------------------------------------------------------------- botones de la página
+const elegir = () => $('#file').click();
+$('#file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { abrirProyecto(JSON.parse(await f.text()), { nombre: f.name.replace(/\.json$/i, '') }); verPantalla(); } catch (err) { aviso('✘ No se pudo abrir: ' + err.message, 8000); } };
+function verPantalla() { $('#start').hidden = true; $('#bar').hidden = false; }
+$('#s-open').onclick = $('#b-open').onclick = elegir;
+$('#s-go').onclick = verPantalla;
+$('#b-menu').onclick = () => { $('#start').hidden = false; };
+$('#s-example').onclick = async () => { try { abrirProyecto(structuredClone(await loadExampleJSON()), { nombre: 'Ejemplo' }); verPantalla(); } catch (err) { aviso('✘ No se pudo cargar el ejemplo: ' + err.message, 8000); } };
+$('#s-new').onclick = () => { abrirProyecto(proyectoNuevo()); ed.setTool('draw'); sucio.plano = true; verPantalla(); };
+$('#s-last').onclick = verPantalla;
+$('#s-server').onchange = async e => { if (e.target.value && await SRV.abrir(e.target.value)) verPantalla(); e.target.value = ''; };
+$('#clave').onchange = async e => { SRV.clave = e.target.value.trim(); store.set('pipecad-vr-clave', SRV.clave); await SRV.estado(); aviso(SRV.escribir ? 'Clave correcta: se puede guardar en el servidor' : '✘ Clave incorrecta'); };
+$('#clave').value = SRV.clave;
+$('#b-save').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(model.toJSON(), null, 1)], { type: 'application/json' })); a.download = (model.name || 'proyecto').replace(/[^\w\- áéíóúñÁÉÍÓÚÑ]+/g, '_') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+
+function proyectoNuevo() { return Object.assign(new Model().toJSON(), { name: 'Proyecto VR ' + new Date().toLocaleDateString('es-ES') }); } // nombre automático (se cambia en el ordenador)
+// Proyecto grande de prueba para medir el rendimiento: vr.html?carga=600
+function proyectoCarga(n) {
+  const m = new Model(); m.name = `Prueba de carga (${n} tramos)`;
+  const lado = Math.ceil(Math.sqrt(n / 1.8)) + 1, id = (i, j, k) => `${i},${j},${k}`, nodos = new Map(); let segs = 0;
+  const nodo = (i, j, k) => { const key = id(i, j, k); if (!nodos.has(key)) nodos.set(key, m.addNode([i * 400, j * 400, k * 400])); return nodos.get(key); };
+  for (let j = 0; j < lado && segs < n; j++) for (let i = 0; i < lado && segs < n; i++) {
+    m.addSegment(nodo(i, j, 0), nodo(i, j, 1), 20); segs++;
+    if (i + 1 < lado && j % 2 === 0 && segs < n) { m.addSegment(nodo(i, j, 1), nodo(i + 1, j, 1), 20); segs++; }
+    if (j + 1 < lado && i % 3 === 0 && segs < n) { m.addSegment(nodo(i, j, 0), nodo(i, j + 1, 0), 20); segs++; }
+  }
+  return m.toJSON();
+}
+
+// ---------------------------------------------------------------- arranque
+async function detectar() {
+  const s = await SES.detectar(), quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+  for (const id of ['#s-ar', '#b-ar']) $(id).disabled = !s.ar;
+  for (const id of ['#s-vr', '#b-vr']) $(id).disabled = !s.vr;
+  if (s.vr && !s.ar) { $('#s-vr').classList.add('primary'); $('#s-ar').classList.remove('primary'); }
+  $('#sup').innerHTML = s.ar || s.vr ? `<b>${quest ? 'Meta Quest' : 'WebXR'}</b>: ${s.ar ? 'realidad mixta' : ''}${s.ar && s.vr ? ' y ' : ''}${s.vr ? 'realidad virtual' : ''} disponible${s.ar && s.vr ? 's' : ''}.`
+    : !isSecureContext ? '<b>Sin WebXR</b>: hace falta abrir la página por HTTPS (o en localhost).' : '<b>Sin gafas en este navegador</b>: abre esta página en el navegador de unas Meta Quest 3. Aquí puedes usar la vista previa con el ratón' + (params.has('emulador') ? '.' : ' o el emulador (<code>vr.html?emulador</code>).');
+}
+if (params.has('emulador')) { // emulador IWER de Meta (página de desarrollo): se descarga solo si el usuario abre vr.html?emulador
+  try {
+    await new Promise((ok, no) => { const sc = Object.assign(document.createElement('script'), { src: 'https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.min.js' }); sc.onload = ok; sc.onerror = () => no(new Error('no se pudo descargar IWER')); document.head.append(sc); });
+    const dev = new globalThis.IWER.XRDevice(globalThis.IWER.metaQuest3); dev.installRuntime(); window.pipecadVR.emulador = dev;
+    aviso('Emulador IWER (Meta Quest 3) activo: «Entrar en realidad virtual» abre la sesión emulada', 6000);
+  } catch (err) { aviso('✘ Emulador: ' + err.message, 8000); }
+}
+if (params.has('test')) {
+  let ejemplo = null; try { ejemplo = await loadExampleJSON(); } catch { /* las pruebas del ejemplo se omiten */ }
+  const res = globalThis.pruebasVR(THREE, N, { ejemplo }), mal = res.filter(r => !r.ok).length, el = $('#tests');
+  el.hidden = false; $('#start').hidden = true;
+  el.innerHTML = `<h1>Pruebas de VR con gestos simulados: ${res.length - mal} de ${res.length} en verde</h1><ul>` + res.map(r => `<li class="${r.ok ? 'ok' : 'bad'}">${r.ok ? (r.skipped ? '–' : '✔') : '✘'} ${N.esc(r.name)}${r.detail ? `<pre>${N.esc(r.detail)}</pre>` : ''}</li>`).join('') + '</ul><p><button onclick="document.querySelector(\'#tests\').hidden=true;document.querySelector(\'#start\').hidden=false">Cerrar</button></p>';
+  window.pipecadVR.pruebas = res;
+}
+detectar();
+await SRV.estado(); SRV.listar();
+await loadModels().catch(() => null);
+{
+  const p = /[#&]p=([\w-]+)/.exec(location.hash)?.[1], pid = params.get('proyecto');
+  let abierto = false;
+  try {
+    if (p) { abrirProyecto(await unpackProject(p), { nombre: 'Proyecto compartido' }); abierto = true; }
+    else if (params.has('carga')) { abrirProyecto(proyectoCarga(+params.get('carga') || 600)); abierto = true; }
+    else if (params.has('ejemplo')) { abrirProyecto(structuredClone(await loadExampleJSON()), { nombre: 'Ejemplo' }); abierto = true; }
+    else if (pid && /^[a-z0-9]{6,40}$/.test(pid)) abierto = await SRV.abrir(pid);
+  } catch (err) { aviso('✘ No se pudo abrir el proyecto del enlace: ' + err.message, 8000); }
+  if (!abierto) {
+    const saved = leerJSON('pipecad-autosave', null);
+    if (saved?.segments?.length) { try { abrirProyecto(saved); $('#s-last').hidden = false; abierto = true; } catch { /* autoguardado dañado */ } }
+  }
+  if (!abierto) { try { abrirProyecto(structuredClone(await loadExampleJSON()), { nombre: 'Ejemplo' }); } catch { abrirProyecto(proyectoNuevo()); } }
+  if (p || pid || params.has('carga') || params.has('ejemplo')) $('#s-last').hidden = true;
+}
+Object.assign(window.pipecadVR, { kit, paleta, pProps, pCut, pAvisos, pProy, pAjustes, pAyuda, SES, ENT, SRV, VIVO, GRAV, vista, mundo, proy, colocar, escalaEnSitio, abrirProyecto, puntero, RATON, renderer, scene, camera, entrar, proyectoCarga, get hz() { return hz; } });
+window.__pipecadVRListo = true;
+</script>
+</body>
+</html>

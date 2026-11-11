@@ -9,14 +9,22 @@
 //   node servidor.mjs --https         → además, https://<IP del ordenador>:8443 para ver el visor RA en las gafas
 //                                       y los móviles de la red local (solo lectura; necesita certificados de mkcert)
 //      --puerto-https 9443  --cert certificados/pipecad.pem  --key certificados/pipecad-key.pem
+//   node servidor.mjs --https --gafas → además, las gafas pueden guardar proyectos (PipeCAD VR, vr.html) con una clave
+//                                       de 6 cifras que se muestra al arrancar y se escribe una vez en las gafas
+//      --clave 123456                   clave fija en vez de una al azar
 //
-// Solo se puede guardar o borrar desde este mismo ordenador (o desde cualquiera con --red).
+// Solo se puede guardar o borrar desde este mismo ordenador (o desde cualquiera con --red). Con --gafas, los equipos
+// de la red que envíen la clave pueden guardar proyectos (nunca accesorios).
 //
 // API (JSON):
 //   GET    /api/estado                  → { pipecad, escribir, version, https: { puerto, urls } }
 //   POST   /api/accesorios              → guarda un accesorio: { id, nombre?, carpeta?, archivo?, pcf, scad?, stl: { variante: base64 } }
 //   DELETE /api/accesorios/<id>         → borra un accesorio personalizado (sus archivos y su entrada del catálogo)
 //   POST   /api/proyectos               → guarda un proyecto para verlo en otro dispositivo: proyectos/<id>.json → { id }
+//   GET    /api/proyectos               → { proyectos: [{ id, nombre, fecha, bytes }] } (los más recientes primero)
+//   PUT    /api/proyectos/<id>          → guarda o sustituye proyectos/<id>.json  (?origen=<cliente>  ?enviar=1 avisa a PipeCAD)
+//   GET    /api/vivo/<id>               → eventos del servidor: { tipo: 'cambio', id, origen } cada vez que se guarda ese proyecto
+//   GET    /api/vivo/_avisos            → eventos: { tipo: 'enviado', id, nombre } cuando las gafas envían un proyecto al ordenador
 import http from 'node:http';
 import https from 'node:https';
 import os from 'node:os';
@@ -43,6 +51,21 @@ const PROYECTOS = path.join(RAIZ, 'proyectos');
 // ¿Viene la petición de este mismo ordenador?
 const isLocal = req => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
 const canWrite = req => RED || isLocal(req);
+// Escritura de proyectos desde las gafas: solo con --gafas y la clave (cabecera X-PipeCAD-Clave)
+const GAFAS = args.includes('--gafas');
+const CLAVE = GAFAS ? String(opt('--clave', crypto.randomInt(0, 1e6))).padStart(6, '0') : '';
+const fallos = new Map(); // intentos fallidos por dirección: tras 20, cinco minutos de espera
+function claveOk(req) {
+  if (!GAFAS) return false;
+  const ip = req.socket.remoteAddress, f = fallos.get(ip);
+  if (f && f.n >= 20 && Date.now() - f.t < 300000) return false;
+  const dada = Buffer.from(String(req.headers['x-pipecad-clave'] || '')), buena = Buffer.from(CLAVE);
+  if (!dada.length) return false;
+  const ok = dada.length === buena.length && crypto.timingSafeEqual(dada, buena);
+  if (ok) fallos.delete(ip); else fallos.set(ip, { n: (f && Date.now() - f.t < 300000 ? f.n : 0) + 1, t: Date.now() });
+  return ok;
+}
+const canWriteProject = req => canWrite(req) || claveOk(req);
 // Direcciones de este ordenador en la red local (para el enlace y el QR del visor RA)
 function lanUrls() {
   if (!HTTPS) return [];
@@ -134,6 +157,41 @@ async function guardarProyecto(req, res) {
   enviar(res, 201, { ok: true, id });
 }
 
+const PROY_ID = /^[a-z0-9]{6,40}$/;
+async function listarProyectos(res) {
+  const out = [];
+  let files = []; try { files = await fs.readdir(PROYECTOS); } catch { /* aún no hay carpeta */ }
+  for (const f of files) {
+    const id = f.replace(/\.json$/, ''); if (!f.endsWith('.json') || !PROY_ID.test(id)) continue;
+    try {
+      const ruta = path.join(PROYECTOS, f), st = await fs.stat(ruta);
+      let nombre = id; try { nombre = JSON.parse(await fs.readFile(ruta, 'utf8')).name || id; } catch { /* dañado: se lista con su id */ }
+      out.push({ id, nombre, fecha: st.mtime.toISOString(), bytes: st.size });
+    } catch { /* borrado mientras se listaba */ }
+  }
+  enviar(res, 200, { proyectos: out.sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 200) });
+}
+// Edición compartida: clientes suscritos por proyecto (eventos del servidor)
+const oyentes = new Map(); // canal → Set(res)
+function emitir(canal, datos) { for (const r of oyentes.get(canal) || []) r.write(`data: ${JSON.stringify(datos)}\n\n`); }
+function suscribir(req, res, canal) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.write(': conectado\n\n');
+  if (!oyentes.has(canal)) oyentes.set(canal, new Set());
+  oyentes.get(canal).add(res);
+  const latido = setInterval(() => res.write(': \n\n'), 25000);
+  req.on('close', () => { clearInterval(latido); oyentes.get(canal)?.delete(res); if (!oyentes.get(canal)?.size) oyentes.delete(canal); });
+}
+async function sustituirProyecto(req, res, id, url) {
+  let j; try { j = JSON.parse(await leerCuerpo(req)); } catch (e) { return fallo(res, e.code || 400, e.code ? e.message : 'JSON no válido'); }
+  if (j?.format !== 'pipecad' || !Array.isArray(j.nodes) || !Array.isArray(j.segments)) return fallo(res, 400, 'No es un proyecto de PipeCAD');
+  await escribir(path.join(PROYECTOS, id + '.json'), JSON.stringify(j));
+  const origen = String(url.searchParams.get('origen') || '').slice(0, 32);
+  emitir(id, { tipo: 'cambio', id, origen });
+  if (url.searchParams.has('enviar')) { emitir('_avisos', { tipo: 'enviado', id, nombre: String(j.name || id) }); console.log(`  proyecto enviado desde las gafas: proyectos/${id}.json`); }
+  enviar(res, 200, { ok: true, id });
+}
+
 async function servirArchivo(req, res, url) {
   let rel = decodeURIComponent(url.pathname);
   if (rel.endsWith('/')) rel += 'index.html';
@@ -151,7 +209,13 @@ async function servirArchivo(req, res, url) {
 async function atender(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
-    if (url.pathname === '/api/estado') return enviar(res, 200, { pipecad: true, escribir: canWrite(req), version: VERSION, https: HTTPS ? { puerto: PUERTO_HTTPS, urls: lanUrls() } : null });
+    if (url.pathname === '/api/estado') return enviar(res, 200, { pipecad: true, escribir: canWrite(req), proyectos: canWriteProject(req), gafas: GAFAS, version: VERSION, https: HTTPS ? { puerto: PUERTO_HTTPS, urls: lanUrls() } : null });
+    // proyectos: lista, guardado (también desde las gafas con la clave) y eventos en vivo
+    if (url.pathname === '/api/proyectos' && req.method === 'GET') return await listarProyectos(res);
+    const mp = /^\/api\/proyectos\/([a-z0-9]{6,40})$/.exec(url.pathname);
+    if (mp && req.method === 'PUT') return canWriteProject(req) ? await sustituirProyecto(req, res, mp[1], url) : fallo(res, 403, GAFAS ? 'Clave incorrecta: escríbela en las gafas (la muestra el servidor al arrancar)' : 'El servidor no admite guardar desde otros equipos: arráncalo con --gafas');
+    const mv = /^\/api\/vivo\/([a-z0-9]{6,40}|_avisos)$/.exec(url.pathname);
+    if (mv && req.method === 'GET') return suscribir(req, res, mv[1]);
     if (url.pathname.startsWith('/api/') && req.method !== 'GET' && !canWrite(req)) return fallo(res, 403, 'Solo se puede guardar desde el ordenador donde está el servidor');
     if (url.pathname === '/api/accesorios' && req.method === 'POST') return await guardarAccesorio(req, res);
     if (url.pathname === '/api/proyectos' && req.method === 'POST') return await guardarProyecto(req, res);
@@ -172,6 +236,8 @@ servidor.listen(PUERTO, HOST, () => {
   console.log(`  Editor de accesorios: http://localhost:${PUERTO}/editor.html`);
   console.log(`  Los accesorios se guardan en ${MODELOS}`);
   if (HOST === '0.0.0.0') console.log('  ⚠ Accesible desde la red local: cualquiera en la red puede guardar accesorios.');
+  console.log(`  PipeCAD VR (vista previa y pruebas): http://localhost:${PUERTO}/vr.html`);
+  if (GAFAS && !HTTPS) console.log(`  Clave para guardar desde otros equipos: ${CLAVE} (las gafas necesitan además --https)`);
   if (!HTTPS) console.log('  Pulsa Ctrl+C para parar el servidor.');
 });
 
@@ -186,6 +252,9 @@ if (HTTPS) {
   seguro.listen(PUERTO_HTTPS, '0.0.0.0', () => {
     console.log(`  Visor RA para gafas y móviles de la red local (solo lectura):`);
     for (const u of lanUrls()) console.log(`    ${u}ra.html`);
+    console.log('  PipeCAD VR (diseñar dentro de las gafas):');
+    for (const u of lanUrls()) console.log(`    ${u}vr.html`);
+    console.log(GAFAS ? `  Las gafas pueden guardar proyectos con la clave  ${CLAVE}  (se escribe una vez en PipeCAD VR → Proyectos)` : '  Las gafas solo pueden leer: añade --gafas para que puedan guardar proyectos con una clave.');
     console.log('  Pulsa Ctrl+C para parar el servidor.');
   });
 }

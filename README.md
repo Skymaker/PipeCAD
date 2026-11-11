@@ -132,6 +132,21 @@ adb reverse tcp:8080 tcp:8080
 
 Después, en las gafas o el teléfono, abre `http://localhost:8080/ra.html` y elige el proyecto, o pega el enlace de **Ver en RA**. Para el dispositivo es `localhost`, así que no hace falta HTTPS.
 
+## Diseñar dentro de las gafas (PipeCAD VR)
+
+[`vr.html`](vr.html) permite **editar** el proyecto con unas **Meta Quest 3** (u otras gafas con WebXR): dibujar tubos, colocar y girar accesorios, estirar, agrupar, consultar el despiece y guardar, con las manos o con los mandos. El proyecto se ve como **maqueta** (1:10, a la altura de la cintura) o a **tamaño real**. El plan y el estado de cada fase están en [PLAN_VR.md](PLAN_VR.md).
+
+> Estado: la lógica está probada con gestos simulados y en la vista previa con el ratón, pero **todavía no se ha probado dentro de unas gafas**.
+
+- **Abrirlo**: en PipeCAD, botón **Abrir en VR** (código QR y enlace). Igual que el visor RA, necesita HTTPS: GitHub Pages, el servidor local con `--https` o el cable USB con adb (ver el apartado anterior).
+- **En el ordenador**, `vr.html` es una vista previa que se maneja con el ratón (el ratón hace de rayo): sirve para probar sin gafas.
+- **Paleta**: mira la palma de la mano que no usas para dibujar (con mandos, pulsa su joystick). Se toca con el índice de la otra mano o con el rayo y un pellizco.
+- **Dibujar**: Tubo → pellizca, arrastra y suelta; los codos y las Tes se ponen solos. Toca la cota que flota sobre el tramo para escribir la medida exacta.
+- **Mover la maqueta**: pellizca en el vacío con la mano de la paleta; con las dos manos se gira y se escala (paradas en 1:20, 1:10, 1:5, 1:2 y 1:1).
+- **Guardar desde las gafas**: arranca el servidor con `node servidor.mjs --https --gafas`. Muestra una clave de 6 cifras que se escribe una vez en las gafas (Más → Proyectos → Escribir clave). Sin `--gafas`, las gafas solo pueden leer. La clave solo permite guardar proyectos en `proyectos/`, nunca accesorios.
+- **Compartido en vivo**: al abrir en VR desde PipeCAD con el servidor local, lo que se cambia en el ordenador aparece en las gafas y al revés. «Enviar al ordenador» hace que PipeCAD ofrezca abrir el proyecto.
+- **Pruebas**: `vr.html?test` en el navegador, o `node pruebas/vr.mjs` (necesita `npm install --no-save three@0.160.0`). `vr.html?emulador` carga el emulador IWER de Meta y `vr.html?carga=600` un proyecto grande para medir el rendimiento.
+
 ## Funciones
 
 - **Dibujo 3D por polilínea**: los codos de 90° y 45° se insertan solos al cambiar de dirección; empezar o terminar sobre un tubo crea una Te (o Te reducida).
