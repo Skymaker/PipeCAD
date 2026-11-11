@@ -333,15 +333,18 @@ function buildPhysics() {
   world.createCollider(R.ColliderDesc.cuboid(100, 0.5, 100).setTranslation(0, -0.5, 0).setFriction(0.8).setRestitution(0.05)); // suelo
   const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinearDamping(0.05).setAngularDamping(0.15).setCanSleep(true));
   const M = current.toWorld, a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Quaternion();
+  PH.local = [];
   for (const sh of current.shapes) {
     let desc;
     if (sh.type === 'cyl') {
       a.copy(sh.a).applyMatrix4(M); b.copy(sh.b).applyMatrix4(M);
       const len = a.distanceTo(b); if (len < 1e-4) continue;
+      PH.local.push({ type: 'cyl', a: a.clone(), b: b.clone(), r: sh.r * MM });
       q.setFromUnitVectors(Y, b.clone().sub(a).normalize());
       desc = R.ColliderDesc.cylinder(len / 2, sh.r * MM).setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     } else {
       a.copy(sh.c).applyMatrix4(M);
+      PH.local.push({ type: 'ball', c: a.clone(), r: sh.r * MM });
       desc = R.ColliderDesc.ball(sh.r * MM).setTranslation(a.x, a.y, a.z);
     }
     desc.setMass(Math.max(sh.mass ?? 0, 1e-4)).setFriction(0.7).setRestitution(0.05);
@@ -361,9 +364,9 @@ function physicsStep(dt) {
   if (!PH.world || !PH.active) return false;
   PH.acc = Math.min(PH.acc + dt, 0.1); // tras una pausa larga no se recupera de golpe
   let n = 0;
-  while (PH.acc >= PH.step) { PH.world.step(); PH.acc -= PH.step; n++; }
+  while (PH.acc >= PH.step) { driveGrab(); PH.world.step(); PH.acc -= PH.step; n++; }
   if (n) syncAssembly();
-  return !PH.body.isSleeping();
+  return GRAB.hands.size > 0 || !PH.body.isSleeping();
 }
 // Derecha, apoyada en el suelo en el centro del escenario y en reposo
 function resetPose() {
@@ -383,11 +386,146 @@ function drop(height = 1, tiltDeg = 8) {
 // Simulación sin dibujar (pruebas): devuelve el estado al cabo de «seconds»
 function simulate(seconds) {
   const steps = Math.round(seconds / PH.step);
-  for (let i = 0; i < steps; i++) PH.world.step();
+  for (let i = 0; i < steps; i++) { driveGrab(); PH.world.step(); }
   syncAssembly();
   const t = PH.body.translation(), q = PH.body.rotation(), up = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
   return { y: t.y, x: t.x, z: t.z, upY: up.y, sleeping: PH.body.isSleeping(), speed: Math.hypot(...Object.values(PH.body.linvel())), mass: PH.body.mass() };
 }
+// ---------------------------------------------------------------- agarre (R4)
+// Cada mano o mando que agarra guarda dónde estaba la estructura respecto a ella. Mientras agarra,
+// la estructura sigue a la pose objetivo con un muelle amortiguado: se le fija la velocidad que la lleva
+// hacia allí en un tiempo τ que crece con la masa (las pesadas «cuestan» un poco). Como sigue siendo un
+// cuerpo dinámico, no atraviesa el suelo. Al soltar conserva la velocidad que llevaba: cae o sale lanzada.
+// Con dos manos: se mueve con el punto medio y gira con la recta entre ellas, sin escalar (tamaño real).
+const GRAB = { hands: new Map(), two: null };
+const _p = new THREE.Vector3(), _q2 = new THREE.Quaternion();
+function bodyPose() {
+  const t = PH.body.translation(), q = PH.body.rotation();
+  return { p: new THREE.Vector3(t.x, t.y, t.z), q: new THREE.Quaternion(q.x, q.y, q.z, q.w) };
+}
+// Distancia (m) de un punto del escenario a la superficie de la estructura (negativa si está dentro)
+function distanceToStructure(pStage) {
+  if (!PH.body || !PH.local) return Infinity;
+  const { p, q } = bodyPose(), l = pStage.clone().sub(p).applyQuaternion(q.invert());
+  let best = Infinity;
+  for (const sh of PH.local) {
+    let d;
+    if (sh.type === 'cyl') {
+      const ab = _p.copy(sh.b).sub(sh.a), t = THREE.MathUtils.clamp(l.clone().sub(sh.a).dot(ab) / ab.lengthSq(), 0, 1);
+      d = l.distanceTo(sh.a.clone().addScaledVector(ab, t)) - sh.r;
+    } else d = l.distanceTo(sh.c) - sh.r;
+    if (d < best) best = d;
+  }
+  return best;
+}
+function anchorHand(h) { // posición y giro de la estructura respecto a la mano
+  const { p, q } = bodyPose(), inv = h.pose.q.clone().invert();
+  h.offP = p.sub(h.pose.p).applyQuaternion(inv); h.offQ = inv.multiply(q);
+}
+function startTwoHands() {
+  const [a, b] = [...GRAB.hands.values()], { p, q } = bodyPose();
+  GRAB.two = { mid: a.pose.p.clone().add(b.pose.p).multiplyScalar(0.5), dir: b.pose.p.clone().sub(a.pose.p).normalize(), p, q, a, b };
+}
+// pose = { p: Vector3, q: Quaternion } en el sistema del escenario
+function beginGrab(id, pose) {
+  if (!PH.body || GRAB.hands.has(id)) return false;
+  const h = { pose: { p: pose.p.clone(), q: pose.q.clone() } };
+  anchorHand(h); GRAB.hands.set(id, h);
+  if (GRAB.hands.size === 2) startTwoHands();
+  PH.active = true; PH.body.wakeUp(); setHighlight(true); requestRender();
+  return true;
+}
+function moveGrab(id, pose) { const h = GRAB.hands.get(id); if (h) { h.pose.p.copy(pose.p); h.pose.q.copy(pose.q); } }
+function endGrab(id) {
+  if (!GRAB.hands.delete(id)) return;
+  GRAB.two = null;
+  for (const h of GRAB.hands.values()) anchorHand(h); // la que queda vuelve a anclarse donde está: sin saltos
+  if (!GRAB.hands.size) { setHighlight(false); PH.body?.wakeUp(); }
+}
+function grabTarget() {
+  if (GRAB.two && GRAB.hands.size === 2) {
+    const { a, b } = GRAB.two, mid = a.pose.p.clone().add(b.pose.p).multiplyScalar(0.5), dir = b.pose.p.clone().sub(a.pose.p);
+    if (dir.lengthSq() < 1e-6) return null;
+    const dq = new THREE.Quaternion().setFromUnitVectors(GRAB.two.dir, dir.normalize());
+    return { p: GRAB.two.p.clone().sub(GRAB.two.mid).applyQuaternion(dq).add(mid), q: dq.multiply(GRAB.two.q) };
+  }
+  const h = GRAB.hands.values().next().value; if (!h) return null;
+  return { p: h.offP.clone().applyQuaternion(h.pose.q).add(h.pose.p), q: h.pose.q.clone().multiply(h.offQ) };
+}
+function driveGrab() {
+  if (!GRAB.hands.size || !PH.body) return;
+  const T = grabTarget(); if (!T) return;
+  const { p, q } = bodyPose(), tau = THREE.MathUtils.clamp(0.035 + 0.01 * PH.body.mass(), 0.035, 0.15);
+  const v = T.p.sub(p).divideScalar(tau); if (v.length() > 8) v.setLength(8);
+  const dq = T.q.multiply(q.invert()); if (dq.w < 0) dq.set(-dq.x, -dq.y, -dq.z, -dq.w);
+  const ang = 2 * Math.acos(Math.min(1, dq.w)), s = Math.sqrt(Math.max(1e-12, 1 - dq.w * dq.w));
+  const w = new THREE.Vector3(dq.x / s, dq.y / s, dq.z / s).multiplyScalar(ang / tau); if (w.length() > 14) w.setLength(14);
+  PH.body.setLinvel({ x: v.x, y: v.y, z: v.z }, true); PH.body.setAngvel({ x: w.x, y: w.y, z: w.z }, true);
+}
+let highlighted = false;
+function setHighlight(on) {
+  if (on === highlighted) return; highlighted = on;
+  for (const m of Object.values(mats)) { m.emissive.set(on ? 0x2f6fde : 0x000000); m.emissiveIntensity = on ? 0.35 : 1; }
+  requestRender();
+}
+
+// ---- entradas de las gafas: manos (pellizco del pulgar y el índice) y mandos (gatillo o botón de agarre)
+const PINCH_ON = 0.02, PINCH_OFF = 0.032, NEAR = 0.04, RAY_MAX = 4;
+const raycaster = new THREE.Raycaster();
+const INPUTS = [0, 1].map(i => {
+  const c = { id: 'xr' + i, ray: renderer.xr.getController(i), grip: renderer.xr.getControllerGrip(i), hand: renderer.xr.getHand(i), source: null, trigger: false, squeeze: false, was: false, pinch: false, frame: 0, hit: null };
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+  c.line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })); c.line.visible = false; c.ray.add(c.line);
+  c.ray.addEventListener('connected', e => { c.source = e.data; });
+  c.ray.addEventListener('disconnected', () => { c.source = null; endGrab(c.id); c.line.visible = false; });
+  for (const [ev, k, v] of [['selectstart', 'trigger', true], ['selectend', 'trigger', false], ['squeezestart', 'squeeze', true], ['squeezeend', 'squeeze', false]]) c.ray.addEventListener(ev, () => { c[k] = v; });
+  scene.add(c.ray, c.grip, c.hand);
+  return c;
+});
+const stageQInv = () => stage.getWorldQuaternion(new THREE.Quaternion()).invert();
+function toStage(pWorld, qWorld) { return { p: stage.worldToLocal(pWorld.clone()), q: stageQInv().multiply(qWorld) }; }
+// Pose de agarre (en el mundo) y si está agarrando, para una mano o un mando
+function readInput(c) {
+  const src = c.source; if (!src || src.targetRayMode === 'screen') return null;
+  if (src.hand) {
+    const t = c.hand.joints?.['thumb-tip'], ix = c.hand.joints?.['index-finger-tip'], wr = c.hand.joints?.wrist;
+    if (!t?.visible || !ix?.visible || !wr?.visible) return null;
+    const pt = t.getWorldPosition(new THREE.Vector3()), pi = ix.getWorldPosition(new THREE.Vector3()), d = pt.distanceTo(pi);
+    c.pinch = c.pinch ? d < PINCH_OFF : d < PINCH_ON; // con histéresis
+    return { p: pt.add(pi).multiplyScalar(0.5), q: wr.getWorldQuaternion(new THREE.Quaternion()), grabbing: c.pinch };
+  }
+  const g = c.grip.visible ? c.grip : c.ray;
+  return { p: g.getWorldPosition(new THREE.Vector3()), q: g.getWorldQuaternion(new THREE.Quaternion()), grabbing: c.trigger || c.squeeze };
+}
+// Rayo de la mano o del mando contra la estructura: distancia o null
+function rayHit(c) {
+  const o = c.ray.getWorldPosition(new THREE.Vector3()), d = new THREE.Vector3(0, 0, -1).applyQuaternion(c.ray.getWorldQuaternion(new THREE.Quaternion()));
+  raycaster.set(o, d); raycaster.far = RAY_MAX;
+  return raycaster.intersectObjects(assembly.children, false)[0]?.distance ?? null;
+}
+function xrInputs() {
+  if (!XR.placed || !PH.body) { for (const c of INPUTS) c.line.visible = false; return; }
+  let hover = false;
+  for (const c of INPUTS) {
+    const inp = readInput(c);
+    if (!inp) { if (GRAB.hands.has(c.id)) endGrab(c.id); c.line.visible = false; c.was = false; continue; }
+    const pose = toStage(inp.p, inp.q), holding = GRAB.hands.has(c.id);
+    const near = !holding && distanceToStructure(pose.p) < NEAR;
+    if (!holding && !near && (++c.frame % 3 === 0 || inp.grabbing !== c.was)) c.hit = rayHit(c); // el rayo, cada 3 fotogramas
+    if (near) c.hit = null;
+    if (inp.grabbing && !c.was && (near || c.hit != null)) {
+      if (beginGrab(c.id, pose)) c.source.gamepad?.hapticActuators?.[0]?.pulse?.(0.5, 30);
+    } else if (!inp.grabbing && c.was) endGrab(c.id);
+    if (GRAB.hands.has(c.id)) moveGrab(c.id, pose);
+    c.was = inp.grabbing;
+    hover ||= near || c.hit != null || GRAB.hands.has(c.id);
+    // rayo visible si no está tocando la estructura con la mano
+    c.line.visible = !near && !GRAB.hands.has(c.id);
+    c.line.scale.z = c.hit ?? 1.5; c.line.material.color.set(c.hit != null ? 0x5b8ff0 : 0xffffff);
+  }
+  if (!GRAB.hands.size) setHighlight(hover);
+}
+
 $('#b-drop').onclick = () => drop(0.5); // en la vista 3D, medio metro: se ve caer sin salirse del encuadre
 $('#b-reset').onclick = () => resetPose();
 
@@ -497,7 +635,7 @@ function updateFloorFromPlanes(frame) {
 }
 function xrFrame(frame) {
   updateFloorFromPlanes(frame);
-  if (!XR.placing) return;
+  if (!XR.placing) { xrInputs(); return; }
   const p = floorFromHit(frame) ?? (XR.floorY != null ? floorFromGaze(XR.floorY) : null);
   XR.target = p;
   reticle.visible = !!p; stage.visible = !!p;
@@ -512,9 +650,10 @@ function place() {
   resetPose(); PH.active = true; PH.body?.wakeUp();
   $('#xr-place').hidden = true; $('#xr-replace').hidden = false;
   const s = current.size;
-  xrMessage(`Estructura a tamaño real: ${fmt(s.x, 2)} × ${fmt(s.z, 2)} m, ${fmt(s.y, 2)} m de alto`, 5000);
+  xrMessage(`Estructura a tamaño real: ${fmt(s.x, 2)} × ${fmt(s.z, 2)} m, ${fmt(s.y, 2)} m de alto` + (XR.isPhone ? '' : ' · pellizca o aprieta el mando para cogerla'), 5000);
 }
 function startPlacing() {
+  for (const id of [...GRAB.hands.keys()]) endGrab(id);
   XR.placing = true; XR.placed = false; XR.target = null; setGhost(true);
   PH.active = false; resetPose();
   $('#xr-place').hidden = false; $('#xr-replace').hidden = true;
@@ -558,6 +697,7 @@ async function enterAR() {
 }
 function exitedAR() {
   XR.session = null; XR.hitSource?.cancel?.(); XR.hitSource = null; XR.placing = XR.placed = false;
+  for (const id of [...GRAB.hands.keys()]) endGrab(id);
   reticle.visible = false; setGhost(false); PH.active = true; resetPose();
   stage.position.set(0, 0, 0); stage.rotation.set(0, 0, 0); stage.visible = true;
   $('#xr-ui').hidden = true;
@@ -601,7 +741,7 @@ loadPhysics();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>

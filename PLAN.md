@@ -350,7 +350,8 @@ Limitaciones previstas:
 | 18 (R1) Página ra.html | ✅ Vista 3D adaptable a móvil, proyecto por enlace `#p=` (el ejemplo ocupa 1 KB), `.json`, último proyecto o ejemplo; medidas, peso y formas para la física; detección de RA |
 | 19 (R2) Sesión de RA y suelo | ✅ Programada y probada con una cámara y fotogramas simulados (mirada contra el suelo, plano «floor», prueba de impacto, giro hacia el usuario). **Falta probarla en Quest 3 y Android.** |
 | 20 (R3) Física | ✅ Rapier 0.12 (WebAssembly desde CDN): cuerpo compuesto de 117 formas en el ejemplo, masa 3,67 kg repartida, suelo fijo, paso de 1/90 s. Probado: caída libre correcta (0,44 m y 2,92 m/s a los 0,3 s), desde 1 m se asienta derecha y en reposo, inclinada 80° vuelca y queda tumbada. Botones Soltar (50 cm) y Reiniciar en la vista 3D; en RA, quieta mientras se coloca y con gravedad al dejarla. |
-| 21–26 (R4–R9) Manos, táctil, iOS, menús, QR y entorno | ⏳ Pendiente |
+| 21 (R4) Agarre con las manos | ✅ Pellizco (pulgar-índice, con histéresis) o gatillo/agarre del mando; de cerca (4 cm de la superficie) o con rayo a distancia (hasta 4 m); resaltado y vibración. Seguimiento con muelle amortiguado (τ según la masa), sin atravesar el suelo; al soltar conserva la velocidad (lanzar). Dos manos: mover y girar sin escalar. Probado con poses simuladas: subir 0,5 m, girar 90°, soltar, lanzar a 2,6 m/s y girar 90° con dos manos. **Falta probarlo en las Quest 3.** |
+| 22–26 (R5–R9) Táctil, iOS, menús, QR y entorno | ⏳ Pendiente |
 
 ### Pendiente y limitaciones conocidas
 - El guardado en una carpeta elegida (Chrome / Edge, sin servidor) no se ha probado en un navegador real.
