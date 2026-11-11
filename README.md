@@ -17,6 +17,8 @@ Enlace: https://skymaker.github.io/PipeCAD/
 - **Puntos de referencia** (extremos, mitad, tercios, cuartos, centros de accesorio) activables, y dibujo en altura sin teclas modificadoras.
 - **Giro libre** de los accesorios sobre sus propios ejes (pasos configurables o ángulo exacto).
 - **Selección múltiple** (Mayús+clic, rectángulo con doble clic) y **grupos** que se mueven y giran en conjunto con una caja manipuladora; duplicado de grupos y selecciones.
+- **Biblioteca de accesorios** que se cargan y quitan uno a uno, con un lenguaje sencillo (`.pcf`) para crear accesorios propios y modelos **STL** imprimibles en 3D. Ejemplos en [`accesorios/`](accesorios/).
+- **Ajustes** de la interfaz: botón «Ejemplo» visible u oculto y tamaño de los gizmos de navegación.
 - **Cubo de vistas** para orbitar y saltar a caras, aristas o vértices, con interruptor isométrica / perspectiva.
 - **Rótulos** de cotas o marcas de pieza que se pueden ocultar con un interruptor.
 - **Puntos de arrastre** para alargar y acortar tubos; lo conectado detrás se desplaza en bloque.

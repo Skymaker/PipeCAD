@@ -38,6 +38,7 @@
 
 /* ================= Layout ================= */
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
 #app{display:grid;grid-template-rows:auto 1fr auto;height:100vh}
@@ -79,7 +80,7 @@ main{display:grid;grid-template-columns:auto 1fr 340px;min-height:0}
 #legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
 aside{background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .tabs{display:flex;border-bottom:1px solid var(--border)}
-.tabs button{flex:1;border:0;border-radius:0;background:transparent;border-bottom:2px solid transparent;padding:8px 4px}
+.tabs button{flex:1;border:0;border-radius:0;background:transparent;border-bottom:2px solid transparent;padding:8px 2px;font-size:12px;white-space:nowrap}
 .tabs button.on{border-bottom-color:var(--accent);color:var(--accent);background:transparent}
 .tabpane{display:none;padding:12px;overflow:auto;flex:1}
 .tabpane.on{display:block}
@@ -141,7 +142,21 @@ td input,td select{width:100%}
 table.cfg td{padding:2px 3px}
 #print{display:none}
 #help{max-width:min(860px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:16px 20px;position:relative}
-#help::backdrop{background:rgba(0,0,0,.35)}
+#help::backdrop,#prefs::backdrop{background:rgba(0,0,0,.35)}
+#prefs{width:min(440px,calc(100vw - 32px));background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:16px 20px;position:relative}
+#prefs h2{margin:0 0 12px;font-size:17px}
+#prefs .close{position:absolute;top:10px;right:10px}
+.pref{display:flex;gap:10px;align-items:center;margin:10px 0;cursor:pointer}
+.pref-col{flex-direction:column;align-items:stretch;gap:6px}
+.pref input[type=range]{width:100%}
+.lib-row td{vertical-align:middle}
+.lib-row select{width:auto;min-height:24px;padding:1px 4px;font-size:12px}
+.lib-row button{min-height:24px;padding:1px 7px;font-size:12px}
+.lib-guide{margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:6px 10px}
+.lib-guide summary{cursor:pointer;font-weight:600;padding:4px 0}
+.lib-guide pre{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:8px;overflow:auto;font-size:11.5px;line-height:1.35}
+.lib-guide code{font-size:12px}
+.lib-guide td{font-size:12px}
 #help h2{margin:0 0 6px;font-size:17px}
 #help .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 #help ol{padding-left:18px;margin:4px 0}
@@ -174,6 +189,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
   <header>
     <div class="brand">Pipe<span>CAD</span></div>
     <input id="file" type="file" accept=".json,application/json" hidden>
+    <input id="lib-file" type="file" accept=".pcf,.txt,.stl" multiple hidden>
     <div class="group">
       <label class="lbl" for="s-fit">Accesorio</label>
       <select id="s-fit" title="Accesorio a colocar">
@@ -244,6 +260,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <button id="b-png" data-icon="camera" data-tip="Guardar imagen PNG de la vista"><span class="sb-txt">Imagen</span></button>
       <button id="b-labels" class="on" role="switch" aria-checked="true" data-icon="label" data-tip="Mostrar u ocultar rótulos (L)"><span class="sb-txt">Rótulos</span></button>
       <div class="sb-fill"></div>
+      <button id="b-prefs" data-icon="settings" data-tip="Ajustes de la interfaz"><span class="sb-txt">Ajustes</span></button>
       <button id="b-theme" data-icon="theme" data-tip="Tema: automático"><span class="sb-txt">Tema</span></button>
       <button id="b-help" data-icon="help" data-tip="Ayuda (F1)"><span class="sb-txt">Ayuda</span></button>
     </nav>
@@ -271,11 +288,13 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <div class="tabs">
         <button data-tab="props" class="on">Propiedades</button>
         <button data-tab="summary">Despiece</button>
+        <button data-tab="lib">Biblioteca</button>
         <button data-tab="config">Config.</button>
         <button data-tab="tests">Pruebas</button>
       </div>
       <div class="tabpane on" id="tab-props"></div>
       <div class="tabpane" id="tab-summary"></div>
+      <div class="tabpane" id="tab-lib"></div>
       <div class="tabpane" id="tab-config"></div>
       <div class="tabpane" id="tab-tests">
         <h3>Pruebas del motor</h3>
@@ -292,6 +311,17 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
   </footer>
 </div>
 <div id="print"></div>
+<dialog id="prefs" aria-labelledby="prefs-title">
+  <form method="dialog"><button class="close" title="Cerrar">✕</button></form>
+  <h2 id="prefs-title">Ajustes</h2>
+  <label class="pref"><input type="checkbox" id="pf-example"> Mostrar el botón «Ejemplo» en el menú lateral</label>
+  <label class="pref pref-col">
+    <span>Tamaño del cubo de vistas y del gizmo de planos: <b id="pf-gizmo-out">120 px</b></span>
+    <input type="range" id="pf-gizmo" min="100" max="200" step="10" value="100">
+    <span class="hint">De 120 px (tamaño original) a 240 px (el doble).</span>
+  </label>
+  <p class="hint">Estos ajustes se guardan en este navegador y no forman parte del proyecto.</p>
+</dialog>
 <dialog id="help">
   <form method="dialog"><button class="close" title="Cerrar">✕</button></form>
   <h2>PipeCAD · ayuda rápida</h2>
@@ -336,7 +366,9 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <p><b>Mayús+clic</b> añade o quita elementos. <b>Doble clic y arrastrar</b> (o doble clic y luego arrastrar) dibuja un rectángulo: hacia la derecha selecciona lo que queda dentro, hacia la izquierda lo que toca. <b>Ctrl+A</b> selecciona todo.</p>
       <p><b>Ctrl+G</b> agrupa la selección; al pulsar un miembro se selecciona el grupo entero y aparece su caja: flechas para moverlo por ejes, esfera central para moverlo en el plano de trabajo y anillos para girarlo. <b>Ctrl+clic</b> selecciona una pieza dentro del grupo. <b>Ctrl+D</b> duplica (la copia es un grupo nuevo). <b>Ctrl+Mayús+G</b> o el botón <b>Desagrupar</b> deshace el grupo (también desde la lista de grupos del panel Propiedades). <b>Espejo horizontal</b> invierte el grupo arriba/abajo; <b>espejo vertical</b>, izquierda/derecha tal como lo ves.</p>
       <h4>Menú lateral</h4>
-      <p>Los comandos están a la izquierda. El primer botón lo contrae (solo iconos, con el nombre al pasar el ratón) o lo expande (icono con el texto debajo).</p>
+      <p>Los comandos están a la izquierda. El primer botón lo contrae (solo iconos, con el nombre al pasar el ratón) o lo expande (icono con el texto debajo). <b>Ajustes</b> permite ocultar el botón «Ejemplo» y agrandar el cubo de vistas y el gizmo de planos (hasta el doble).</p>
+      <h4>Biblioteca de accesorios</h4>
+      <p>En la pestaña <b>Biblioteca</b> se cargan y quitan los accesorios uno a uno: los de serie con su casilla y los personalizados desde un archivo <code>.pcf</code> (un texto sencillo que describe sus bocas y medidas) y, opcionalmente, su modelo <code>.stl</code>. Cada accesorio se puede descargar en STL para imprimirlo en 3D. Allí mismo está la guía para crear accesorios propios y una plantilla.</p>
       <h4>Planos de trabajo</h4>
       <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
@@ -383,7 +415,31 @@ const KIND_NAMES = {
   end: 'Extremo libre', elbow90: 'Codo 90°', elbow45: 'Codo 45°', tee: 'Te 90°', teeReduced: 'Te reducida',
   coupling: 'Manguito', reducer: 'Manguito reductor', invalid: 'Unión no válida', isolated: 'Nodo aislado',
 };
-const FITTING_KINDS = ['elbow90', 'elbow45', 'tee', 'teeReduced', 'coupling', 'reducer'];
+const BUILTIN_KINDS = ['elbow90', 'elbow45', 'tee', 'teeReduced', 'coupling', 'reducer'];
+const FITTING_KINDS = [...BUILTIN_KINDS, 'custom'];
+// Biblioteca de accesorios: los de serie se pueden quitar y volver a cargar; los personalizados se
+// cargan desde archivos .pcf (+ .stl opcional) y se quitan individualmente.
+const LIB = { disabled: new Set(), custom: new Map() }; // custom: id → { def, source, stl: {variante: {name, b64}} }
+const builtinEnabled = k => !LIB.disabled.has(k);
+LIB.version = 0; LIB.geo = new Map(); // geometrías ya preparadas (por accesorio y variante)
+// Geometría de un accesorio personalizado en su sistema local: STL cargado o modelo automático
+function customGeometry(n) {
+  const e = LIB.custom.get(n.defId), key = `${n.defId}|${n.variant}|${LIB.version}|${e ? 'lib' : vkeyPorts(n)}`;
+  if (LIB.geo.has(key)) return LIB.geo.get(key);
+  let g = null;
+  const stl = e && (e.stl[n.variant] || e.stl['*']);
+  if (stl) { try { g = parseSTL(b64ToBuf(stl.b64)); } catch { g = null; } }
+  if (!g) {
+    const v = e?.def.variants.find(x => x.name === n.variant);
+    if (e && v) g = autoFittingGeometry(e.def.ports.map(p => p.dir), v);
+    else { // accesorio que ya no está en la biblioteca: modelo automático con las medidas guardadas
+      const ps = [...n.ports, ...n.open].filter(p => p.local);
+      g = autoFittingGeometry(ps.map(p => p.local), { ds: ps.map(p => p.d), zs: ps.map(p => p.z), sockets: ps.map(p => p.socket), od: n.od || Math.max(...ps.map(p => p.d)) * 1.3 });
+    }
+  }
+  LIB.geo.set(key, g); return g;
+}
+const vkeyPorts = n => [...n.ports, ...n.open].map(p => p.local ? vkey(p.local) + p.d + ':' + p.z : '').join(';');
 
 /* =====================================================================
    UTILIDADES
@@ -402,7 +458,7 @@ const parseNum = s => { s = String(s).trim(); if (s.includes(',')) s = s.replace
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; /* sin almacenamiento o sin espacio */ } },
 };
 
 /* =====================================================================
@@ -540,7 +596,44 @@ function isAllowedDir(v) {
   return false;
 }
 
+// Clasifica un nudo: primero los accesorios de serie (si están cargados); si no hay ninguno que
+// encaje, se busca en los personalizados de la biblioteca uno con el mismo número de bocas, ángulos y Ø.
 function classifyNode(ports, cfg) {
+  const r = classifyBuiltin(ports, cfg);
+  const offBuiltin = BUILTIN_KINDS.includes(r.kind) && !builtinEnabled(r.kind);
+  if (r.kind === 'invalid' || offBuiltin) {
+    const c = matchCustom(ports);
+    if (c) return c;
+    if (offBuiltin) { ports.forEach(p => { p.z = 0; }); return { kind: 'invalid', errors: [`${KIND_NAMES[r.kind]} no está cargado en la biblioteca de accesorios`] }; }
+  }
+  return r;
+}
+// Busca un accesorio personalizado cuyas bocas coincidan (en número, Ø y ángulos entre ellas) con las del nudo
+function matchCustom(ports) {
+  if (ports.length < 2 || ports.some(p => !(p.len > 1e-6))) return null;
+  for (const { def } of LIB.custom.values()) for (const v of def.variants) {
+    if (v.ds.length !== ports.length) continue;
+    const assign = new Array(ports.length).fill(-1), used = new Set();
+    const ok = i => {
+      if (i === ports.length) return true;
+      for (let j = 0; j < def.ports.length; j++) {
+        if (used.has(j) || v.ds[j] !== ports[i].d) continue;
+        let fits = true;
+        for (let k = 0; k < i && fits; k++) fits = near(ports[i].dir.dot(ports[k].dir), def.ports[j].dir.dot(def.ports[assign[k]].dir), 2e-3);
+        if (!fits) continue;
+        assign[i] = j; used.add(j);
+        if (ok(i + 1)) return true;
+        used.delete(j); assign[i] = -1;
+      }
+      return false;
+    };
+    if (!ok(0)) continue;
+    ports.forEach((p, i) => { p.z = v.zs[assign[i]]; p.socket = v.sockets[assign[i]]; p.local = def.ports[assign[i]].dir; });
+    return { kind: 'custom', defId: def.id, label: def.name, variant: v.name, od: v.od, errors: [] };
+  }
+  return null;
+}
+function classifyBuiltin(ports, cfg) {
   const F = cfg.fittings;
   const bad = msg => { ports.forEach(p => { p.z = 0; }); return { kind: 'invalid', errors: [msg] }; };
   const n = ports.length;
@@ -600,7 +693,7 @@ function analyze(model) {
     });
     const info = n.fit ? classifyExplicit(n.fit, ports, cfg) : classifyNode(ports, cfg);
     const isFitting = FITTING_KINDS.includes(info.kind);
-    for (const p of ports) p.socket = isFitting ? cfg.fittings[p.d].socket : 0;
+    for (const p of ports) p.socket = !isFitting ? 0 : info.kind === 'custom' ? (p.socket || 0) : cfg.fittings[p.d].socket;
     const ds = n.fit ? n.fit.ports.map(p => p.d) : ports.map(p => p.d);
     const d = ds.length ? Math.max(...ds) : 20;
     nodes.set(id, { id, pos: P, ports, d, isFitting, open: [], explicit: false, ...info });
@@ -656,11 +749,33 @@ for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 
 const r6 = x => Math.round(x * 1e6) / 1e6;
 const cleanDir = v => v.set(...[v.x, v.y, v.z].map(c => Math.abs(c) < 1e-6 ? 0 : c)).normalize();
 const vkey = v => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
-const fitPorts = fit => fit.ports.map(p => ({ dir: v3(p.dir).normalize(), d: p.d }));
-const storeFit = ports => ({ ports: ports.map(p => ({ dir: p.dir.toArray().map(r6), d: p.d })) });
+// Bocas de un accesorio declarado. Los personalizados guardan además su Z, embocadura, dirección local
+// (la de su definición) y los datos del accesorio, para que el proyecto se entienda sin la biblioteca.
+const PORT_EXTRA = ['z', 'socket', 'local'];
+const fitPorts = fit => fit.ports.map(p => {
+  const o = { dir: v3(p.dir).normalize(), d: p.d };
+  for (const k of PORT_EXTRA) if (p[k] !== undefined) o[k] = k === 'local' ? v3(p[k]).normalize() : p[k];
+  return o;
+});
+const FIT_META = ['type', 'name', 'variant', 'od'];
+const storeFit = (ports, meta = {}) => {
+  const fit = { ports: ports.map(p => {
+    const o = { dir: p.dir.toArray().map(r6), d: p.d };
+    for (const k of PORT_EXTRA) if (p[k] !== undefined) o[k] = k === 'local' ? (p[k].toArray ? p[k].toArray() : p[k]).map(r6) : p[k];
+    return o;
+  }) };
+  for (const k of FIT_META) if (meta[k] !== undefined) fit[k] = meta[k];
+  return fit;
+};
+const fitMeta = fit => Object.fromEntries(FIT_META.filter(k => fit?.[k] !== undefined).map(k => [k, fit[k]]));
 
 // Plantillas de accesorio en su orientación de partida
 function fittingTemplate(key, d) {
+  if (key.startsWith('lib:')) { // personalizado de la biblioteca: lib:<id>:<variante>
+    const [, id, vname] = key.split(':'), e = LIB.custom.get(id), v = e?.def.variants.find(x => x.name === vname);
+    if (!v) return [];
+    return e.def.ports.map((p, i) => ({ dir: p.dir.clone(), local: p.dir.clone(), d: v.ds[i], z: v.zs[i], socket: v.sockets[i] }));
+  }
   const X = [1, 0, 0], NX = [-1, 0, 0], Y = [0, 1, 0], D45 = [Math.SQRT1_2, Math.SQRT1_2, 0];
   const [k, B, S] = key.split('-'), big = +B, small = +S;
   const t = {
@@ -676,6 +791,17 @@ function fittingTemplate(key, d) {
 
 // Accesorio declarado en un nodo: los tubos deben entrar por sus bocas; las demás quedan libres.
 function classifyExplicit(fit, ports, cfg) {
+  if (fit.type) { // accesorio personalizado: sus medidas van guardadas en el propio accesorio
+    const tpl = fitPorts(fit), used = new Set(), errors = [];
+    for (const p of ports) {
+      const i = tpl.findIndex((t, k) => !used.has(k) && near(t.dir.dot(p.dir), 1));
+      if (i < 0) { p.z = 0; errors.push('Un tubo no entra por ninguna boca del accesorio: gíralo o separa el tubo'); continue; }
+      used.add(i); p.z = tpl[i].z || 0; p.socket = tpl[i].socket || 0; p.local = tpl[i].local;
+      if (tpl[i].d !== p.d) errors.push(`Boca de Ø${tpl[i].d} con un tubo de Ø${p.d}`);
+    }
+    const open = tpl.filter((t, k) => !used.has(k)).map(t => ({ dir: t.dir, d: t.d, z: t.z || 0, socket: t.socket || 0, local: t.local }));
+    return { kind: 'custom', defId: fit.type, label: fit.name || fit.type, variant: fit.variant, od: fit.od, errors, open, explicit: true };
+  }
   const tpl = fitPorts(fit).map(p => ({ ...p, len: 1, z: 0 }));
   const info = classifyNode(tpl, cfg);
   if (!FITTING_KINDS.includes(info.kind)) { ports.forEach(p => { p.z = 0; }); return { kind: 'invalid', errors: ['Accesorio con bocas no válidas'], open: [], explicit: true }; }
@@ -690,7 +816,10 @@ function classifyExplicit(fit, ports, cfg) {
   return { kind: info.kind, variant: info.variant, errors, open, explicit: true };
 }
 // Cota Z de cada boca de una plantilla
-function portZs(ports, cfg) { const f = ports.map(p => ({ dir: p.dir.clone(), d: p.d, len: 1, z: 0 })); classifyNode(f, cfg); return f.map(p => p.z); }
+function portZs(ports, cfg) {
+  if (ports.every(p => p.z !== undefined)) return ports.map(p => p.z); // personalizados: Z propia
+  const f = ports.map(p => ({ dir: p.dir.clone(), d: p.d, len: 1, z: 0 })); classifyNode(f, cfg); return f.map(p => p.z);
+}
 
 // Todas las orientaciones de una plantilla que dejan sus bocas en direcciones permitidas
 function orientations(tpl) {
@@ -731,7 +860,7 @@ function chooseOrientation(tpl, cons, pref, relaxD = false, angStep = 15) {
   if (!best && cons.length) for (const dirs of freeOrientations(tpl, cons, relaxD, angStep)) {
     if (fits(dirs) && score(dirs) > bestScore) { bestScore = score(dirs); best = dirs; }
   }
-  return best && best.map((dir, k) => ({ dir, d: tpl[k].d }));
+  return best && best.map((dir, k) => ({ ...tpl[k], dir }));
 }
 // Orientaciones libres: una boca alineada con la primera conexión y giro alrededor de ella
 function freeOrientations(tpl, cons, relaxD, angStep) {
@@ -757,12 +886,12 @@ function freeOrientations(tpl, cons, relaxD, angStep) {
   return out;
 }
 // Coloca un accesorio: en el espacio, sobre un nodo (lo sustituye) o dentro de un tubo (lo parte en dos).
-function placeFitting(m, target, ports) {
+function placeFitting(m, target, ports, meta = {}) {
   let nid;
   if (target.type === 'plane') nid = m.addNode(target.pos.toArray());
   else if (target.type === 'node') nid = target.id;
   else nid = m.splitSegment(target.id, target.pos.toArray());
-  m.nodes.get(nid).fit = storeFit(ports);
+  m.nodes.get(nid).fit = storeFit(ports, meta);
   if (target.type === 'seg') { // reductor dentro de un tubo: el tramo del lado de la boca menor cambia de Ø
     const P = v3(m.nodes.get(nid).pos);
     for (const s of m.segmentsOf(nid)) {
@@ -776,12 +905,19 @@ function placeFitting(m, target, ports) {
 // Bocas actuales de un accesorio (declarado o deducido de sus tubos)
 function currentPorts(m, an, nodeId) {
   const node = m.nodes.get(nodeId);
-  return node.fit ? fitPorts(node.fit) : an.nodes.get(nodeId).ports.map(p => ({ dir: p.dir.clone(), d: p.d }));
+  if (node.fit) return fitPorts(node.fit);
+  const n = an.nodes.get(nodeId), custom = n.kind === 'custom';
+  return n.ports.map(p => ({ dir: p.dir.clone(), d: p.d, ...(custom ? { z: p.z, socket: p.socket, local: p.local?.clone() } : {}) }));
 }
+// Datos del accesorio que hay que conservar al convertir un nudo deducido en declarado
+const nodeFitMeta = (m, an, nodeId) => {
+  const node = m.nodes.get(nodeId), n = an.nodes.get(nodeId);
+  return node.fit ? fitMeta(node.fit) : n.kind === 'custom' ? { type: n.defId, name: n.label, variant: n.variant, od: n.od } : {};
+};
 // Plan de giro: nuevas bocas y tubos que dejan de estar conectados
 function planRotation(m, an, nodeId, axis, angle) {
   const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
-  const ports = currentPorts(m, an, nodeId).map(p => ({ dir: cleanDir(p.dir.applyQuaternion(q)), d: p.d }));
+  const ports = currentPorts(m, an, nodeId).map(p => ({ ...p, dir: cleanDir(p.dir.applyQuaternion(q)) }));
   const valid = ports.every(p => Number.isFinite(p.dir.x) && p.dir.lengthSq() > 0.5);
   const used = new Set(), detach = [];
   for (const p of an.nodes.get(nodeId).ports) {
@@ -840,7 +976,7 @@ function transformNodes(m, orig, M) {
   for (const [id, o] of orig) {
     const n = m.nodes.get(id); if (!n) continue;
     n.pos = v3(o.pos).applyMatrix4(M).toArray().map(r3);
-    if (o.fit) n.fit = storeFit(fitPorts(o.fit).map(p => ({ dir: cleanDir(p.dir.applyMatrix3(L)), d: p.d })));
+    if (o.fit) n.fit = storeFit(fitPorts(o.fit).map(p => ({ ...p, dir: cleanDir(p.dir.applyMatrix3(L)) })), fitMeta(o.fit));
   }
 }
 // Espejo de un grupo respecto a un plano que pasa por su centro y es perpendicular al eje dado
@@ -882,7 +1018,7 @@ function rotateFitting(m, nodeId, axis, angle) {
   const plan = planRotation(m, an, nodeId, axis, angle);
   if (!plan.valid) throw new Error('Giro no válido');
   for (const p of plan.detach) detachPort(m, nodeId, n.pos, p);
-  m.nodes.get(nodeId).fit = storeFit(plan.ports);
+  m.nodes.get(nodeId).fit = storeFit(plan.ports, nodeFitMeta(m, an, nodeId));
   return plan.detach.length;
 }
 // Borra un accesorio dejando sus tubos sueltos (con su longitud real)
@@ -953,6 +1089,167 @@ function joinSegments(m, sId, oId) {
   s.a = plan.far[0]; s.b = plan.far[1]; m.segments.delete(oId);
   for (const n of plan.inner) if (!m.segmentsOf(n).length) m.nodes.delete(n);
   return sId;
+}
+
+/* =====================================================================
+   BIBLIOTECA: lenguaje .pcf (PipeCAD Fitting) y modelos STL
+   =====================================================================
+   Ejemplo:
+     ACCESORIO cruz90
+     NOMBRE "Cruz 90°"
+     BOCA A  1 0 0
+     BOCA B -1 0 0
+     BOCA C  0 1 0
+     BOCA D  0 -1 0
+     VARIANTE 32 DIAMETROS 32 32 32 32 Z 17 17 17 17 EMBOCADURA 22 22 22 22 EXTERIOR 41
+     MODELO 32 cruz90_32.stl
+*/
+const PCF_KEYS = { DIAMETROS: 'ds', 'DIÁMETROS': 'ds', Z: 'zs', EMBOCADURA: 'sockets', EXTERIOR: 'od' };
+function tokenizePCF(line) { const out = [], re = /"([^"]*)"|(\S+)/g; let m; while ((m = re.exec(line))) out.push(m[1] ?? m[2]); return out; }
+function parsePCF(text) {
+  const def = { id: '', name: '', desc: '', ports: [], variants: [], models: {} }, errs = [];
+  String(text).split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/#.*$/, '').trim(); if (!line) return;
+    const t = tokenizePCF(line), key = t[0].toUpperCase(), ln = i + 1;
+    const num = (s, what) => { const v = parseNum(s); if (!isFinite(v)) errs.push(`Línea ${ln}: ${what} debe ser un número («${s ?? ''}»)`); return v; };
+    switch (key) {
+      case 'ACCESORIO':
+        def.id = (t[1] || '').toLowerCase();
+        if (!/^[a-z0-9_-]+$/.test(def.id)) errs.push(`Línea ${ln}: el identificador del accesorio solo admite letras sin tildes, números, «-» y «_»`);
+        break;
+      case 'NOMBRE': def.name = t.slice(1).join(' '); break;
+      case 'DESCRIPCION': case 'DESCRIPCIÓN': def.desc = t.slice(1).join(' '); break;
+      case 'BOCA': {
+        if (t.length !== 5) { errs.push(`Línea ${ln}: BOCA necesita un nombre y tres números: BOCA A 1 0 0`); break; }
+        const v = new THREE.Vector3(num(t[2], 'X'), num(t[3], 'Y'), num(t[4], 'Z'));
+        if (!(v.lengthSq() > 1e-12)) { errs.push(`Línea ${ln}: la dirección de la boca no puede ser 0 0 0`); break; }
+        if (def.ports.some(p => p.name === t[1])) errs.push(`Línea ${ln}: la boca «${t[1]}» está repetida`);
+        def.ports.push({ name: t[1], dir: v.normalize() }); break;
+      }
+      case 'VARIANTE': {
+        const v = { name: t[1], ds: [], zs: [], sockets: [], od: NaN, line: ln }; let cur = null;
+        if (!t[1] || PCF_KEYS[t[1].toUpperCase()]) { errs.push(`Línea ${ln}: falta el nombre de la variante (VARIANTE 32 DIAMETROS …)`); break; }
+        for (const tok of t.slice(2)) {
+          const k = PCF_KEYS[tok.toUpperCase()];
+          if (k) { cur = k; continue; }
+          if (!cur) { errs.push(`Línea ${ln}: «${tok}» no va precedido de DIAMETROS, Z, EMBOCADURA o EXTERIOR`); continue; }
+          const val = num(tok, cur === 'ds' ? 'el diámetro' : cur === 'zs' ? 'la Z' : cur === 'sockets' ? 'la embocadura' : 'el diámetro exterior');
+          if (cur === 'od') v.od = val; else v[cur].push(val);
+        }
+        def.variants.push(v); break;
+      }
+      case 'MODELO': if (t.length !== 3) errs.push(`Línea ${ln}: MODELO necesita la variante (o *) y el archivo: MODELO 32 pieza_32.stl`); else def.models[t[1]] = t[2]; break;
+      default: errs.push(`Línea ${ln}: palabra clave desconocida «${t[0]}» (válidas: ACCESORIO, NOMBRE, DESCRIPCION, BOCA, VARIANTE, MODELO)`);
+    }
+  });
+  if (!def.id) errs.push('Falta la línea ACCESORIO <identificador>');
+  if (!def.name) def.name = def.id;
+  if (!def.ports.length) errs.push('El accesorio necesita al menos una BOCA');
+  if (!def.variants.length) errs.push('El accesorio necesita al menos una VARIANTE');
+  const n = def.ports.length;
+  for (const v of def.variants) {
+    const where = `Variante «${v.name}» (línea ${v.line})`;
+    for (const [k, label] of [['ds', 'DIAMETROS'], ['zs', 'Z'], ['sockets', 'EMBOCADURA']])
+      if (v[k].length !== n) errs.push(`${where}: ${label} tiene ${v[k].length} valores y hay ${n} bocas`);
+    if (v.ds.some(d => !DIAMETERS.includes(d))) errs.push(`${where}: los diámetros deben ser ${DIAMETERS.join(', ')}`);
+    if (v.zs.some(z => z < 0)) errs.push(`${where}: la Z no puede ser negativa`);
+    if (v.sockets.some(s => !(s > 0))) errs.push(`${where}: la embocadura debe ser mayor que 0`);
+    if (!(v.od > Math.max(...v.ds))) errs.push(`${where}: EXTERIOR debe ser mayor que el mayor de los diámetros`);
+  }
+  const names = def.variants.map(v => v.name);
+  if (new Set(names).size !== names.length) errs.push('Hay variantes con el mismo nombre');
+  for (const k of Object.keys(def.models)) if (k !== '*' && !names.includes(k)) errs.push(`MODELO ${k}: no existe esa variante`);
+  if (errs.length) throw new Error(errs.join('\n'));
+  return def;
+}
+const fmtN = x => String(Math.round(x * 1e6) / 1e6);
+function pcfFor(def) {
+  const L = ['# PipeCAD · definición de accesorio (lenguaje .pcf)', '# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.', `ACCESORIO ${def.id}`, `NOMBRE "${def.name}"`];
+  if (def.desc) L.push(`DESCRIPCION "${def.desc}"`);
+  L.push('', '# BOCA <nombre> <x> <y> <z>   dirección hacia fuera de la boca');
+  for (const p of def.ports) L.push(`BOCA ${p.name}  ${[p.dir.x, p.dir.y, p.dir.z].map(fmtN).join(' ')}`);
+  L.push('', '# VARIANTE <nombre> DIAMETROS (Ø de tubo por boca) Z (centro → tope de embocadura) EMBOCADURA (profundidad) EXTERIOR (Ø exterior del cuerpo)');
+  for (const v of def.variants) L.push(`VARIANTE ${v.name}  DIAMETROS ${v.ds.join(' ')}  Z ${v.zs.map(fmtN).join(' ')}  EMBOCADURA ${v.sockets.map(fmtN).join(' ')}  EXTERIOR ${fmtN(v.od)}`);
+  const models = Object.entries(def.models || {});
+  if (models.length) { L.push(''); for (const [k, f] of models) L.push(`MODELO ${k} ${f}`); }
+  return L.join('\n') + '\n';
+}
+// Definiciones de los accesorios de serie, generadas con las cotas de la configuración del proyecto
+function builtinDef(kind, cfg) {
+  const F = cfg.fittings, S = Math.SQRT1_2, P = (name, x, y, z) => ({ name, dir: new THREE.Vector3(x, y, z).normalize() });
+  const same = (n, key) => DIAMETERS.map(d => ({ name: String(d), ds: Array(n).fill(d), zs: Array(n).fill(F[d][key]), sockets: Array(n).fill(F[d].socket), od: F[d].od }));
+  const defs = {
+    elbow90: { ports: [P('A', 1, 0, 0), P('B', 0, 1, 0)], variants: same(2, 'elbow90') },
+    elbow45: { ports: [P('A', -1, 0, 0), P('B', S, S, 0)], variants: same(2, 'elbow45') },
+    tee: { ports: [P('A', 1, 0, 0), P('B', -1, 0, 0), P('C', 0, 1, 0)], variants: same(3, 'tee') },
+    coupling: { ports: [P('A', 1, 0, 0), P('B', -1, 0, 0)], variants: same(2, 'coupling') },
+    reducer: { ports: [P('A', 1, 0, 0), P('B', -1, 0, 0)], variants: Object.entries(cfg.reducers).map(([k, r]) => { const [B, s] = k.split('-').map(Number); return { name: k, ds: [B, s], zs: [r.big, r.small], sockets: [F[B].socket, F[s].socket], od: F[B].od }; }) },
+    teeReduced: { ports: [P('A', 1, 0, 0), P('B', -1, 0, 0), P('C', 0, 1, 0)], variants: Object.entries(cfg.teeReduced).map(([k, r]) => { const [D, d] = k.split('-').map(Number); return { name: k, ds: [D, D, d], zs: [r.run, r.run, r.branch], sockets: [F[D].socket, F[D].socket, F[d].socket], od: F[D].od }; }) },
+  };
+  return { id: kind, name: KIND_NAMES[kind], desc: 'Accesorio de serie', models: {}, ...defs[kind] };
+}
+
+// ---- STL: modelo automático imprimible, exportación binaria y lectura (binario o ASCII)
+// Modelo automático: cuerpo macizo de cada boca + embocadura hueca (anillo cerrado) + esfera central.
+// Cada pieza es un sólido cerrado; los laminadores (Cura, PrusaSlicer…) los unen al imprimir.
+function autoFittingGeometry(dirs, v) {
+  const R = v.od / 2, Y = new THREE.Vector3(0, 1, 0), geos = [];
+  dirs.forEach((dir, i) => {
+    const q = new THREE.Quaternion().setFromUnitVectors(Y, dir.clone().normalize());
+    const z = v.zs[i], s = v.sockets[i], rIn = v.ds[i] / 2;
+    if (z > 0.01) { const g = new THREE.CylinderGeometry(R * 0.94, R * 0.94, z, 40, 1, false); g.translate(0, z / 2, 0); g.applyQuaternion(q); geos.push(g); }
+    const prof = [[rIn, z], [R, z], [R, z + s], [rIn, z + s], [rIn, z]].map(([x, y]) => new THREE.Vector2(x, y));
+    const ring = new THREE.LatheGeometry(prof, 48); ring.applyQuaternion(q); geos.push(ring);
+  });
+  if (dirs.some(a => dirs.some(b => Math.abs(a.dot(b)) < 1 - 1e-6))) geos.push(new THREE.SphereGeometry(R * 0.94, 32, 16));
+  return mergePositions(geos);
+}
+function mergePositions(geos) {
+  const arrs = geos.map(g => (g.index ? g.toNonIndexed() : g).getAttribute('position').array);
+  const out = new Float32Array(arrs.reduce((n, a) => n + a.length, 0)); let o = 0;
+  for (const a of arrs) { out.set(a, o); o += a.length; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(out, 3)); g.computeVertexNormals(); return g;
+}
+function geometryToSTL(geo, name = 'PipeCAD') {
+  const pos = (geo.index ? geo.toNonIndexed() : geo).getAttribute('position'), n = pos.count / 3;
+  const buf = new ArrayBuffer(84 + 50 * n), dv = new DataView(buf);
+  const head = new TextEncoder().encode(('PipeCAD · ' + name).slice(0, 79));
+  new Uint8Array(buf, 0, 80).set(head.slice(0, 80));
+  dv.setUint32(80, n, true);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), nr = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    a.fromBufferAttribute(pos, 3 * i); b.fromBufferAttribute(pos, 3 * i + 1); c.fromBufferAttribute(pos, 3 * i + 2);
+    nr.subVectors(c, b).cross(a.clone().sub(b)).normalize();
+    let off = 84 + 50 * i;
+    for (const v of [nr, a, b, c]) { dv.setFloat32(off, v.x, true); dv.setFloat32(off + 4, v.y, true); dv.setFloat32(off + 8, v.z, true); off += 12; }
+    dv.setUint16(off, 0, true);
+  }
+  return buf;
+}
+function parseSTL(buffer) {
+  const u8 = new Uint8Array(buffer), dv = new DataView(buffer);
+  const n = u8.length >= 84 ? dv.getUint32(80, true) : -1;
+  const pos = [];
+  if (n >= 0 && u8.length === 84 + n * 50) { // binario
+    for (let i = 0; i < n; i++) { const off = 84 + 50 * i + 12; for (let k = 0; k < 9; k++) pos.push(dv.getFloat32(off + 4 * k, true)); }
+  } else { // ASCII
+    const text = new TextDecoder().decode(u8), re = /vertex\s+(\S+)\s+(\S+)\s+(\S+)/g; let m;
+    while ((m = re.exec(text))) pos.push(+m[1], +m[2], +m[3]);
+    if (pos.length % 9) throw new Error('STL ASCII incompleto');
+  }
+  if (!pos.length || pos.some(v => !Number.isFinite(v))) throw new Error('El archivo STL no contiene triángulos válidos');
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+}
+const bufToB64 = buf => { const u8 = new Uint8Array(buf); let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
+const b64ToBuf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+// Giro que lleva las direcciones locales de las bocas (definición) a las reales (modelo)
+function localToWorldQuat(pairs) {
+  const [p0] = pairs; if (!p0) return new THREE.Quaternion();
+  const p1 = pairs.find(p => Math.abs(p.local.dot(p0.local)) < 1 - 1e-6);
+  if (!p1) return new THREE.Quaternion().setFromUnitVectors(p0.local, p0.world);
+  const basis = (a, b) => { const e1 = a.clone().normalize(), e2 = b.clone().addScaledVector(e1, -b.dot(e1)).normalize(); return new THREE.Matrix4().makeBasis(e1, e2, e1.clone().cross(e2)); };
+  const M = basis(p0.world, p1.world).multiply(basis(p0.local, p1.local).invert());
+  return new THREE.Quaternion().setFromRotationMatrix(M);
 }
 
 /* =====================================================================
@@ -1061,7 +1358,7 @@ function computeCutlist(m, an) {
   }
   const fm = new Map();
   for (const n of an.nodes.values()) if (n.isFitting) {
-    const name = KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : ' Ø' + n.d);
+    const name = n.kind === 'custom' ? `${n.label} ${n.variant || 'Ø' + n.d}` : KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : ' Ø' + n.d);
     fm.set(name, (fm.get(name) || 0) + 1);
   }
   res.fittings = [...fm].map(([name, n]) => ({ name, n })).sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }));
@@ -1178,6 +1475,7 @@ function makeMaterials() {
   mats.err = std(cssVar('--err'), { emissive: new THREE.Color(cssVar('--err')), emissiveIntensity: .25 });
   mats.warn = std(cssVar('--warn'));
   mats.sel = std(cssVar('--sel'), { emissive: new THREE.Color(cssVar('--sel')), emissiveIntensity: .35 });
+  for (const k of ['fitting', 'err', 'sel']) mats[k].side = THREE.DoubleSide; // los STL externos pueden traer caras invertidas
   mats.endpoint = std(cssVar('--muted'));
   const ghost = (c, o) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c), transparent: true, opacity: o, depthWrite: false });
   mats.ghost = ghost(cssVar('--accent'), .45);
@@ -1300,12 +1598,19 @@ function rebuild(live = false) {
   for (const n of analysis.nodes.values()) {
     const isSel = isSelected('node', n.id) || (sel && sel.type === 'node' && sel.id === n.id);
     const allPorts = [...n.ports, ...n.open];
-    const sig = [n.kind, vkey(n.pos), isSel, n.d, n.errors.length, n.open.length, ...allPorts.map(p => `${vkey(p.dir)}:${p.d}:${p.z}:${p.socket}:${F[p.d].od}`)].join('|');
+    const sig = [n.kind, n.defId, n.variant, LIB.version, vkey(n.pos), isSel, n.d, n.errors.length, n.open.length, ...allPorts.map(p => `${vkey(p.dir)}:${p.d}:${p.z}:${p.socket}:${F[p.d].od}`)].join('|');
     sync(cache.node, n.id, sig, () => {
       const pick = { type: 'node', id: n.id };
       if (n.kind === 'invalid' || n.kind === 'isolated') { sphere(n.pos, (cssFitOd(F, n.d) / 2) * 1.25, isSel ? mats.sel : mats.err, pick); return; }
       if (n.kind === 'end') { sphere(n.pos, n.d * 0.6, isSel ? mats.sel : mats.endpoint, pick); return; }
       const mat = isSel ? mats.sel : n.errors.length ? mats.err : mats.fitting;
+      if (n.kind === 'custom') { // accesorio de la biblioteca: su modelo STL (o el automático) orientado
+        const m = new THREE.Mesh(customGeometry(n), mat);
+        m.position.copy(n.pos);
+        m.quaternion.copy(localToWorldQuat(allPorts.filter(p => p.local).map(p => ({ local: p.local, world: p.dir }))));
+        m.userData.pick = pick; world.add(m); collect?.push(m);
+        return;
+      }
       let rMax = 0;
       for (const p of allPorts) {
         const r = F[p.d].od / 2; rMax = Math.max(rMax, r);
@@ -2061,6 +2366,12 @@ $('#len-box').addEventListener('blur', () => { $('#len-box').style.display = 'no
 
 // ---------- FASE 5: colocación manual de accesorios
 const placeRot = new THREE.Quaternion();
+// Datos que se guardan con un accesorio personalizado al colocarlo (lib:<id>:<variante>)
+function libMeta(key) {
+  if (!key?.startsWith('lib:')) return null;
+  const [, id, vname] = key.split(':'), e = LIB.custom.get(id), v = e?.def.variants.find(x => x.name === vname);
+  return v ? { type: id, name: e.def.name, variant: v.name, od: v.od } : null;
+}
 const PLANE_BASE = {
   xy: new THREE.Quaternion(),
   xz: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2),                      // Y → Z
@@ -2082,7 +2393,7 @@ function updatePlace() {
   const pref = tpl.map(p => cleanDir(p.dir.clone().applyQuaternion(base).applyQuaternion(placeRot)));
   let ports = null, where = '', msg = '';
   if (t.type === 'plane') {
-    ports = pref.map((dir, k) => ({ dir, d: tpl[k].d }));
+    ports = pref.map((dir, k) => ({ ...tpl[k], dir }));
   } else if (t.type === 'seg') {
     const g = analysis.segs.get(t.id);
     where = ' · se inserta en el tubo';
@@ -2098,17 +2409,17 @@ function updatePlace() {
     if (!ports) msg = 'No encaja con los tubos de este punto';
   }
   place.ports = ports; place.ok = !!ports; place.msg = msg;
-  const show = ports || pref.map((dir, k) => ({ dir, d: tpl[k].d }));
-  const zs = portZs(show, cfg);
-  show.forEach((q, i) => ovCyl(t.pos, q.dir, zs[i] + F[q.d].socket, F[q.d].od / 2, place.ok ? mats.ghost : mats.ghostBad));
-  ovDot(t.pos, Math.max(...show.map(q => F[q.d].od)) / 2, place.ok ? mats.ghost : mats.ghostBad);
-  setTip(esc($('#s-fit').selectedOptions[0].textContent) + (/^(red|ter)/.test(state.fit) ? '' : ' Ø' + dAuto) + where + (place.ok ? '' : '<br>✘ ' + esc(msg)));
+  const show = ports || pref.map((dir, k) => ({ ...tpl[k], dir }));
+  const zs = portZs(show, cfg), od = libMeta(state.fit)?.od;
+  show.forEach((q, i) => ovCyl(t.pos, q.dir, zs[i] + (q.socket ?? F[q.d].socket), (od || F[q.d].od) / 2, place.ok ? mats.ghost : mats.ghostBad));
+  ovDot(t.pos, (od || Math.max(...show.map(q => F[q.d].od))) / 2, place.ok ? mats.ghost : mats.ghostBad);
+  setTip(esc($('#s-fit').selectedOptions[0]?.textContent || '') + (/^(red|ter|lib)/.test(state.fit) ? '' : ' Ø' + dAuto) + where + (place.ok ? '' : '<br>✘ ' + esc(msg)));
   requestRender();
 }
 function placeClick() {
   updatePlace();
   if (!place.ok) { status('✘ ' + (place.msg || 'No se puede colocar aquí')); return; }
-  model.transact('Colocar accesorio', () => placeFitting(model, place.target, place.ports));
+  model.transact('Colocar accesorio', () => placeFitting(model, place.target, place.ports, libMeta(state.fit) || {}));
   status(place.target.type === 'seg' ? 'Accesorio insertado: el tubo queda partido en dos' : 'Accesorio colocado · dibuja tubos desde sus bocas libres o gíralo con los anillos');
 }
 function rotatePlace(k) {
@@ -2540,7 +2851,7 @@ function doRedo() { const l = model.redo(); status(l ? `Rehecho: ${l}` : 'Nada q
 function status(msg) { $('#st-msg').textContent = msg; }
 const row = (k, v, cls = '') => `<tr><th>${k}</th><td class="${cls}">${v}</td></tr>`;
 const msgs = (errors = [], warnings = []) => errors.map(t => `<div class="msg err">${esc(t)}</div>`).join('') + warnings.map(t => `<div class="msg warn">${esc(t)}</div>`).join('');
-const kindLabel = n => KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : '');
+const kindLabel = n => n.kind === 'custom' ? `${n.label}${n.variant ? ' ' + n.variant : ''}` : KIND_NAMES[n.kind] + (n.variant ? ' ' + n.variant : '');
 const dirName = v => !isAllowedDir(v) ? `libre (${[v.x, v.y, v.z].map(x => fmt(x, 2)).join(' · ')}) · ${fmt(THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(v.z, -1, 1))))}° en vertical` : dirNameGrid(v);
 const dirNameGrid = v => { const c = ['x', 'y', 'z'].map((a, i) => { const x = [v.x, v.y, v.z][i]; return Math.abs(x) < 1e-4 ? '' : (x > 0 ? '+' : '−') + a.toUpperCase(); }).filter(Boolean); return c.join(' ') + (c.length === 2 ? ' (45°)' : ''); };
 
@@ -3235,6 +3546,58 @@ function runTests() {
       by('corner').length === 8 && by('corner').every(p => nz(p) === 3 && p.verts.length === 3) || 'vértices',
       parts.every(ccw) || 'orientación de las caras');
   });
+  // --- biblioteca, lenguaje .pcf y STL (se restaura el estado de la biblioteca al terminar)
+  const withLib = fn => () => {
+    const saved = { disabled: new Set(LIB.disabled), custom: new Map(LIB.custom) };
+    LIB.disabled.clear(); LIB.custom.clear();
+    try { return fn(); } finally { LIB.disabled = saved.disabled; LIB.custom = saved.custom; }
+  };
+  test('.pcf: la plantilla (cruz) se interpreta bien', () => {
+    const d = parsePCF(TEMPLATE_PCF);
+    return all(d.id === 'cruz90' || d.id, d.ports.length === 4 || 'bocas', d.variants.length === 2 || 'variantes', eq(d.variants[1].zs[2], 17, 'Z'), d.name === 'Cruz 90°' || d.name);
+  });
+  test('.pcf: los errores indican la línea', () => {
+    let msg = '';
+    try { parsePCF('ACCESORIO x\nBOCA A 1 0 0\nBOCA B -1 0 0\nVARIANTE 32 DIAMETROS 32 Z 5 EMBOCADURA 22 22 EXTERIOR 41\nCOSA 1'); } catch (e) { msg = e.message; }
+    return all(/línea 5/i.test(msg) || 'sin línea de la palabra desconocida', /DIAMETROS tiene 1 valores/.test(msg) || 'sin aviso de recuento', /Z tiene 1/.test(msg) || 'Z');
+  });
+  test('.pcf: la definición de serie se genera y se vuelve a leer igual', () => {
+    const cfg = structuredClone(DEFAULT_CONFIG), d = parsePCF(pcfFor(builtinDef('teeReduced', cfg)));
+    return all(d.ports.length === 3 || 'bocas', d.variants.length === 3 || 'variantes', d.variants.find(v => v.name === '40-32')?.zs.join(',') === '21,21,22' || 'Z');
+  });
+  test('STL: el modelo automático se exporta y se vuelve a leer', () => {
+    const d = parsePCF(TEMPLATE_PCF), v = d.variants[1];
+    const g = autoFittingGeometry(d.ports.map(p => p.dir), v), buf = geometryToSTL(g, 'cruz');
+    const g2 = parseSTL(buf); g2.computeBoundingBox();
+    const tri = g.getAttribute('position').count / 3, tri2 = g2.getAttribute('position').count / 3;
+    return all(tri === tri2 || `${tri} ≠ ${tri2} triángulos`, near(g2.boundingBox.max.x, 17 + 22, 0.01) || 'longitud de boca', buf.byteLength === 84 + 50 * tri || 'tamaño binario');
+  });
+  test('STL: lectura de un STL ASCII', () => {
+    const g = parseSTL(new TextEncoder().encode('solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t').buffer);
+    return g.getAttribute('position').count === 3 || 'vértices';
+  });
+  test('Biblioteca: quitar el codo de 45° invalida los giros de 45°', withLib(() => {
+    const mk = () => build({ a: [0, 0, 0], b: [1000, 0, 0], c: [1500, 500, 0] }, [['a', 'b', 20], ['b', 'c', 20]]);
+    const on = mk().node('b').kind; LIB.disabled.add('elbow45'); const off = mk().node('b');
+    return all(on === 'elbow45' || on, off.kind === 'invalid' || off.kind, /no está cargado/.test(off.errors[0] || '') || 'mensaje');
+  }));
+  test('Biblioteca: una cruz personalizada se reconoce sola en un nudo de 4 tubos', withLib(() => {
+    const def = parsePCF(TEMPLATE_PCF); LIB.custom.set(def.id, { def, source: TEMPLATE_PCF, stl: {} });
+    const t = build({ o: [0, 0, 0], a: [1000, 0, 0], b: [-1000, 0, 0], c: [0, 1000, 0], d: [0, -1000, 0] }, [['o', 'a', 32], ['o', 'b', 32], ['o', 'c', 32], ['o', 'd', 32]]);
+    const n = t.node('o');
+    return all(n.kind === 'custom' || n.kind, n.label === 'Cruz 90°' || n.label, eq(t.seg('oa').Lr, 1000 - 17, 'Lr'), n.ports.every(p => p.socket === 22) || 'embocadura');
+  }));
+  test('Biblioteca: un accesorio personalizado colocado conserva sus datos al girarlo y al guardar', withLib(() => {
+    const src = 'ACCESORIO codo30\nNOMBRE "Codo 30°"\nBOCA A 1 0 0\nBOCA B -0.866025 0.5 0\nVARIANTE 32 DIAMETROS 32 32 Z 6 6 EMBOCADURA 22 22 EXTERIOR 41';
+    const def = parsePCF(src); LIB.custom.set(def.id, { def, source: src, stl: {} });
+    const m = new Model(), tpl = fittingTemplate('lib:codo30:32');
+    const n = placeFitting(m, { type: 'plane', pos: new THREE.Vector3(0, 0, 0) }, tpl, libMeta('lib:codo30:32'));
+    const e = m.addNode([500, 0, 0]); m.addSegment(n, e, 32);
+    rotateFitting(m, n, new THREE.Vector3(1, 0, 0), Math.PI / 2);
+    const m2 = new Model(); m2.load(JSON.parse(JSON.stringify(m.toJSON()))); LIB.custom.clear(); // sin biblioteca
+    const nn = analyze(m2).nodes.get(n), s = analyze(m2).segs.values().next().value;
+    return all(nn.kind === 'custom' || nn.kind, nn.label === 'Codo 30°' || nn.label, eq(s.Lr, 500 - 6, 'Lr con Z propia'), nn.open.length === 1 && near(nn.open[0].dir.z, 0.5) || 'boca girada');
+  }));
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
     const bad = [...an.nodes.values()].filter(n => n.errors.length).map(n => n.id).concat([...an.segs.values()].filter(s => s.errors.length).map(s => s.id));
@@ -3281,6 +3644,198 @@ $('#b-ungroup').onclick = () => ungroupSelection();
 $('#b-mirror-h').onclick = () => mirrorSelection('h');
 $('#b-mirror-v').onclick = () => mirrorSelection('v');
 
+// ---------- biblioteca de accesorios (estado de la aplicación, guardado en el navegador)
+function saveLib() {
+  const ok = store.set('pipecad-lib', JSON.stringify({ disabled: [...LIB.disabled], custom: [...LIB.custom.values()].map(e => ({ source: e.source, stl: e.stl })) }));
+  return ok;
+}
+function loadLib() {
+  try {
+    const j = JSON.parse(store.get('pipecad-lib') || '{}');
+    LIB.disabled = new Set((j.disabled || []).filter(k => BUILTIN_KINDS.includes(k)));
+    for (const c of j.custom || []) { try { const def = parsePCF(c.source); LIB.custom.set(def.id, { def, source: c.source, stl: c.stl || {} }); } catch { /* definición dañada: se ignora */ } }
+  } catch { /* sin biblioteca guardada */ }
+}
+// Tras cualquier cambio: se recalcula el modelo (los nudos pueden dejar de ser válidos o pasar a reconocerse)
+function libChanged() {
+  LIB.version++; LIB.geo.clear(); clearCache();
+  saveLib(); renderFitSelect(); renderLibrary(); model.emit();
+}
+// Opciones del selector «Accesorio»: los de serie cargados y las variantes de los personalizados
+function renderFitSelect() {
+  const sel = $('#s-fit'), opts = [];
+  const B = [['elbow90', 'Codo 90°', 'elbow90'], ['elbow45', 'Codo 45°', 'elbow45'], ['tee', 'Te 90°', 'tee'], ['coupling', 'Manguito', 'coupling'],
+    ...Object.keys(model.config.reducers).map(k => [`red-${k}`, `Reductor ${k.replace('-', '×')}`, 'reducer']),
+    ...Object.keys(model.config.teeReduced).map(k => [`ter-${k}`, `Te reducida ${k.replace('-', '×')}`, 'teeReduced'])];
+  for (const [v, label, kind] of B) if (builtinEnabled(kind)) opts.push(`<option value="${v}">${label}</option>`);
+  for (const { def } of LIB.custom.values()) for (const v of def.variants) opts.push(`<option value="lib:${def.id}:${esc(v.name)}">${esc(def.name)} · ${esc(v.name)}</option>`);
+  sel.innerHTML = opts.join('') || '<option value="">(biblioteca vacía)</option>';
+  if ([...sel.options].some(o => o.value === state.fit)) sel.value = state.fit; else state.fit = sel.value;
+}
+function libDefs() {
+  return [
+    ...BUILTIN_KINDS.map(k => ({ def: builtinDef(k, model.config), builtin: true, on: builtinEnabled(k), entry: null })),
+    ...[...LIB.custom.values()].map(e => ({ def: e.def, builtin: false, on: true, entry: e })),
+  ];
+}
+function exportPCF(id) {
+  const it = libDefs().find(x => x.def.id === id); if (!it) return;
+  download(`${id}.pcf`, it.entry ? it.entry.source : pcfFor(it.def), 'text/plain;charset=utf-8');
+  status(`Definición ${id}.pcf exportada`);
+}
+function exportSTL(id, variant) {
+  const it = libDefs().find(x => x.def.id === id); if (!it) return;
+  const stl = it.entry && (it.entry.stl[variant] || it.entry.stl['*']);
+  const buf = stl ? b64ToBuf(stl.b64) : geometryToSTL(autoFittingGeometry(it.def.ports.map(p => p.dir), it.def.variants.find(v => v.name === variant)), `${it.def.name} ${variant}`);
+  download(`${id}_${variant}.stl`, buf, 'model/stl');
+  status(`Modelo ${id}_${variant}.stl exportado${stl ? '' : ' (generado automáticamente, listo para imprimir)'}`);
+}
+async function importLibFiles(files) {
+  const texts = [], stls = new Map(), msgs = [];
+  for (const f of files) {
+    if (/\.stl$/i.test(f.name)) stls.set(f.name.toLowerCase(), await f.arrayBuffer());
+    else texts.push({ name: f.name, text: await f.text() });
+  }
+  if (!texts.length) { status('✘ Selecciona también el archivo .pcf que describe el accesorio (puedes elegir varios archivos a la vez)'); return; }
+  let loaded = 0;
+  for (const { name, text } of texts) {
+    let def;
+    try { def = parsePCF(text); } catch (err) { alert(`No se pudo cargar ${name}:\n\n${err.message}`); continue; }
+    if (BUILTIN_KINDS.includes(def.id)) { alert(`No se pudo cargar ${name}: «${def.id}» es el identificador de un accesorio de serie; usa otro.`); continue; }
+    const stl = {};
+    for (const [variant, file] of Object.entries(def.models)) {
+      const buf = stls.get(file.toLowerCase());
+      if (!buf) { msgs.push(`falta ${file} (se usa el modelo automático)`); continue; }
+      try { parseSTL(buf); stl[variant] = { name: file, b64: bufToB64(buf) }; } catch (err) { msgs.push(`${file}: ${err.message}`); }
+    }
+    const replaced = LIB.custom.has(def.id);
+    LIB.custom.set(def.id, { def, source: text, stl });
+    loaded++; msgs.unshift(`${def.name} ${replaced ? 'actualizado' : 'cargado'} (${def.variants.length} variante${def.variants.length > 1 ? 's' : ''})`);
+  }
+  if (!loaded) return;
+  libChanged();
+  if (!saveLib()) msgs.push('no se ha podido guardar en el navegador (almacenamiento lleno o desactivado): habrá que volver a cargarlo en la próxima sesión');
+  status(msgs.join(' · '));
+}
+function removeCustom(id) {
+  const e = LIB.custom.get(id); if (!e) return;
+  const used = [...model.nodes.values()].filter(n => n.fit?.type === id).length;
+  if (!confirm(`¿Quitar «${e.def.name}» de la biblioteca?` + (used ? `\n\nEl proyecto lo usa en ${used} punto${used > 1 ? 's' : ''}: seguirá funcionando con sus medidas guardadas y un modelo automático.` : ''))) return;
+  LIB.custom.delete(id); libChanged(); status(`${e.def.name} quitado de la biblioteca`);
+}
+const TEMPLATE_PCF = `# Plantilla de accesorio personalizado para PipeCAD (lenguaje .pcf)
+# Todo lo que va detrás de # es un comentario. Medidas en milímetros.
+# Sistema local: el origen es el punto donde se cortan los ejes de todas las bocas.
+
+ACCESORIO cruz90
+NOMBRE "Cruz 90°"
+DESCRIPCION "Cuatro bocas a 90° en un mismo plano"
+
+# BOCA <nombre> <x> <y> <z>  → dirección (hacia fuera) del eje de la boca
+BOCA A  1  0 0
+BOCA B -1  0 0
+BOCA C  0  1 0
+BOCA D  0 -1 0
+
+# VARIANTE <nombre>
+#   DIAMETROS  Ø del tubo que entra en cada boca (20, 32 o 40), en el orden de las BOCA
+#   Z          distancia del origen al tope de la embocadura de cada boca
+#   EMBOCADURA profundidad que entra el tubo en cada boca
+#   EXTERIOR   Ø exterior del cuerpo del accesorio
+VARIANTE 20  DIAMETROS 20 20 20 20  Z 11 11 11 11  EMBOCADURA 16 16 16 16  EXTERIOR 27
+VARIANTE 32  DIAMETROS 32 32 32 32  Z 17 17 17 17  EMBOCADURA 22 22 22 22  EXTERIOR 41
+
+# MODELO <variante | *> <archivo.stl>   (opcional; si falta se genera uno imprimible)
+# MODELO 32 cruz90_32.stl
+`;
+function renderLibrary() {
+  const el = $('#tab-lib');
+  const rows = (list) => list.map(({ def, builtin, on }) => `<tr class="lib-row">
+      <td>${builtin ? `<input type="checkbox" class="lib-on" data-id="${def.id}" ${on ? 'checked' : ''} aria-label="Cargado">` : ''}</td>
+      <td><b>${esc(def.name)}</b><div class="hint">${builtin ? 'de serie' : esc(def.id)} · ${def.ports.length} boca${def.ports.length > 1 ? 's' : ''}${def.desc && !builtin ? ' · ' + esc(def.desc) : ''}</div></td>
+      <td style="text-align:right;white-space:nowrap">
+        <select class="lib-var" data-id="${def.id}" aria-label="Variante">${def.variants.map(v => `<option>${esc(v.name)}</option>`).join('')}</select>
+        <button class="lib-stl" data-id="${def.id}" title="Descargar el modelo STL de la variante (imprimible)">STL</button>
+        <button class="lib-pcf" data-id="${def.id}" title="Descargar la definición .pcf">.pcf</button>
+        ${builtin ? '' : `<button class="lib-del" data-id="${def.id}" title="Quitar de la biblioteca">Quitar</button>`}
+      </td></tr>`).join('');
+  const all = libDefs(), custom = all.filter(x => !x.builtin);
+  el.innerHTML = `<h3>Biblioteca de accesorios</h3>
+    <div class="btns"><button id="lib-load" class="primary">Cargar accesorio…</button><button id="lib-template">Descargar plantilla</button></div>
+    <p class="hint">Marca o desmarca los de serie para cargarlos o quitarlos; los personalizados se cargan desde su archivo <code>.pcf</code> (y sus <code>.stl</code>, si los tienen) y se quitan uno a uno. Los cambios se guardan en este navegador.</p>
+    <h4>De serie</h4><table>${rows(all.filter(x => x.builtin))}</table>
+    <h4>Personalizados (${custom.length})</h4>
+    ${custom.length ? `<table>${rows(custom)}</table>` : '<p class="hint">Todavía no hay ninguno. Descarga la plantilla, edítala y cárgala.</p>'}
+    <details class="lib-guide"><summary>Cómo crear un accesorio personalizado</summary>${LIB_GUIDE}</details>`;
+  $('#lib-load').onclick = () => $('#lib-file').click();
+  $('#lib-template').onclick = () => { download('plantilla_accesorio.pcf', TEMPLATE_PCF, 'text/plain;charset=utf-8'); status('Plantilla descargada: edítala con cualquier editor de texto y cárgala con «Cargar accesorio…»'); };
+  $$('.lib-on', el).forEach(c => c.onchange = () => {
+    if (c.checked) LIB.disabled.delete(c.dataset.id); else LIB.disabled.add(c.dataset.id);
+    libChanged(); status(`${KIND_NAMES[c.dataset.id]} ${c.checked ? 'cargado' : 'quitado: los nudos que lo necesiten se marcarán como no válidos'}`);
+  });
+  const variantOf = id => $(`.lib-var[data-id="${id}"]`, el).value;
+  $$('.lib-stl', el).forEach(b => b.onclick = () => exportSTL(b.dataset.id, variantOf(b.dataset.id)));
+  $$('.lib-pcf', el).forEach(b => b.onclick = () => exportPCF(b.dataset.id));
+  $$('.lib-del', el).forEach(b => b.onclick = () => removeCustom(b.dataset.id));
+}
+const LIB_GUIDE = `
+<p>Un accesorio se describe en un archivo de texto <code>.pcf</code> con una instrucción por línea. Lo que va detrás de <code>#</code> es un comentario. Las palabras clave pueden ir en mayúsculas o minúsculas; los decimales, con punto o coma.</p>
+<h4>Instrucciones</h4>
+<table>
+<tr><td><code>ACCESORIO id</code></td><td>Identificador único (letras sin tildes, números, <code>-</code>, <code>_</code>).</td></tr>
+<tr><td><code>NOMBRE "texto"</code></td><td>Nombre que se verá en el programa.</td></tr>
+<tr><td><code>DESCRIPCION "texto"</code></td><td>Opcional.</td></tr>
+<tr><td><code>BOCA n x y z</code></td><td>Una por boca: nombre y dirección del eje hacia fuera (no hace falta que sea unitaria).</td></tr>
+<tr><td><code>VARIANTE v DIAMETROS … Z … EMBOCADURA … EXTERIOR e</code></td><td>Una por tamaño. Cada lista lleva un valor por boca, en el orden de las <code>BOCA</code>.</td></tr>
+<tr><td><code>MODELO v archivo.stl</code></td><td>Opcional: modelo 3D de la variante <code>v</code> (o <code>*</code> para todas).</td></tr>
+</table>
+<h4>Medidas (mm)</h4>
+<ul>
+<li><b>Origen</b>: el punto donde se cortan los ejes de las bocas. Las medidas del programa son <i>a ejes</i> hasta ese punto.</li>
+<li><b>DIAMETROS</b>: Ø del tubo de cada boca (20, 32 o 40).</li>
+<li><b>Z</b>: distancia del origen al <i>tope</i> de la embocadura. Se descuenta de la medida a ejes para obtener la longitud de corte.</li>
+<li><b>EMBOCADURA</b>: lo que entra el tubo en la boca. <b>EXTERIOR</b>: Ø exterior del cuerpo.</li>
+</ul>
+<h4>Modelo STL</h4>
+<ul>
+<li>En milímetros, con el <b>mismo origen y los mismos ejes</b> que las <code>BOCA</code>, para que encaje al colocarlo y girarlo.</li>
+<li>Sirve el STL binario o ASCII. Selecciona el <code>.pcf</code> y sus <code>.stl</code> a la vez al pulsar «Cargar accesorio…».</li>
+<li>Si no hay modelo, PipeCAD genera uno: cuerpo macizo, embocaduras huecas y esfera central; cada pieza es un sólido cerrado que los laminadores unen al imprimir. El botón <b>STL</b> lo descarga.</li>
+<li>Para imprimirlo, deja una holgura de 0,2–0,3 mm en el Ø interior de las embocaduras y paredes de al menos 2 mm.</li>
+</ul>
+<h4>Uso</h4>
+<ul>
+<li>Cada variante aparece en el selector <b>Accesorio</b> de la barra superior: se coloca suelto, en el extremo de un tubo o dentro de un tubo, y se gira con sus anillos.</li>
+<li>Al dibujar, si en un punto se juntan tubos con los mismos ángulos y Ø que un accesorio de la biblioteca, se reconoce solo (por ejemplo, cuatro tubos a 90° con la «Cruz 90°»).</li>
+<li>El proyecto guarda las medidas de cada accesorio colocado, así que se abre bien aunque luego lo quites de la biblioteca.</li>
+<li>El botón <b>.pcf</b> de los accesorios de serie descarga su definición: es un buen punto de partida.</li>
+</ul>
+<h4>Ejemplo: codo de 30°</h4>
+<pre>ACCESORIO codo30
+NOMBRE "Codo 30°"
+BOCA A  1 0 0
+BOCA B -0.866 0.5 0     # 150° entre bocas = giro de 30°
+VARIANTE 32  DIAMETROS 32 32  Z 6 6  EMBOCADURA 22 22  EXTERIOR 41</pre>`;
+$('#lib-file').onchange = async e => { const files = [...e.target.files]; e.target.value = ''; if (files.length) await importLibFiles(files); };
+
+// ---------- ajustes de la interfaz (este navegador)
+const PREFS = { showExample: true, gizmoPct: 100 };
+try { Object.assign(PREFS, JSON.parse(store.get('pipecad-prefs') || '{}')); } catch { /* valores por defecto */ }
+function applyPrefs() {
+  PREFS.gizmoPct = THREE.MathUtils.clamp(Math.round(PREFS.gizmoPct / 10) * 10, 100, 200);
+  $('#b-example').hidden = !PREFS.showExample;
+  const px = Math.round(120 * PREFS.gizmoPct / 100);
+  for (const [box, cv, r] of [['#viewcube', '#vc-canvas', vc.renderer], ['#wpgizmo', '#wp-canvas', wpg.renderer]]) {
+    $(box).style.width = px + 'px'; $(cv).style.width = $(cv).style.height = px + 'px';
+    r?.setSize(px, px, false);
+  }
+  $('#pf-example').checked = PREFS.showExample; $('#pf-gizmo').value = PREFS.gizmoPct; $('#pf-gizmo-out').textContent = `${px} px (${PREFS.gizmoPct} %)`;
+  store.set('pipecad-prefs', JSON.stringify(PREFS)); requestRender();
+}
+$('#b-prefs').onclick = () => $('#prefs').showModal();
+$('#pf-example').onchange = e => { PREFS.showExample = e.target.checked; applyPrefs(); };
+$('#pf-gizmo').oninput = e => { PREFS.gizmoPct = +e.target.value; applyPrefs(); };
+
 // ---------- menú lateral: iconos, contraer/expandir y tooltips
 const ICONS = {
   collapse: '<path d="m11 17-5-5 5-5M18 17l-5-5 5-5"/>',
@@ -3304,6 +3859,7 @@ const ICONS = {
   label: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   theme: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/><circle cx="12" cy="12" r="7"/>',
 };
 $$('#sidebar [data-icon]').forEach(b => {
   b.insertAdjacentHTML('afterbegin', `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[b.dataset.icon] || ''}</svg>`);
@@ -3355,7 +3911,7 @@ addEventListener('pointerdown', e => { const m = $('#osnap-menu'); if (!m.hidden
 addEventListener('keydown', e => { if (e.key === 'F3') { e.preventDefault(); setOsnap(!state.osnap.on); } });
 $('#s-ang').onchange = e => { state.angStep = +e.target.value; e.target.blur(); status(`Paso angular de giro: ${state.angStep}°`); renderProps(); };
 $('#s-dims').onchange = e => { state.dims = e.target.value; store.set('pipecad-dims', state.dims); rebuild(); };
-$$('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+$$('.tabs button').forEach(b => b.onclick = () => { showTab(b.dataset.tab); if (b.dataset.tab === 'lib') renderLibrary(); });
 $('#b-tests').onclick = runTests;
 $('#b-help').onclick = () => $('#help').showModal();
 addEventListener('keydown', e => { if (e.key === 'F1') { e.preventDefault(); $('#help').open ? $('#help').close() : $('#help').showModal(); } });
@@ -3393,6 +3949,7 @@ model.on((m, live) => {
   if (draw.start?.type === 'node' && !model.nodes.has(draw.start.id)) finishDraw(true);
   if (draw.start?.type === 'seg' && !model.segments.has(draw.start.id)) finishDraw(true);
   renderSummary(); renderConfig();
+  if ($('#tab-lib').classList.contains('on')) renderLibrary(); // las cotas de serie dependen de la configuración
   $('#b-undo').disabled = !model.undoStack.length; $('#b-redo').disabled = !model.redoStack.length;
   store.set('pipecad-autosave', JSON.stringify(model.toJSON()));
 });
@@ -3407,6 +3964,7 @@ makeControls();
 initViewCube();
 initPlaneGizmo();
 if (PLANES[store.get('pipecad-wp')]) setWorkPlane(store.get('pipecad-wp'), true);
+loadLib(); renderFitSelect(); renderLibrary(); applyPrefs();
 new ResizeObserver(resize).observe(viewport);
 makeMaterials();
 let restored = false;
