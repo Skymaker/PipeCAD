@@ -349,7 +349,8 @@ Limitaciones previstas:
 | 17 (R0) Núcleo común | ✅ `js/nucleo.js` (93 funciones y datos compartidos); PipeCAD, 79/79 pruebas |
 | 18 (R1) Página ra.html | ✅ Vista 3D adaptable a móvil, proyecto por enlace `#p=` (el ejemplo ocupa 1 KB), `.json`, último proyecto o ejemplo; medidas, peso y formas para la física; detección de RA |
 | 19 (R2) Sesión de RA y suelo | ✅ Programada y probada con una cámara y fotogramas simulados (mirada contra el suelo, plano «floor», prueba de impacto, giro hacia el usuario). **Falta probarla en Quest 3 y Android.** |
-| 20–26 (R3–R9) Física, manos, táctil, iOS, menús, QR y entorno | ⏳ Pendiente |
+| 20 (R3) Física | ✅ Rapier 0.12 (WebAssembly desde CDN): cuerpo compuesto de 117 formas en el ejemplo, masa 3,67 kg repartida, suelo fijo, paso de 1/90 s. Probado: caída libre correcta (0,44 m y 2,92 m/s a los 0,3 s), desde 1 m se asienta derecha y en reposo, inclinada 80° vuelca y queda tumbada. Botones Soltar (50 cm) y Reiniciar en la vista 3D; en RA, quieta mientras se coloca y con gravedad al dejarla. |
+| 21–26 (R4–R9) Manos, táctil, iOS, menús, QR y entorno | ⏳ Pendiente |
 
 ### Pendiente y limitaciones conocidas
 - El guardado en una carpeta elegida (Chrome / Edge, sin servidor) no se ha probado en un navegador real.
