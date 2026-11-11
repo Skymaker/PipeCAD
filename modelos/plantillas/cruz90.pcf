@@ -1,0 +1,14 @@
+# PipeCAD · plantilla del editor de accesorios (lenguaje .pcf)
+# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.
+ACCESORIO cruz90
+NOMBRE "Cruz 90°"
+DESCRIPCION "Cuatro bocas a 90° en un mismo plano"
+
+BOCA A  1 0 0
+BOCA B  -1 0 0
+BOCA C  0 1 0
+BOCA D  0 -1 0
+
+VARIANTE 20  DIAMETROS 20 20 20 20  Z 11 11 11 11  EMBOCADURA 16 16 16 16  EXTERIOR 27
+VARIANTE 32  DIAMETROS 32 32 32 32  Z 17 17 17 17  EMBOCADURA 22 22 22 22  EXTERIOR 41
+VARIANTE 40  DIAMETROS 40 40 40 40  Z 21 21 21 21  EMBOCADURA 26 26 26 26  EXTERIOR 50

@@ -1,13 +1,16 @@
-# Codo de 30° para PipeCAD (lenguaje .pcf). Medidas en mm.
-# Las bocas forman 150° entre sí: el tubo gira 30°.
-
+# PipeCAD · definición de accesorio (lenguaje .pcf), creada con el editor de accesorios
+# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.
 ACCESORIO codo30
 NOMBRE "Codo 30°"
 DESCRIPCION "Giro de 30° (cotas orientativas)"
 
-BOCA A   1        0    0
-BOCA B  -0.866025 0.5  0
+BOCA A  1 0 0
+BOCA B  -0.866025 0.5 0
 
 VARIANTE 20  DIAMETROS 20 20  Z 4 4  EMBOCADURA 16 16  EXTERIOR 27
 VARIANTE 32  DIAMETROS 32 32  Z 6 6  EMBOCADURA 22 22  EXTERIOR 41
 VARIANTE 40  DIAMETROS 40 40  Z 7 7  EMBOCADURA 26 26  EXTERIOR 50
+
+MODELO 20 codo30_20.stl
+MODELO 32 codo30_32.stl
+MODELO 40 codo30_40.stl

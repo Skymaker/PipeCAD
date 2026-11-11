@@ -1,0 +1,17 @@
+# PipeCAD · definición de accesorio (lenguaje .pcf), creada con el editor de accesorios
+# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.
+ACCESORIO teeReduced
+NOMBRE "Te reducida"
+DESCRIPCION "Accesorio de serie (cotas por defecto de PipeCAD)"
+
+BOCA A  1 0 0
+BOCA B  -1 0 0
+BOCA C  0 1 0
+
+VARIANTE 32-20  DIAMETROS 32 32 20  Z 17 17 19  EMBOCADURA 22 22 16  EXTERIOR 41
+VARIANTE 40-20  DIAMETROS 40 40 20  Z 21 21 23  EMBOCADURA 26 26 16  EXTERIOR 50
+VARIANTE 40-32  DIAMETROS 40 40 32  Z 21 21 22  EMBOCADURA 26 26 22  EXTERIOR 50
+
+MODELO 32-20 te_reducida_32-20.stl
+MODELO 40-20 te_reducida_40-20.stl
+MODELO 40-32 te_reducida_40-32.stl

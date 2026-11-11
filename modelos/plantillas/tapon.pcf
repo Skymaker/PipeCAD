@@ -1,0 +1,11 @@
+# PipeCAD · plantilla del editor de accesorios (lenguaje .pcf)
+# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.
+ACCESORIO tapon
+NOMBRE "Tapón"
+DESCRIPCION "Cierra el extremo de un tubo"
+
+BOCA A  1 0 0
+
+VARIANTE 20  DIAMETROS 20  Z 3  EMBOCADURA 16  EXTERIOR 27
+VARIANTE 32  DIAMETROS 32  Z 3  EMBOCADURA 22  EXTERIOR 41
+VARIANTE 40  DIAMETROS 40  Z 3  EMBOCADURA 26  EXTERIOR 50

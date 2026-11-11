@@ -1,0 +1,140 @@
+{
+  "formato": "pipecad-modelos",
+  "version": 1,
+  "descripcion": "Catálogo de modelos 3D de PipeCAD: accesorios de serie, personalizados y plantillas del editor. Rutas relativas a esta carpeta.",
+  "accesorios": [
+    {
+      "id": "elbow90",
+      "tipo": "serie",
+      "nombre": "Codo 90°",
+      "pcf": "serie/codo90.pcf",
+      "stl": {
+        "20": "serie/codo90_20.stl",
+        "32": "serie/codo90_32.stl",
+        "40": "serie/codo90_40.stl"
+      },
+      "scad": "serie/codo90.scad"
+    },
+    {
+      "id": "elbow45",
+      "tipo": "serie",
+      "nombre": "Codo 45°",
+      "pcf": "serie/codo45.pcf",
+      "stl": {
+        "20": "serie/codo45_20.stl",
+        "32": "serie/codo45_32.stl",
+        "40": "serie/codo45_40.stl"
+      },
+      "scad": "serie/codo45.scad"
+    },
+    {
+      "id": "tee",
+      "tipo": "serie",
+      "nombre": "Te 90°",
+      "pcf": "serie/te.pcf",
+      "stl": {
+        "20": "serie/te_20.stl",
+        "32": "serie/te_32.stl",
+        "40": "serie/te_40.stl"
+      },
+      "scad": "serie/te.scad"
+    },
+    {
+      "id": "coupling",
+      "tipo": "serie",
+      "nombre": "Manguito",
+      "pcf": "serie/manguito.pcf",
+      "stl": {
+        "20": "serie/manguito_20.stl",
+        "32": "serie/manguito_32.stl",
+        "40": "serie/manguito_40.stl"
+      },
+      "scad": "serie/manguito.scad"
+    },
+    {
+      "id": "reducer",
+      "tipo": "serie",
+      "nombre": "Manguito reductor",
+      "pcf": "serie/reductor.pcf",
+      "stl": {
+        "32-20": "serie/reductor_32-20.stl",
+        "40-20": "serie/reductor_40-20.stl",
+        "40-32": "serie/reductor_40-32.stl"
+      },
+      "scad": "serie/reductor.scad"
+    },
+    {
+      "id": "teeReduced",
+      "tipo": "serie",
+      "nombre": "Te reducida",
+      "pcf": "serie/te_reducida.pcf",
+      "stl": {
+        "32-20": "serie/te_reducida_32-20.stl",
+        "40-20": "serie/te_reducida_40-20.stl",
+        "40-32": "serie/te_reducida_40-32.stl"
+      },
+      "scad": "serie/te_reducida.scad"
+    },
+    {
+      "id": "cruz90",
+      "tipo": "personalizado",
+      "nombre": "Cruz 90°",
+      "pcf": "personalizados/cruz90.pcf",
+      "stl": {
+        "20": "personalizados/cruz90_20.stl",
+        "32": "personalizados/cruz90_32.stl",
+        "40": "personalizados/cruz90_40.stl"
+      },
+      "scad": "personalizados/cruz90.scad"
+    },
+    {
+      "id": "codo30",
+      "tipo": "personalizado",
+      "nombre": "Codo 30°",
+      "pcf": "personalizados/codo30.pcf",
+      "stl": {
+        "20": "personalizados/codo30_20.stl",
+        "32": "personalizados/codo30_32.stl",
+        "40": "personalizados/codo30_40.stl"
+      },
+      "scad": "personalizados/codo30.scad"
+    }
+  ],
+  "plantillas": [
+    {
+      "id": "cruz90",
+      "nombre": "Cruz 90°",
+      "pcf": "plantillas/cruz90.pcf"
+    },
+    {
+      "id": "codo30",
+      "nombre": "Codo 30°",
+      "pcf": "plantillas/codo30.pcf"
+    },
+    {
+      "id": "codo60",
+      "nombre": "Codo 60°",
+      "pcf": "plantillas/codo60.pcf"
+    },
+    {
+      "id": "te45",
+      "nombre": "Te a 45° (Y)",
+      "pcf": "plantillas/te45.pcf"
+    },
+    {
+      "id": "te3d",
+      "nombre": "Te en esquina",
+      "pcf": "plantillas/te3d.pcf"
+    },
+    {
+      "id": "tapon",
+      "nombre": "Tapón",
+      "pcf": "plantillas/tapon.pcf"
+    },
+    {
+      "id": "manguito_largo",
+      "nombre": "Manguito largo",
+      "pcf": "plantillas/manguito_largo.pcf"
+    }
+  ]
+}

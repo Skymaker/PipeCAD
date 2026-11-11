@@ -180,9 +180,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.6/build/index.module.js",
-  "three-bvh-csg": "https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.16/build/index.module.js"
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
 } }
 </script>
 </head>
@@ -191,7 +189,8 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
   <header>
     <div class="brand">Pipe<span>CAD</span></div>
     <input id="file" type="file" accept=".json,application/json" hidden>
-    <input id="lib-file" type="file" accept=".pcf,.txt,.stl" multiple hidden>
+    <input id="lib-file" type="file" accept=".pcf,.txt,.stl,.scad" multiple hidden>
+    <input id="models-dir" type="file" webkitdirectory multiple hidden>
     <div class="group">
       <label class="lbl" for="s-fit">Accesorio</label>
       <select id="s-fit" title="Accesorio a colocar">
@@ -323,11 +322,6 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
     <input type="range" id="pf-gizmo" min="100" max="200" step="10" value="100">
     <span class="hint">De 120 px (tamaño original) a 240 px (el doble).</span>
   </label>
-  <label class="pref pref-col">
-    <span>Holgura de impresión en las embocaduras: <b id="pf-clear-out">0,25 mm</b></span>
-    <input type="range" id="pf-clear" min="0" max="0.6" step="0.05" value="0.25">
-    <span class="hint">Se suma al radio del taladro de cada embocadura en los STL generados (0,2–0,3 mm suele ir bien en FDM).</span>
-  </label>
   <p class="hint">Estos ajustes se guardan en este navegador y no forman parte del proyecto.</p>
 </dialog>
 <dialog id="help">
@@ -376,8 +370,8 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <h4>Menú lateral</h4>
       <p>Los comandos están a la izquierda. El primer botón lo contrae (solo iconos, con el nombre al pasar el ratón) o lo expande (icono con el texto debajo). <b>Ajustes</b> permite ocultar el botón «Ejemplo» y agrandar el cubo de vistas y el gizmo de planos (hasta el doble).</p>
       <h4>Biblioteca de accesorios</h4>
-      <p>En la pestaña <b>Biblioteca</b> se cargan y quitan los accesorios uno a uno: los de serie con su casilla y los personalizados desde un archivo <code>.pcf</code> (un texto sencillo que describe sus bocas y medidas) y, opcionalmente, su modelo <code>.stl</code>. Cada accesorio se puede descargar en STL para imprimirlo en 3D. Allí mismo está la guía para crear accesorios propios y una plantilla.</p>
-      <p>El <b>Editor de accesorios</b> (botón de la pestaña Biblioteca o <code>editor.html</code>) permite crearlos con un formulario: genera el código <b>OpenSCAD</b>, que se puede descargar, y con él los STL imprimibles.</p>
+      <p>En la pestaña <b>Biblioteca</b> se cargan y quitan los accesorios uno a uno: los de serie con su casilla y los personalizados desde un archivo <code>.pcf</code> (un texto sencillo que describe sus bocas y medidas) y, opcionalmente, su modelo <code>.stl</code>. Cada accesorio se puede descargar en STL para imprimirlo en 3D; los modelos están en la carpeta <code>modelos/</code>, fuera del programa. Allí mismo está la guía para crear accesorios propios y una plantilla.</p>
+      <p>El <b>Editor de accesorios</b> (botón de la pestaña Biblioteca o <code>editor.html</code>) permite crearlos con un formulario: genera el código <b>OpenSCAD</b>, que se puede descargar, y con él los STL imprimibles. Para guardarlos en la carpeta <code>modelos</code> hay que abrir PipeCAD con el servidor local (<code>iniciar-servidor</code>, ver el README).</p>
       <h4>Planos de trabajo</h4>
       <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
@@ -428,19 +422,26 @@ const BUILTIN_KINDS = ['elbow90', 'elbow45', 'tee', 'teeReduced', 'coupling', 'r
 const FITTING_KINDS = [...BUILTIN_KINDS, 'custom'];
 // Biblioteca de accesorios: los de serie se pueden quitar y volver a cargar; los personalizados se
 // cargan desde archivos .pcf (+ .stl opcional) y se quitan individualmente.
-const LIB = { disabled: new Set(), custom: new Map() }; // custom: id → { def, source, stl: {variante: {name, b64}} }
+// LIB.all: todos los personalizados conocidos · id → { def, source, origin: 'carpeta' | 'navegador', files?: entrada del catálogo, stl?: {variante: {name, b64}} }
+// LIB.custom: los activos (los que reconoce el cálculo) · LIB.disabled: ids de serie o de la carpeta desactivados
+const LIB = { disabled: new Set(), custom: new Map(), all: new Map() };
 const builtinEnabled = k => !LIB.disabled.has(k);
+const syncActive = () => { LIB.custom = new Map([...LIB.all].filter(([id]) => !LIB.disabled.has(id))); };
 LIB.version = 0; LIB.geo = new Map(); // geometrías ya preparadas (por accesorio y variante)
-// Geometría de un accesorio personalizado en su sistema local: STL cargado o modelo automático
+// Geometría de un accesorio personalizado en su sistema local: su STL de la carpeta modelos (o del navegador)
+// o, mientras se descarga o si no tiene, una forma simple de cilindros
 function customGeometry(n) {
-  const e = LIB.custom.get(n.defId), clr = PREFS.clearance;
-  const key = `${n.defId}|${n.variant}|${LIB.version}|${clr}|${e ? 'lib' : vkeyPorts(n)}`;
+  const e = LIB.custom.get(n.defId);
+  const path = e?.origin === 'carpeta' ? (e.files?.stl?.[n.variant] || e.files?.stl?.['*'] || null) : null;
+  const key = `${n.defId}|${n.variant}|${LIB.version}|${e ? 'lib' : vkeyPorts(n)}|${path && MODELS.geo.has(path) ? 'stl' : ''}`;
   if (LIB.geo.has(key)) return LIB.geo.get(key);
   let g = null;
-  const stl = e && (e.stl[n.variant] || e.stl['*']);
-  if (stl) { try { g = parseSTL(b64ToBuf(stl.b64)); } catch { g = null; } }
+  if (path) { if (MODELS.geo.has(path)) g = MODELS.geo.get(path); else loadModelSTL(path); }
+  else {
+    const stl = e?.stl && (e.stl[n.variant] || e.stl['*']);
+    if (stl) { try { g = parseSTL(b64ToBuf(stl.b64)); } catch { g = null; } }
+  }
   if (!g) {
-    // modelo automático: primero el rápido; en cuanto está calculado el sólido imprimible, se sustituye
     let dirs, v = e?.def.variants.find(x => x.name === n.variant);
     if (e && v) dirs = e.def.ports.map(p => p.dir);
     else { // accesorio que ya no está en la biblioteca: medidas guardadas en el proyecto
@@ -449,7 +450,6 @@ function customGeometry(n) {
       v = { ds: ps.map(p => p.d), zs: ps.map(p => p.z), sockets: ps.map(p => p.socket), od: n.od || Math.max(...ps.map(p => p.d)) * 1.3 };
     }
     g = autoFittingGeometry(dirs, v);
-    printableFittingGeometry(dirs, v, clr).then(r => { if (r.solid) { LIB.geo.set(key, r.geo); clearCache(); rebuild(); } }).catch(() => {});
   }
   LIB.geo.set(key, g); return g;
 }
@@ -1206,9 +1206,9 @@ function builtinDef(kind, cfg) {
   return { id: kind, name: KIND_NAMES[kind], desc: 'Accesorio de serie', models: {}, ...defs[kind] };
 }
 
-// ---- STL: modelo automático imprimible, exportación binaria y lectura (binario o ASCII)
-// Modelo automático: cuerpo macizo de cada boca + embocadura hueca (anillo cerrado) + esfera central.
-// Cada pieza es un sólido cerrado; los laminadores (Cura, PrusaSlicer…) los unen al imprimir.
+// ---- Forma simple de un accesorio (cuerpo de cada boca + embocadura + esfera central) para dibujarlo
+// mientras llega su STL de la carpeta modelos o si no lo tiene. Los STL imprimibles los genera OpenSCAD
+// en el editor de accesorios y se guardan en modelos/.
 function autoFittingGeometry(dirs, v) {
   const R = v.od / 2, Y = new THREE.Vector3(0, 1, 0), geos = [];
   dirs.forEach((dir, i) => {
@@ -1221,96 +1221,11 @@ function autoFittingGeometry(dirs, v) {
   if (dirs.some(a => dirs.some(b => Math.abs(a.dot(b)) < 1 - 1e-6))) geos.push(new THREE.SphereGeometry(R * 0.94, 32, 16));
   return mergePositions(geos);
 }
-// ---- Modelo imprimible y funcional (operaciones booleanas con three-bvh-csg):
-//  · cuerpo: cilindro por boca (origen → fondo de la embocadura) + esfera central si hay bocas no alineadas
-//  · embocaduras: cilindro exterior + taladro de Ø tubo + 2·holgura, abierto por fuera
-//  · paso interior: conducto de Ø PASO de cada embocadura al centro, unidos por una esfera hueca
-//  El resultado es un único sólido cerrado, listo para el laminador.
-const PASS_DEFAULT = { 20: 16, 32: 27, 40: 34 }; // ≈ Ø interior del tubo de PVC presión
-const MIN_WALL = 1.2;                           // pared mínima recomendable para imprimir (mm)
-let csgModule = null;
-const loadCSG = () => csgModule ||= import('three-bvh-csg').catch(err => { console.warn('CSG no disponible', err); return null; });
-function fittingWalls(dirs, v, clearance) {
-  const R = v.od / 2, warn = [];
-  dirs.forEach((_, i) => {
-    const wSocket = R - (v.ds[i] / 2 + clearance), wBody = R * 0.94 - (v.pass?.[i] ?? PASS_DEFAULT[v.ds[i]]) / 2;
-    if (wSocket < MIN_WALL) warn.push(`boca ${i + 1}: pared de la embocadura de ${fmt(wSocket, 2)} mm`);
-    if (wBody < MIN_WALL) warn.push(`boca ${i + 1}: pared del paso de ${fmt(wBody, 2)} mm`);
-  });
-  const u = dirs.map(d => d.clone().normalize());
-  if (u.some(a => u.some(b => Math.abs(a.dot(b)) < 1 - 1e-6))) { // cámara central
-    const wCore = R * 0.97 - 1.15 * Math.max(...dirs.map((_, i) => (v.pass?.[i] ?? PASS_DEFAULT[v.ds[i]]) / 2));
-    if (wCore < MIN_WALL) warn.push(`núcleo: pared de la cámara central de ${fmt(wCore, 2)} mm`);
-  }
-  return warn;
-}
-async function printableFittingGeometry(dirs, v, clearance = 0.25) {
-  const C = await loadCSG();
-  if (!C) return { geo: autoFittingGeometry(dirs, v), solid: false };
-  const R = v.od / 2, Y = new THREE.Vector3(0, 1, 0), ev = new C.Evaluator();
-  ev.attributes = ['position', 'normal']; ev.useGroups = false;
-  const brush = g => { g.deleteAttribute('uv'); const b = new C.Brush(g); b.updateMatrixWorld(); return b; };
-  const cyl = (r, a, b, q, seg = 48) => { const g = new THREE.CylinderGeometry(r, r, b - a, seg, 1, false); g.translate(0, (a + b) / 2, 0); g.applyQuaternion(q); return brush(g); };
-  const units = dirs.map(d => d.clone().normalize()), n = units.length;
-  const branched = units.some(a => units.some(b => Math.abs(a.dot(b)) < 1 - 1e-6));
-  const rp = i => (v.pass?.[i] ?? PASS_DEFAULT[v.ds[i]]) / 2, maxPass = Math.max(...units.map((_, i) => rp(i)));
-  // Las bocas opuestas (alineadas) forman un único cilindro pasante: así no quedan caras coincidentes
-  const partner = units.map((a, i) => units.findIndex((b, j) => j !== i && a.dot(b) < -1 + 1e-6));
-  let solid = null; const add = b => { solid = solid ? ev.evaluate(solid, b, C.ADDITION) : b; };
-  const holes = [];
-  units.forEach((dir, i) => {
-    const q = new THREE.Quaternion().setFromUnitVectors(Y, dir), z = v.zs[i], s = v.sockets[i], j = partner[i];
-    // cuerpo (radio 0,94·R): si tiene pareja, uno solo de embocadura a embocadura; si no, desde el centro
-    if (j < 0) add(cyl(R * 0.94, 0, z + 0.6, q));
-    else if (i < j) add(cyl(R * 0.94, -(v.zs[j] + 0.6), z + 0.6, q));
-    add(cyl(R, z, z + s, q));                                        // embocadura
-    holes.push(cyl(v.ds[i] / 2 + clearance, z, z + s + 1, q));       // taladro de la embocadura (abierto por fuera)
-    if (n < 2) return;                                               // tapón: sin paso
-    // paso interior hasta el fondo de la embocadura
-    if (j < 0) holes.push(cyl(rp(i), 0, z + 0.5, q, 40));
-    else if (rp(i) === rp(j)) { if (i < j) holes.push(cyl(rp(i), -(v.zs[j] + 0.5), z + 0.5, q, 40)); }
-    else holes.push(cyl(rp(i), -1, z + 0.5, q, 40));                 // reductor: dos conductos de Ø distinto que se solapan
-  });
-  if (branched) { // núcleo: esfera algo mayor que los cuerpos y cámara central algo mayor que el paso más ancho
-    add(brush(new THREE.SphereGeometry(R * 0.97, 48, 24)));
-    if (n > 1) holes.push(brush(new THREE.SphereGeometry(maxPass * 1.15, 40, 20)));
-  }
-  for (const h of holes) solid = ev.evaluate(solid, h, C.SUBTRACTION);
-  const geo = solid.geometry; geo.clearGroups(); geo.computeVertexNormals();
-  return { geo, solid: true };
-}
-// Comprueba que una malla es cerrada: cada arista la comparten exactamente dos triángulos
-function isWatertight(geo, tol = 1e-3) {
-  const pos = (geo.index ? geo.toNonIndexed() : geo).getAttribute('position'), key = i => [pos.getX(i), pos.getY(i), pos.getZ(i)].map(x => Math.round(x / tol)).join(',');
-  const edges = new Map();
-  for (let t = 0; t < pos.count; t += 3) for (const [a, b] of [[t, t + 1], [t + 1, t + 2], [t + 2, t]]) {
-    const ka = key(a), kb = key(b); if (ka === kb) continue;
-    const k = ka < kb ? ka + '|' + kb : kb + '|' + ka; edges.set(k, (edges.get(k) || 0) + 1);
-  }
-  let open = 0; for (const n of edges.values()) if (n !== 2) open++;
-  return { edges: edges.size, open };
-}
 function mergePositions(geos) {
   const arrs = geos.map(g => (g.index ? g.toNonIndexed() : g).getAttribute('position').array);
   const out = new Float32Array(arrs.reduce((n, a) => n + a.length, 0)); let o = 0;
   for (const a of arrs) { out.set(a, o); o += a.length; }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(out, 3)); g.computeVertexNormals(); return g;
-}
-function geometryToSTL(geo, name = 'PipeCAD') {
-  const pos = (geo.index ? geo.toNonIndexed() : geo).getAttribute('position'), n = pos.count / 3;
-  const buf = new ArrayBuffer(84 + 50 * n), dv = new DataView(buf);
-  const head = new TextEncoder().encode(('PipeCAD · ' + name).slice(0, 79));
-  new Uint8Array(buf, 0, 80).set(head.slice(0, 80));
-  dv.setUint32(80, n, true);
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), nr = new THREE.Vector3();
-  for (let i = 0; i < n; i++) {
-    a.fromBufferAttribute(pos, 3 * i); b.fromBufferAttribute(pos, 3 * i + 1); c.fromBufferAttribute(pos, 3 * i + 2);
-    nr.subVectors(c, b).cross(a.clone().sub(b)).normalize();
-    let off = 84 + 50 * i;
-    for (const v of [nr, a, b, c]) { dv.setFloat32(off, v.x, true); dv.setFloat32(off + 4, v.y, true); dv.setFloat32(off + 8, v.z, true); off += 12; }
-    dv.setUint16(off, 0, true);
-  }
-  return buf;
 }
 function parseSTL(buffer) {
   const u8 = new Uint8Array(buffer), dv = new DataView(buffer);
@@ -1472,32 +1387,66 @@ function splitLongSegment(m, segId, minPiece = 300) {
 }
 
 /* =====================================================================
-   PROYECTO DE EJEMPLO
-   ===================================================================== */
-// Estructura de Ø32: base cuadrada de 600 × 600, dos pórticos a 300 mm de altura, tramos inclinados
-// a 45° hasta un travesaño a 150 mm y refuerzos. 31 tubos, 7 codos y 16 Tes, todo en un grupo.
-const EXAMPLE = {
-  nodes: [['n48', -300, -300, 0], ['n49', -300, 300, 0], ['n51', 300, 300, 0], ['n53', 300, -300, 0], ['n56', 300, 0, 0],
-    ['n58', 300, 0, 300], ['n60', -300, 0, 300], ['n62', -300, 0, 0], ['n65', 0, -300, 0], ['n67', 0, -300, 300],
-    ['n69', 0, 0, 300], ['n72', 150, 0, 300], ['n74', 150, 300, 0], ['n77', -150, 0, 300], ['n79', -150, 300, 0],
-    ['n82', 300, -190, 0], ['n84', 0, -190, 300], ['n87', 0, -95, 300], ['n89', -300, -95, 0], ['n92', 150, 150, 150],
-    ['n94', -150, 150, 150], ['n97', 10, 150, 150], ['n99', 10, 300, 0]],
-  segments: [['s50', 'n48', 'n89'], ['s52', 'n49', 'n79'], ['s54', 'n51', 'n56'], ['s55', 'n53', 'n65'], ['s57', 'n56', 'n82'],
-    ['s59', 'n56', 'n58'], ['s61', 'n58', 'n72'], ['s63', 'n62', 'n49'], ['s64', 'n60', 'n62'], ['s66', 'n65', 'n48'],
-    ['s68', 'n65', 'n67'], ['s70', 'n69', 'n77'], ['s71', 'n67', 'n84'], ['s73', 'n72', 'n69'], ['s75', 'n74', 'n51'],
-    ['s76', 'n72', 'n92'], ['s78', 'n77', 'n60'], ['s80', 'n79', 'n99'], ['s81', 'n77', 'n94'], ['s83', 'n82', 'n53'],
-    ['s85', 'n84', 'n87'], ['s86', 'n82', 'n84'], ['s88', 'n87', 'n69'], ['s90', 'n89', 'n62'], ['s91', 'n87', 'n89'],
-    ['s93', 'n92', 'n74'], ['s95', 'n94', 'n79'], ['s96', 'n92', 'n97'], ['s98', 'n97', 'n94'], ['s100', 'n99', 'n74'],
-    ['s101', 'n97', 'n99']],
-};
+   CARPETA DE MODELOS (modelos/) Y PROYECTO DE EJEMPLO (ejemplos/)
+   =====================================================================
+   Los archivos 3D no forman parte del programa: están en modelos/, junto a esta página.
+     catalogo.json   lista de accesorios (de serie y personalizados) con su .pcf, .scad y un STL por variante
+     pipecad.scad    librería OpenSCAD común · serie/ · personalizados/ · plantillas/ (del editor)
+   Se leen por HTTP (GitHub Pages o el servidor local servidor.mjs) o, si la página se abre como archivo,
+   desde la carpeta que elija el usuario. Con el servidor local además se pueden guardar y borrar. */
+const MODELS = { catalog: null, files: null, server: false, error: '', geo: new Map(), loading: new Set(), failed: new Set(), bad: [] };
+async function readModelFile(rel, binary = false) {
+  if (MODELS.files) {
+    const f = MODELS.files.get(rel); if (!f) throw new Error(`No está ${rel} en la carpeta elegida`);
+    return binary ? f.arrayBuffer() : f.text();
+  }
+  let r; try { r = await fetch('modelos/' + rel, { cache: 'no-cache' }); } catch { throw new Error(`no se puede leer modelos/${rel} (página abierta como archivo, sin servidor)`); }
+  if (!r.ok) throw new Error(`modelos/${rel}: ${r.status === 404 ? 'no existe' : 'error ' + r.status}`);
+  return binary ? r.arrayBuffer() : r.text();
+}
+function loadModelSTL(path) {
+  if (MODELS.loading.has(path) || MODELS.failed.has(path)) return;
+  MODELS.loading.add(path);
+  readModelFile(path, true)
+    .then(buf => { MODELS.geo.set(path, parseSTL(buf)); LIB.version++; LIB.geo.clear(); clearCache(); rebuild(); })
+    .catch(err => { MODELS.failed.add(path); console.warn('STL no disponible', path, err); })
+    .finally(() => MODELS.loading.delete(path));
+}
+// Lee el catálogo y los .pcf de los personalizados; los del navegador (versiones anteriores) se mantienen
+async function loadModels() {
+  if (!MODELS.files && location.protocol.startsWith('http')) {
+    try { const r = await fetch('api/estado', { cache: 'no-store' }); MODELS.server = r.ok && !!(await r.json()).pipecad; } catch { MODELS.server = false; }
+  }
+  let catalog = null, error = '';
+  try { catalog = JSON.parse(await readModelFile('catalogo.json')); } catch (e) { error = e.message; }
+  LIB.all.clear(); loadLib();
+  MODELS.catalog = catalog; MODELS.error = error; MODELS.bad = []; MODELS.geo.clear(); MODELS.failed.clear();
+  for (const a of catalog?.accesorios || []) {
+    if (a.tipo !== 'personalizado') continue;
+    try {
+      const source = await readModelFile(a.pcf), def = parsePCF(source);
+      if (BUILTIN_KINDS.includes(def.id)) throw new Error('usa el identificador de un accesorio de serie');
+      LIB.all.set(def.id, { def, source, origin: 'carpeta', files: a });
+    } catch (e) { MODELS.bad.push(`${a.id}: ${e.message.split('\n')[0]}`); }
+  }
+  syncActive(); LIB.version++; LIB.geo.clear(); clearCache();
+  renderFitSelect(); renderLibrary(); model.emit();
+  return catalog;
+}
+const builtinModel = kind => MODELS.catalog?.accesorios?.find(a => a.id === kind && a.tipo === 'serie') || null;
+// Proyecto de ejemplo: ejemplos/ejemplo.json
+let EXAMPLE_JSON = null;
+async function loadExampleJSON() {
+  if (!EXAMPLE_JSON) {
+    let r; try { r = await fetch('ejemplos/ejemplo.json', { cache: 'no-cache' }); } catch { throw new Error('no se puede leer ejemplos/ejemplo.json (página abierta como archivo, sin servidor)'); }
+    if (!r.ok) throw new Error(`ejemplos/ejemplo.json: ${r.status === 404 ? 'no existe' : 'error ' + r.status}`);
+    EXAMPLE_JSON = await r.json();
+  }
+  return EXAMPLE_JSON;
+}
 function buildExample(m) {
-  m.reset();
-  m.load({
-    format: 'pipecad', version: 1, name: 'Ejemplo', nextId: 103,
-    nodes: EXAMPLE.nodes.map(([id, x, y, z]) => ({ id, pos: [x, y, z] })),
-    segments: EXAMPLE.segments.map(([id, a, b]) => ({ id, a, b, d: 32 })),
-    groups: [{ id: 'g102', name: 'Grupo 1', nodes: EXAMPLE.nodes.map(n => n[0]), segs: EXAMPLE.segments.map(s => s[0]) }],
-  });
+  if (!EXAMPLE_JSON) throw Object.assign(new Error('omitida: no se ha podido leer ejemplos/ejemplo.json (abre PipeCAD desde un servidor)'), { skip: true });
+  m.reset(); m.load(structuredClone(EXAMPLE_JSON));
 }
 
 /* =====================================================================
@@ -3255,7 +3204,8 @@ function showTab(name) {
 /* =====================================================================
    PRUEBAS DEL MOTOR
    ===================================================================== */
-function runTests() {
+async function runTests() {
+  try { await loadExampleJSON(); } catch { /* las pruebas del ejemplo se omiten */ }
   const results = [];
   const build = (nodes, segs) => {
     const m = new Model(); const ids = {};
@@ -3264,7 +3214,7 @@ function runTests() {
     const an = analyze(m);
     return { m, an, node: k => an.nodes.get(ids[k]), seg: k => an.segs.get(sid[k]) };
   };
-  const test = (name, fn) => { try { const r = fn(); results.push({ name, ok: r === true, detail: r === true ? '' : r }); } catch (e) { results.push({ name, ok: false, detail: e.message }); } };
+  const test = (name, fn) => { try { const r = fn(); results.push({ name, ok: r === true, detail: r === true ? '' : r }); } catch (e) { results.push({ name, ok: !!e.skip, skipped: !!e.skip, detail: e.message }); } };
   const eq = (got, exp, what) => near(got, exp, 0.01) ? true : `${what}: esperado ${exp}, obtenido ${fmt(got, 3)}`;
   const all = (...checks) => checks.find(c => c !== true) ?? true;
 
@@ -3634,9 +3584,9 @@ function runTests() {
   });
   // --- biblioteca, lenguaje .pcf y STL (se restaura el estado de la biblioteca al terminar)
   const withLib = fn => () => {
-    const saved = { disabled: new Set(LIB.disabled), custom: new Map(LIB.custom) };
-    LIB.disabled.clear(); LIB.custom.clear();
-    try { return fn(); } finally { LIB.disabled = saved.disabled; LIB.custom = saved.custom; }
+    const saved = { disabled: new Set(LIB.disabled), custom: new Map(LIB.custom), all: new Map(LIB.all), version: LIB.version };
+    LIB.disabled.clear(); LIB.custom.clear(); LIB.all.clear();
+    try { return fn(); } finally { LIB.disabled = saved.disabled; LIB.custom = saved.custom; LIB.all = saved.all; LIB.version = saved.version; LIB.geo.clear(); }
   };
   test('.pcf: la plantilla (cruz) se interpreta bien', () => {
     const d = parsePCF(TEMPLATE_PCF);
@@ -3651,24 +3601,21 @@ function runTests() {
     const cfg = structuredClone(DEFAULT_CONFIG), d = parsePCF(pcfFor(builtinDef('teeReduced', cfg)));
     return all(d.ports.length === 3 || 'bocas', d.variants.length === 3 || 'variantes', d.variants.find(v => v.name === '40-32')?.zs.join(',') === '21,21,22' || 'Z');
   });
-  test('STL: el modelo automático se exporta y se vuelve a leer', () => {
-    const d = parsePCF(TEMPLATE_PCF), v = d.variants[1];
-    const g = autoFittingGeometry(d.ports.map(p => p.dir), v), buf = geometryToSTL(g, 'cruz');
-    const g2 = parseSTL(buf); g2.computeBoundingBox();
-    const tri = g.getAttribute('position').count / 3, tri2 = g2.getAttribute('position').count / 3;
-    return all(tri === tri2 || `${tri} ≠ ${tri2} triángulos`, near(g2.boundingBox.max.x, 17 + 22, 0.01) || 'longitud de boca', buf.byteLength === 84 + 50 * tri || 'tamaño binario');
+  test('STL: lectura de un STL binario', () => {
+    const buf = new ArrayBuffer(84 + 50), dv = new DataView(buf); dv.setUint32(80, 1, true);
+    [0, 0, 0, 10, 0, 0, 0, 20, 5].forEach((x, k) => dv.setFloat32(84 + 12 + 4 * k, x, true));
+    const g = parseSTL(buf); g.computeBoundingBox();
+    return all(g.getAttribute('position').count === 3 || 'vértices', near(g.boundingBox.max.y, 20) || 'coordenadas', near(g.boundingBox.max.z, 5) || 'z');
+  });
+  test('Forma simple de un accesorio: largo de boca = Z + embocadura', () => {
+    const d = parsePCF(TEMPLATE_PCF), g = autoFittingGeometry(d.ports.map(p => p.dir), d.variants[1]); g.computeBoundingBox();
+    return near(g.boundingBox.max.x, 17 + 22, 0.01) || 'longitud de boca';
   });
   test('.pcf: PASO opcional, con su validación', () => {
     const ok = parsePCF('ACCESORIO m\nBOCA A 1 0 0\nBOCA B -1 0 0\nVARIANTE 32 DIAMETROS 32 32 Z 2 2 EMBOCADURA 22 22 PASO 26 26 EXTERIOR 41');
     let msg = ''; try { parsePCF('ACCESORIO m\nBOCA A 1 0 0\nBOCA B -1 0 0\nVARIANTE 32 DIAMETROS 32 32 Z 2 2 EMBOCADURA 22 22 PASO 40 EXTERIOR 41'); } catch (e) { msg = e.message; }
     const noPass = parsePCF(TEMPLATE_PCF).variants[0].pass;
     return all(ok.variants[0].pass?.join(',') === '26,26' || 'PASO', /PASO tiene 1 valores/.test(msg) || 'recuento', /menor que el Ø/.test(msg) || 'límite', noPass === undefined || 'por defecto');
-  });
-  test('STL: aviso de paredes finas', () => {
-    const dirs = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0)];
-    const thin = fittingWalls(dirs, { ds: [32, 32], zs: [2, 2], sockets: [22, 22], od: 34 }, 0.25);
-    const ok = fittingWalls(dirs, { ds: [32, 32], zs: [2, 2], sockets: [22, 22], od: 41 }, 0.25);
-    return all(thin.length > 0 || 'sin aviso', ok.length === 0 || ok.join('; '));
   });
   test('STL: lectura de un STL ASCII', () => {
     const g = parseSTL(new TextEncoder().encode('solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t').buffer);
@@ -3696,15 +3643,26 @@ function runTests() {
     const nn = analyze(m2).nodes.get(n), s = analyze(m2).segs.values().next().value;
     return all(nn.kind === 'custom' || nn.kind, nn.label === 'Codo 30°' || nn.label, eq(s.Lr, 500 - 6, 'Lr con Z propia'), nn.open.length === 1 && near(nn.open[0].dir.z, 0.5) || 'boca girada');
   }));
+  test('Carpeta de modelos: un personalizado se dibuja con el STL de su variante', withLib(() => {
+    const def = parsePCF(TEMPLATE_PCF), path = 'personalizados/cruz90_32.stl', fake = new THREE.BufferGeometry();
+    LIB.all.set(def.id, { def, source: TEMPLATE_PCF, origin: 'carpeta', files: { id: def.id, tipo: 'personalizado', pcf: 'personalizados/cruz90.pcf', stl: { 32: path } } });
+    syncActive(); const had = MODELS.geo.get(path); MODELS.geo.set(path, fake);
+    try {
+      const t = build({ o: [0, 0, 0], a: [1000, 0, 0], b: [-1000, 0, 0], c: [0, 1000, 0], d: [0, -1000, 0] }, [['o', 'a', 32], ['o', 'b', 32], ['o', 'c', 32], ['o', 'd', 32]]);
+      const n = t.node('o'), g = customGeometry(n);
+      LIB.disabled.add(def.id); syncActive(); const off = build({ o: [0, 0, 0], a: [1000, 0, 0], b: [-1000, 0, 0], c: [0, 1000, 0], d: [0, -1000, 0] }, [['o', 'a', 32], ['o', 'b', 32], ['o', 'c', 32], ['o', 'd', 32]]).node('o');
+      return all(n.kind === 'custom' || n.kind, g === fake || 'no usa el STL de la carpeta', off.kind !== 'custom' || 'desactivado y se sigue reconociendo');
+    } finally { if (had) MODELS.geo.set(path, had); else MODELS.geo.delete(path); }
+  }));
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
     const bad = [...an.nodes.values()].filter(n => n.errors.length).map(n => n.id).concat([...an.segs.values()].filter(s => s.errors.length).map(s => s.id));
     return bad.length === 0 || 'errores en ' + bad.join(', ');
   });
 
-  const pass = results.filter(r => r.ok).length;
-  $('#test-out').innerHTML = `<div class="msg ${pass === results.length ? 'ok' : 'err'}">${pass} / ${results.length} pruebas superadas</div>` +
-    results.map(r => `<div class="msg ${r.ok ? 'ok' : 'err'}">${r.ok ? '✔' : '✘'} ${esc(r.name)}${r.detail ? '<br>' + esc(r.detail) : ''}</div>`).join('');
+  const pass = results.filter(r => r.ok && !r.skipped).length, skipped = results.filter(r => r.skipped).length, run = results.length - skipped;
+  $('#test-out').innerHTML = `<div class="msg ${pass === run ? 'ok' : 'err'}">${pass} / ${run} pruebas superadas${skipped ? ` · ${skipped} omitidas` : ''}</div>` +
+    results.map(r => `<div class="msg ${r.skipped ? 'warn' : r.ok ? 'ok' : 'err'}">${r.skipped ? '–' : r.ok ? '✔' : '✘'} ${esc(r.name)}${r.detail ? '<br>' + esc(r.detail) : ''}</div>`).join('');
   console.table(results);
   return results;
 }
@@ -3721,7 +3679,11 @@ $('#b-new').onclick = () => {
   if (model.segments.size && !confirm('¿Empezar un proyecto nuevo? Podrás deshacerlo con Ctrl+Z.')) return;
   model.transact('Nuevo proyecto', () => model.reset()); setSelection([]); fitAll(); status('Proyecto nuevo');
 };
-$('#b-example').onclick = () => { model.transact('Cargar ejemplo', () => buildExample(model)); setSelection([]); setDiameter(32); setView('iso'); status('Proyecto de ejemplo cargado'); };
+$('#b-example').onclick = async () => {
+  try { await loadExampleJSON(); }
+  catch (e) { alert(`No se ha podido cargar el ejemplo (${e.message}).\n\nAbre PipeCAD desde GitHub Pages o con el servidor local, o abre el archivo ejemplos/ejemplo.json con «Abrir».`); return; }
+  model.transact('Cargar ejemplo', () => buildExample(model)); setSelection([]); setDiameter(32); setView('iso'); status('Proyecto de ejemplo cargado (ejemplos/ejemplo.json)');
+};
 $('#b-save').onclick = () => { download((model.name || 'proyecto').replace(/[^\w\- ]+/g, '_') + '.json', JSON.stringify(model.toJSON(), null, 1), 'application/json'); status('Proyecto guardado'); };
 $('#b-open').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
@@ -3744,19 +3706,20 @@ $('#b-mirror-v').onclick = () => mirrorSelection('v');
 
 // ---------- biblioteca de accesorios (estado de la aplicación, guardado en el navegador)
 function saveLib() {
-  const ok = store.set('pipecad-lib', JSON.stringify({ disabled: [...LIB.disabled], custom: [...LIB.custom.values()].map(e => ({ source: e.source, stl: e.stl, ...(e.scad ? { scad: e.scad } : {}) })) }));
+  const nav = [...LIB.all.values()].filter(e => e.origin === 'navegador');
+  const ok = store.set('pipecad-lib', JSON.stringify({ disabled: [...LIB.disabled], custom: nav.map(e => ({ source: e.source, stl: e.stl || {}, ...(e.scad ? { scad: e.scad } : {}) })) }));
   return ok;
 }
 function loadLib() {
   try {
     const j = JSON.parse(store.get('pipecad-lib') || '{}');
-    LIB.disabled = new Set((j.disabled || []).filter(k => BUILTIN_KINDS.includes(k)));
-    for (const c of j.custom || []) { try { const def = parsePCF(c.source); LIB.custom.set(def.id, { def, source: c.source, stl: c.stl || {}, ...(c.scad ? { scad: c.scad } : {}) }); } catch { /* definición dañada: se ignora */ } }
+    LIB.disabled = new Set((j.disabled || []).filter(k => typeof k === 'string'));
+    for (const c of j.custom || []) { try { const def = parsePCF(c.source); LIB.all.set(def.id, { def, source: c.source, origin: 'navegador', stl: c.stl || {}, ...(c.scad ? { scad: c.scad } : {}) }); } catch { /* definición dañada: se ignora */ } }
   } catch { /* sin biblioteca guardada */ }
 }
 // Tras cualquier cambio: se recalcula el modelo (los nudos pueden dejar de ser válidos o pasar a reconocerse)
 function libChanged() {
-  LIB.version++; LIB.geo.clear(); clearCache();
+  syncActive(); LIB.version++; LIB.geo.clear(); clearCache();
   saveLib(); renderFitSelect(); renderLibrary(); model.emit();
 }
 // Opciones del selector «Accesorio»: los de serie cargados y las variantes de los personalizados
@@ -3773,7 +3736,7 @@ function renderFitSelect() {
 function libDefs() {
   return [
     ...BUILTIN_KINDS.map(k => ({ def: builtinDef(k, model.config), builtin: true, on: builtinEnabled(k), entry: null })),
-    ...[...LIB.custom.values()].map(e => ({ def: e.def, builtin: false, on: true, entry: e })),
+    ...[...LIB.all.values()].map(e => ({ def: e.def, builtin: false, on: !LIB.disabled.has(e.def.id), entry: e })),
   ];
 }
 function exportPCF(id) {
@@ -3783,21 +3746,27 @@ function exportPCF(id) {
 }
 async function exportSTL(id, variant) {
   const it = libDefs().find(x => x.def.id === id); if (!it) return;
-  const stl = it.entry && (it.entry.stl[variant] || it.entry.stl['*']);
-  if (stl) { download(`${id}_${variant}.stl`, b64ToBuf(stl.b64), 'model/stl'); status(`Modelo ${id}_${variant}.stl exportado (el STL propio del accesorio)`); return; }
-  const v = it.def.variants.find(x => x.name === variant), dirs = it.def.ports.map(p => p.dir), clr = PREFS.clearance;
-  status(`Generando ${id}_${variant}.stl…`);
-  const { geo, solid } = await printableFittingGeometry(dirs, v, clr);
-  download(`${id}_${variant}.stl`, geometryToSTL(geo, `${it.def.name} ${variant}`), 'model/stl');
-  const walls = fittingWalls(dirs, v, clr);
-  status(solid
-    ? `${id}_${variant}.stl exportado: sólido único con paso interior y holgura de ${fmt(clr, 2)} mm en las embocaduras` + (walls.length ? ` · ⚠ paredes finas: ${walls.join('; ')}` : '')
-    : `${id}_${variant}.stl exportado con el modelo simple (sin paso interior): no se pudo cargar la librería de operaciones booleanas`);
+  const fromBrowser = it.entry?.origin === 'navegador' && it.entry.stl && (it.entry.stl[variant] || it.entry.stl['*']);
+  if (fromBrowser) { download(`${id}_${variant}.stl`, b64ToBuf(fromBrowser.b64), 'model/stl'); status(`${id}_${variant}.stl exportado (guardado en este navegador)`); return; }
+  const files = it.builtin ? builtinModel(id) : it.entry?.files;
+  const path = files?.stl?.[variant] || files?.stl?.['*'];
+  if (!path) {
+    status(MODELS.catalog ? `✘ ${it.def.name} ${variant} no tiene modelo STL en la carpeta modelos: créalo con el Editor de accesorios`
+      : `✘ No se encuentra la carpeta modelos (${MODELS.error}): abre PipeCAD con el servidor local o elige la carpeta en la pestaña Biblioteca`);
+    return;
+  }
+  try {
+    const buf = await readModelFile(path, true), name = path.split('/').pop();
+    download(name, buf, 'model/stl');
+    const differs = it.builtin && JSON.stringify(builtinDef(id, model.config).variants) !== JSON.stringify(builtinDef(id, DEFAULT_CONFIG).variants);
+    status(`${name} descargado de modelos/${path}` + (differs ? ' · ⚠ el modelo usa las cotas de serie y este proyecto tiene cotas propias en Configuración' : ''));
+  } catch (e) { status('✘ No se pudo leer el STL: ' + e.message); }
 }
 async function importLibFiles(files) {
-  const texts = [], stls = new Map(), msgs = [];
+  const texts = [], stls = new Map(), scads = new Map(), msgs = [];
   for (const f of files) {
     if (/\.stl$/i.test(f.name)) stls.set(f.name.toLowerCase(), await f.arrayBuffer());
+    else if (/\.scad$/i.test(f.name)) scads.set(f.name.toLowerCase().replace(/\.scad$/, ''), await f.text());
     else texts.push({ name: f.name, text: await f.text() });
   }
   if (!texts.length) { status('✘ Selecciona también el archivo .pcf que describe el accesorio (puedes elegir varios archivos a la vez)'); return; }
@@ -3812,20 +3781,45 @@ async function importLibFiles(files) {
       if (!buf) { msgs.push(`falta ${file} (se usa el modelo automático)`); continue; }
       try { parseSTL(buf); stl[variant] = { name: file, b64: bufToB64(buf) }; } catch (err) { msgs.push(`${file}: ${err.message}`); }
     }
-    const replaced = LIB.custom.has(def.id);
-    LIB.custom.set(def.id, { def, source: text, stl });
-    loaded++; msgs.unshift(`${def.name} ${replaced ? 'actualizado' : 'cargado'} (${def.variants.length} variante${def.variants.length > 1 ? 's' : ''})`);
+    const replaced = LIB.all.has(def.id);
+    if (MODELS.server) { // a la carpeta modelos/personalizados
+      try { await saveToFolder({ def, source: text, stl, scad: scads.get(def.id) || null }); }
+      catch (err) { alert(`No se pudo guardar ${name} en la carpeta modelos:\n\n${err.message}`); continue; }
+      LIB.disabled.delete(def.id);
+    } else LIB.all.set(def.id, { def, source: text, origin: 'navegador', stl, ...(scads.get(def.id) ? { scad: scads.get(def.id) } : {}) });
+    loaded++; msgs.unshift(`${def.name} ${replaced ? 'actualizado' : 'cargado'} ${MODELS.server ? 'en la carpeta modelos' : 'en este navegador'} (${def.variants.length} variante${def.variants.length > 1 ? 's' : ''})`);
   }
   if (!loaded) return;
-  libChanged();
+  if (MODELS.server) await loadModels(); else libChanged();
   if (!saveLib()) msgs.push('no se ha podido guardar en el navegador (almacenamiento lleno o desactivado): habrá que volver a cargarlo en la próxima sesión');
   status(msgs.join(' · '));
 }
-function removeCustom(id) {
-  const e = LIB.custom.get(id); if (!e) return;
+// Guarda un accesorio en modelos/personalizados a través del servidor local
+async function saveToFolder({ def, source, stl, scad }) {
+  const b64 = {}; for (const [v, x] of Object.entries(stl || {})) b64[v] = x.b64;
+  const r = await fetch('api/accesorios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id, nombre: def.name, pcf: source, scad: scad || '', stl: b64 }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `el servidor respondió ${r.status}`);
+  return j;
+}
+async function removeCustom(id) {
+  const e = LIB.all.get(id); if (!e) return;
   const used = [...model.nodes.values()].filter(n => n.fit?.type === id).length;
-  if (!confirm(`¿Quitar «${e.def.name}» de la biblioteca?` + (used ? `\n\nEl proyecto lo usa en ${used} punto${used > 1 ? 's' : ''}: seguirá funcionando con sus medidas guardadas y un modelo automático.` : ''))) return;
-  LIB.custom.delete(id); libChanged(); status(`${e.def.name} quitado de la biblioteca`);
+  const note = used ? `\n\nEl proyecto lo usa en ${used} punto${used > 1 ? 's' : ''}: seguirá funcionando con sus medidas guardadas y una forma simple.` : '';
+  if (e.origin === 'carpeta') {
+    if (!confirm(`¿Borrar «${e.def.name}» de la carpeta modelos? Se borran su .pcf, su .scad y sus STL.${note}`)) return;
+    try { const r = await fetch('api/accesorios/' + encodeURIComponent(id), { method: 'DELETE' }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status); }
+    catch (err) { status('✘ No se pudo borrar: ' + err.message); return; }
+    await loadModels(); status(`${e.def.name} borrado de la carpeta modelos`); return;
+  }
+  if (!confirm(`¿Quitar «${e.def.name}» de la biblioteca de este navegador?${note}`)) return;
+  LIB.all.delete(id); libChanged(); status(`${e.def.name} quitado de la biblioteca`);
+}
+// Lleva un accesorio guardado en el navegador (versiones anteriores) a la carpeta modelos
+async function moveToFolder(id) {
+  const e = LIB.all.get(id); if (!e || e.origin !== 'navegador') return;
+  try { await saveToFolder(e); } catch (err) { status('✘ No se pudo pasar a la carpeta: ' + err.message); return; }
+  LIB.all.delete(id); saveLib(); await loadModels(); status(`${e.def.name} guardado en modelos/personalizados y quitado del navegador`);
 }
 const TEMPLATE_PCF = `# Plantilla de accesorio personalizado para PipeCAD (lenguaje .pcf)
 # Todo lo que va detrás de # es un comentario. Medidas en milímetros.
@@ -3854,19 +3848,23 @@ VARIANTE 32  DIAMETROS 32 32 32 32  Z 17 17 17 17  EMBOCADURA 22 22 22 22  EXTER
 `;
 function renderLibrary() {
   const el = $('#tab-lib');
-  const rows = (list) => list.map(({ def, builtin, on }) => `<tr class="lib-row">
-      <td>${builtin ? `<input type="checkbox" class="lib-on" data-id="${def.id}" ${on ? 'checked' : ''} aria-label="Cargado">` : ''}</td>
-      <td><b>${esc(def.name)}</b><div class="hint">${builtin ? 'de serie' : esc(def.id)} · ${def.ports.length} boca${def.ports.length > 1 ? 's' : ''}${def.desc && !builtin ? ' · ' + esc(def.desc) : ''}</div></td>
+  const rows = (list) => list.map(({ def, builtin, on, entry }) => `<tr class="lib-row">
+      <td><input type="checkbox" class="lib-on" data-id="${def.id}" ${on ? 'checked' : ''} aria-label="Cargado"></td>
+      <td><b>${esc(def.name)}</b><div class="hint">${builtin ? 'de serie' : esc(def.id) + (entry.origin === 'navegador' ? ' · <span title="Guardado solo en este navegador">en el navegador</span>' : '')} · ${def.ports.length} boca${def.ports.length > 1 ? 's' : ''}${def.desc && !builtin ? ' · ' + esc(def.desc) : ''}</div></td>
       <td style="text-align:right;white-space:nowrap">
         <select class="lib-var" data-id="${def.id}" aria-label="Variante">${def.variants.map(v => `<option>${esc(v.name)}</option>`).join('')}</select>
         <button class="lib-stl" data-id="${def.id}" title="Descargar el modelo STL de la variante (imprimible)">STL</button>
         <button class="lib-pcf" data-id="${def.id}" title="Descargar la definición .pcf">.pcf</button>
-        ${builtin ? '' : `<button class="lib-edit" data-id="${def.id}" title="Abrir en el editor de accesorios (OpenSCAD)">Editar</button> <button class="lib-del" data-id="${def.id}" title="Quitar de la biblioteca">Quitar</button>`}
+        ${builtin ? '' : `<button class="lib-edit" data-id="${def.id}" title="Abrir en el editor de accesorios (OpenSCAD)">Editar</button>`}
+        ${!builtin && entry.origin === 'navegador' && MODELS.server ? `<button class="lib-move" data-id="${def.id}" title="Guardarlo en modelos/personalizados y quitarlo del navegador">A la carpeta</button>` : ''}
+        ${!builtin && (entry.origin === 'navegador' || MODELS.server) ? `<button class="lib-del" data-id="${def.id}" title="${entry.origin === 'carpeta' ? 'Borrar sus archivos de la carpeta modelos' : 'Quitar de este navegador'}">${entry.origin === 'carpeta' ? 'Borrar' : 'Quitar'}</button>` : ''}
       </td></tr>`).join('');
   const all = libDefs(), custom = all.filter(x => !x.builtin);
   el.innerHTML = `<h3>Biblioteca de accesorios</h3>
     <div class="btns"><button id="lib-editor" class="primary" title="Crear y editar accesorios con modelos generados por OpenSCAD">Editor de accesorios</button><button id="lib-load">Cargar accesorio…</button><button id="lib-template">Descargar plantilla</button></div>
-    <p class="hint">Marca o desmarca los de serie para cargarlos o quitarlos; los personalizados se cargan desde su archivo <code>.pcf</code> (y sus <code>.stl</code>, si los tienen) y se quitan uno a uno. Los cambios se guardan en este navegador.</p>
+    <p class="hint">Marca o desmarca un accesorio para usarlo o no en el dibujo (se recuerda en este navegador). Los modelos 3D (<code>.pcf</code>, <code>.scad</code> y <code>.stl</code>) están en la carpeta <code>modelos/</code>, fuera del programa.</p>
+    ${modelsInfo()}
+    ${MODELS.bad.length ? `<p class="hint" style="color:var(--err)">No se han podido leer: ${MODELS.bad.map(esc).join(' · ')}</p>` : ''}
     <h4>De serie</h4><table>${rows(all.filter(x => x.builtin))}</table>
     <h4>Personalizados (${custom.length})</h4>
     ${custom.length ? `<table>${rows(custom)}</table>` : '<p class="hint">Todavía no hay ninguno. Descarga la plantilla, edítala y cárgala.</p>'}
@@ -3877,12 +3875,23 @@ function renderLibrary() {
   $('#lib-template').onclick = () => { download('plantilla_accesorio.pcf', TEMPLATE_PCF, 'text/plain;charset=utf-8'); status('Plantilla descargada: edítala con cualquier editor de texto y cárgala con «Cargar accesorio…»'); };
   $$('.lib-on', el).forEach(c => c.onchange = () => {
     if (c.checked) LIB.disabled.delete(c.dataset.id); else LIB.disabled.add(c.dataset.id);
-    libChanged(); status(`${KIND_NAMES[c.dataset.id]} ${c.checked ? 'cargado' : 'quitado: los nudos que lo necesiten se marcarán como no válidos'}`);
+    libChanged(); status(`${KIND_NAMES[c.dataset.id] || LIB.all.get(c.dataset.id)?.def.name || c.dataset.id} ${c.checked ? 'cargado' : 'desactivado: los nudos que lo necesiten se marcarán como no válidos'}`);
   });
+  $$('.lib-move', el).forEach(b => b.onclick = () => moveToFolder(b.dataset.id));
+  $('#lib-models-dir', el)?.addEventListener('click', () => $('#models-dir').click());
+  $('#lib-models-reload', el)?.addEventListener('click', async () => { await loadModels(); status(MODELS.catalog ? 'Carpeta de modelos releída' : '✘ ' + MODELS.error); });
   const variantOf = id => $(`.lib-var[data-id="${id}"]`, el).value;
   $$('.lib-stl', el).forEach(b => b.onclick = () => exportSTL(b.dataset.id, variantOf(b.dataset.id)));
   $$('.lib-pcf', el).forEach(b => b.onclick = () => exportPCF(b.dataset.id));
   $$('.lib-del', el).forEach(b => b.onclick = () => removeCustom(b.dataset.id));
+}
+// Estado de la carpeta de modelos, para la pestaña Biblioteca
+function modelsInfo() {
+  const n = (MODELS.catalog?.accesorios || []).length;
+  const btn = `<button id="lib-models-dir" class="mini" title="Elegir la carpeta «modelos» de PipeCAD en este ordenador">Abrir carpeta de modelos…</button>`;
+  if (!MODELS.catalog) return `<p class="msg warn">No se encuentra la carpeta <code>modelos</code> (${esc(MODELS.error || 'sin leer')}). Sin ella se dibujan formas simples y no se pueden descargar los STL. Abre PipeCAD con el servidor local (ver el README) o ${btn}</p>`;
+  const where = MODELS.files ? 'carpeta elegida (solo lectura)' : MODELS.server ? 'servidor local: los accesorios nuevos se guardan en ella' : 'solo lectura';
+  return `<p class="hint">Carpeta <code>modelos</code>: ${n} accesorio${n === 1 ? '' : 's'} · ${where}. <button id="lib-models-reload" class="mini">Releer</button>${MODELS.server ? '' : ' ' + btn}</p>`;
 }
 const LIB_GUIDE = `
 <p><b>La forma más cómoda es el <a href="editor.html" target="pceditor">Editor de accesorios</a></b>: un formulario con plantillas que genera el <code>.pcf</code> y el código <b>OpenSCAD</b> (que puedes descargar y retocar), crea los STL con OpenSCAD y guarda el accesorio en esta biblioteca. Lo que sigue explica el formato por si prefieres escribirlo a mano.</p>
@@ -3907,8 +3916,8 @@ const LIB_GUIDE = `
 <h4>Modelo STL</h4>
 <ul>
 <li>En milímetros, con el <b>mismo origen y los mismos ejes</b> que las <code>BOCA</code>, para que encaje al colocarlo y girarlo.</li>
-<li>Sirve el STL binario o ASCII. Selecciona el <code>.pcf</code> y sus <code>.stl</code> a la vez al pulsar «Cargar accesorio…».</li>
-<li>Si no hay modelo, PipeCAD genera uno <b>imprimible y funcional</b>: un único sólido cerrado con el cuerpo, las embocaduras taladradas al Ø del tubo más la <b>holgura</b> (en <b>Ajustes</b>, 0,25 mm por defecto) y un <b>paso interior</b> que comunica todas las bocas por el centro. El botón <b>STL</b> lo descarga y avisa si alguna pared queda por debajo de 1,2 mm.</li>
+<li>Sirve el STL binario o ASCII. Selecciona el <code>.pcf</code> y sus <code>.stl</code> (y, si quieres, su <code>.scad</code>) a la vez al pulsar «Cargar accesorio…». Con el servidor local se copian a <code>modelos/personalizados</code>; si no, se guardan en este navegador.</li>
+<li>Los STL <b>imprimibles</b> (un único sólido con las embocaduras taladradas con holgura y un <b>paso interior</b> que une las bocas) los genera <b>OpenSCAD</b> en el editor de accesorios con la librería <code>modelos/pipecad.scad</code>. El botón <b>STL</b> descarga el de la carpeta <code>modelos</code>. Sin STL, PipeCAD dibuja una forma simple.</li>
 <li>Para imprimirlo: paredes de 2 mm o más, perímetros suficientes (3 o más) y, para piezas que vayan a presión, material adecuado (PETG, ASA…) y prueba de estanqueidad antes de usarlas.</li>
 </ul>
 <h4>Uso</h4>
@@ -3926,17 +3935,25 @@ BOCA B -0.866 0.5 0     # 150° entre bocas = giro de 30°
 VARIANTE 32  DIAMETROS 32 32  Z 6 6  EMBOCADURA 22 22  EXTERIOR 41</pre>`;
 $('#lib-file').onchange = async e => { const files = [...e.target.files]; e.target.value = ''; if (files.length) await importLibFiles(files); };
 // Si el editor de accesorios (otra pestaña) guarda en la biblioteca, se recarga aquí al momento
-addEventListener('storage', e => {
-  if (e.key !== 'pipecad-lib') return;
-  const before = new Set(LIB.custom.keys());
-  LIB.custom.clear(); loadLib();
-  LIB.version++; LIB.geo.clear(); clearCache(); renderFitSelect(); renderLibrary(); model.emit();
-  const added = [...LIB.custom.values()].filter(x => !before.has(x.def.id)).map(x => x.def.name);
+async function reloadFromEditor() {
+  const before = new Set(LIB.all.keys());
+  await loadModels();
+  const added = [...LIB.all.values()].filter(x => !before.has(x.def.id)).map(x => x.def.name);
   status(added.length ? `Biblioteca actualizada desde el editor: ${added.join(', ')}` : 'Biblioteca actualizada desde el editor de accesorios');
-});
+}
+addEventListener('storage', e => { if (e.key === 'pipecad-lib') reloadFromEditor(); });
+try { new BroadcastChannel('pipecad').onmessage = ({ data }) => { if (data?.tipo === 'modelos') reloadFromEditor(); }; } catch { /* sin canal */ }
+// Carpeta de modelos elegida a mano (página abierta como archivo)
+$('#models-dir').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
+  const map = new Map(); for (const f of files) map.set(f.webkitRelativePath.split('/').slice(1).join('/'), f);
+  if (!map.has('catalogo.json')) { alert('Esa carpeta no tiene catalogo.json: elige la carpeta «modelos» de PipeCAD.'); return; }
+  MODELS.files = map; MODELS.server = false; await loadModels();
+  status(`Carpeta de modelos abierta: ${(MODELS.catalog?.accesorios || []).length} accesorios`);
+};
 
 // ---------- ajustes de la interfaz (este navegador)
-const PREFS = { showExample: true, gizmoPct: 100, clearance: 0.25 };
+const PREFS = { showExample: true, gizmoPct: 100 };
 try { Object.assign(PREFS, JSON.parse(store.get('pipecad-prefs') || '{}')); } catch { /* valores por defecto */ }
 function applyPrefs() {
   PREFS.gizmoPct = THREE.MathUtils.clamp(Math.round(PREFS.gizmoPct / 10) * 10, 100, 200);
@@ -3947,15 +3964,11 @@ function applyPrefs() {
     r?.setSize(px, px, false);
   }
   $('#pf-example').checked = PREFS.showExample; $('#pf-gizmo').value = PREFS.gizmoPct; $('#pf-gizmo-out').textContent = `${px} px (${PREFS.gizmoPct} %)`;
-  PREFS.clearance = THREE.MathUtils.clamp(Math.round(PREFS.clearance * 100) / 100, 0, 0.6);
-  $('#pf-clear').value = PREFS.clearance; $('#pf-clear-out').textContent = `${fmt(PREFS.clearance, 2)} mm`;
   store.set('pipecad-prefs', JSON.stringify(PREFS)); requestRender();
 }
 $('#b-prefs').onclick = () => $('#prefs').showModal();
 $('#pf-example').onchange = e => { PREFS.showExample = e.target.checked; applyPrefs(); };
 $('#pf-gizmo').oninput = e => { PREFS.gizmoPct = +e.target.value; applyPrefs(); };
-$('#pf-clear').oninput = e => { PREFS.clearance = +e.target.value; applyPrefs(); };
-$('#pf-clear').onchange = () => { clearCache(); rebuild(); }; // los modelos en pantalla se regeneran con la holgura nueva
 
 // ---------- menú lateral: iconos, contraer/expandir y tooltips
 const ICONS = {
@@ -4085,7 +4098,8 @@ makeControls();
 initViewCube();
 initPlaneGizmo();
 if (PLANES[store.get('pipecad-wp')]) setWorkPlane(store.get('pipecad-wp'), true);
-loadLib(); renderFitSelect(); renderLibrary(); applyPrefs();
+loadLib(); syncActive(); renderFitSelect(); renderLibrary(); applyPrefs();
+loadModels(); // catálogo y accesorios de la carpeta modelos (en segundo plano)
 new ResizeObserver(resize).observe(viewport);
 makeMaterials();
 let restored = false;
@@ -4099,7 +4113,7 @@ setTool('select');
 status(restored ? 'Proyecto recuperado del autoguardado' : 'Proyecto vacío — pulsa «Ejemplo» para ver un circuito de muestra');
 window.__pipecadReady = true;
 if (!restored && !store.get('pipecad-help-seen')) { store.set('pipecad-help-seen', '1'); $('#help').showModal(); }
-window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, wpg, setWorkPlane, renderNow, printableFittingGeometry, isWatertight, parsePCF, builtinDef, fittingWalls, toScreen, pickGrab, setRay, handles }; // acceso desde consola
+window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, wpg, setWorkPlane, renderNow, parsePCF, builtinDef, MODELS, LIB, loadModels, customGeometry, toScreen, pickGrab, setRay, handles }; // acceso desde consola
 if (new URLSearchParams(location.search).has('test')) { showTab('config'); runTests(); $('#cfg-tests').scrollIntoView(); }
 </script>
 </body>

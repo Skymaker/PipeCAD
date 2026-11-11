@@ -1,13 +1,86 @@
 # PipeCAD
 CAD con tuberías de PVC
 
-Programa de CAD 3D en un único archivo HTML para diseñar instalaciones con tubería de PVC de **Ø20, Ø32 y Ø40 mm** y obtener el despiece optimizado en barras de 3 m.
+Programa de CAD 3D para el navegador con el que se diseñan instalaciones con tubería de PVC de **Ø20, Ø32 y Ø40 mm** y se obtiene el despiece optimizado en barras de 3 m.
 
 ## Uso
 
-Abre `index.html` en un navegador moderno (necesita conexión a internet para cargar Three.js desde el CDN). Pulsa **?** o **F1** para ver la ayuda.
+- **En línea**: https://skymaker.github.io/PipeCAD/ (solo lectura de la carpeta de modelos: los accesorios nuevos se guardan en el navegador o se descargan).
+- **En tu ordenador**: ver [Instalación en un ordenador](#instalación-en-un-ordenador). Así puedes guardar accesorios nuevos en la carpeta `modelos/` sin depender de GitHub.
 
-Enlace: https://skymaker.github.io/PipeCAD/
+Pulsa **?** o **F1** para ver la ayuda. Se necesita conexión a internet para cargar Three.js (y OpenSCAD en el editor) desde el CDN.
+
+## Instalación en un ordenador
+
+PipeCAD son páginas web estáticas más la carpeta `modelos/`. Para que el programa lea esa carpeta y el editor de accesorios pueda **guardar** en ella, hay que abrirlo desde un servidor web. Si abres `index.html` con doble clic, el navegador no deja leer la carpeta y solo se ven formas simples, aunque se puede dibujar y calcular igual.
+
+### 1. Descargar el programa
+
+- Con Git:
+
+  ```bash
+  git clone https://github.com/Skymaker/PipeCAD.git
+  ```
+
+- Sin Git: en GitHub, **Code › Download ZIP**, y descomprímelo donde quieras (por ejemplo, `Documentos\PipeCAD`).
+
+### 2. Instalar Node.js (una sola vez)
+
+Descarga la versión **LTS** de https://nodejs.org e instálala con las opciones por defecto. Para comprobarlo, abre una terminal y escribe:
+
+```bash
+node -v
+```
+
+Debe mostrar `v18` o superior. No hay que instalar nada más: el servidor de PipeCAD solo usa lo que trae Node.
+
+### 3. Arrancar el servidor
+
+- **Windows**: doble clic en `iniciar-servidor.bat`. Se abre una ventana negra (el servidor) y el navegador con PipeCAD.
+- **macOS / Linux**: en una terminal, dentro de la carpeta de PipeCAD:
+
+  ```bash
+  sh iniciar-servidor.sh
+  ```
+
+- **A mano**, en cualquier sistema:
+
+  ```bash
+  node servidor.mjs
+  ```
+
+Después abre http://localhost:8080/ (PipeCAD) o http://localhost:8080/editor.html (Editor de accesorios). Mientras trabajes, deja abierta la ventana del servidor; para pararlo, pulsa `Ctrl+C` o ciérrala.
+
+Opciones:
+
+| Opción | Para qué |
+|---|---|
+| `--puerto 9000` | Usar otro puerto si el 8080 está ocupado (`node servidor.mjs --puerto 9000`). |
+| `--red` | Permitir el acceso desde otros equipos de la red local (http://IP-del-ordenador:8080/). Cualquiera en la red podría guardar o borrar accesorios: úsalo solo en una red de confianza. |
+
+Por defecto el servidor solo atiende a este ordenador (`127.0.0.1`).
+
+### 4. Crear y guardar accesorios
+
+1. Abre el **Editor de accesorios** (botón en la pestaña **Biblioteca** de PipeCAD o http://localhost:8080/editor.html).
+2. Empieza con **Nuevo** (desde cero), con una **plantilla** o con **Editar de la biblioteca…**.
+3. Pulsa **Guardar en PipeCAD**. OpenSCAD genera los STL de todas las variantes y el servidor guarda el `.pcf`, el `.scad` y los `.stl` en `modelos/personalizados/`, además de añadir el accesorio a `modelos/catalogo.json`. Si PipeCAD está abierto en otra pestaña, lo carga al momento.
+
+Para llevarte tus accesorios a otro ordenador, copia la carpeta `modelos/` (o súbela a tu propio repositorio).
+
+### Otros servidores web
+
+Cualquier servidor de archivos estáticos sirve para **usar** PipeCAD y leer la carpeta `modelos/`. Por ejemplo:
+
+```bash
+python -m http.server 8080
+```
+
+Pero solo `servidor.mjs` permite **guardar** accesorios desde el editor. Sin él, el editor ofrece estas alternativas:
+
+- en Chrome o Edge, elegir la carpeta `modelos` y escribir directamente en ella;
+- guardarlos en el navegador;
+- **Descargar .zip**, que incluye un `LEEME.txt` con los pasos para copiarlos a la carpeta.
 
 ## Funciones
 
@@ -17,8 +90,14 @@ Enlace: https://skymaker.github.io/PipeCAD/
 - **Puntos de referencia** (extremos, mitad, tercios, cuartos, centros de accesorio) activables, y dibujo en altura sin teclas modificadoras.
 - **Giro libre** de los accesorios sobre sus propios ejes (pasos configurables o ángulo exacto).
 - **Selección múltiple** (Mayús+clic, rectángulo con doble clic) y **grupos** que se mueven y giran en conjunto con una caja manipuladora; duplicado de grupos y selecciones.
-- **Biblioteca de accesorios** que se cargan y quitan uno a uno, con un lenguaje sencillo (`.pcf`) para crear accesorios propios y modelos **STL** imprimibles en 3D. Ejemplos en [`accesorios/`](accesorios/).
-- **Editor de accesorios** ([`editor.html`](editor.html)): crea y edita accesorios con un formulario y plantillas; genera código **OpenSCAD** paramétrico (descargable) y, con él, los STL en el propio navegador; los guarda en la biblioteca de PipeCAD.
+- **Biblioteca de accesorios** que se activan y desactivan uno a uno, con un lenguaje sencillo (`.pcf`) para describir accesorios propios.
+- **Modelos 3D fuera del programa**, en la carpeta [`modelos/`](modelos/):
+  - `catalogo.json`: la lista de accesorios;
+  - `serie/` y `personalizados/`: el `.pcf`, el `.scad` y un STL por variante de cada accesorio;
+  - `plantillas/`: las plantillas del editor;
+  - `pipecad.scad`: la librería OpenSCAD común.
+- **Editor de accesorios** ([`editor.html`](editor.html)): crea y edita accesorios con un formulario, desde cero o desde plantillas. Genera código **OpenSCAD** paramétrico (descargable) y, con él, los STL imprimibles en el propio navegador; los guarda en la carpeta `modelos/`.
+- **Proyecto de ejemplo** en [`ejemplos/ejemplo.json`](ejemplos/ejemplo.json) (botón «Ejemplo»).
 - **Ajustes** de la interfaz: botón «Ejemplo» visible u oculto y tamaño de los gizmos de navegación.
 - **Cubo de vistas** para orbitar y saltar a caras, aristas o vértices, con interruptor isométrica / perspectiva.
 - **Rótulos** de cotas o marcas de pieza que se pueden ocultar con un interruptor.
@@ -29,7 +108,7 @@ Enlace: https://skymaker.github.io/PipeCAD/
 
 ## Desarrollo
 
-El plan de fases y el estado del proyecto están en [PLAN.md](PLAN.md). Las pruebas del motor de cálculo se ejecutan desde la pestaña **Configuración** (sección «Pruebas del motor») o abriendo `index.html?test`.
+El plan de fases y el estado del proyecto están en [PLAN.md](PLAN.md). Las pruebas del motor de cálculo se ejecutan desde la pestaña **Configuración** (sección «Pruebas del motor») o abriendo `index.html?test` desde un servidor; sin servidor, las pruebas del proyecto de ejemplo se omiten.
 
 ## Licencia
 

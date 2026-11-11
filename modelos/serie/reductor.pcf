@@ -1,0 +1,16 @@
+# PipeCAD · definición de accesorio (lenguaje .pcf), creada con el editor de accesorios
+# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.
+ACCESORIO reducer
+NOMBRE "Manguito reductor"
+DESCRIPCION "Accesorio de serie (cotas por defecto de PipeCAD)"
+
+BOCA A  1 0 0
+BOCA B  -1 0 0
+
+VARIANTE 32-20  DIAMETROS 32 20  Z 3 10  EMBOCADURA 22 16  EXTERIOR 41
+VARIANTE 40-20  DIAMETROS 40 20  Z 3 14  EMBOCADURA 26 16  EXTERIOR 50
+VARIANTE 40-32  DIAMETROS 40 32  Z 3 6  EMBOCADURA 26 22  EXTERIOR 50
+
+MODELO 32-20 reductor_32-20.stl
+MODELO 40-20 reductor_40-20.stl
+MODELO 40-32 reductor_40-32.stl

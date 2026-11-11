@@ -64,6 +64,8 @@ td select{min-height:26px;padding:1px 4px;width:100%}
 #view canvas{display:block}
 #view-bar{position:absolute;left:10px;top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 8px}
 #view-info{position:absolute;left:10px;bottom:10px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;max-width:calc(100% - 20px)}
+#src-banner{position:absolute;left:10px;right:10px;top:56px;background:var(--panel);border:1px solid var(--warn);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px}
+#src-banner b{color:var(--warn)}
 #busy{position:absolute;right:12px;top:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px}
 #code{display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--border);background:var(--panel)}
 .tabs{display:flex;gap:2px;align-items:center;border-bottom:1px solid var(--border);padding:0 8px}
@@ -99,17 +101,21 @@ footer{padding:4px 12px;background:var(--panel);border-top:1px solid var(--borde
   <header>
     <div class="brand">Pipe<span>CAD</span> <small>· Editor de accesorios</small></div>
     <div class="group">
-      <select id="s-template" title="Empezar desde una plantilla" aria-label="Plantilla">
-        <option value="">Nuevo desde plantilla…</option>
+      <button id="b-new" title="Empezar un accesorio nuevo desde cero">Nuevo</button>
+      <select id="s-template" title="Empezar desde una plantilla (modelos/plantillas)" aria-label="Plantilla">
+        <option value="">Desde plantilla…</option>
       </select>
       <button id="b-open" title="Abrir un .pcf (y, si quieres, su .scad)">Abrir…</button>
-      <select id="s-lib" title="Editar un accesorio guardado en PipeCAD" aria-label="Biblioteca de PipeCAD"></select>
+      <select id="s-lib" title="Editar un accesorio de la biblioteca de PipeCAD" aria-label="Biblioteca de PipeCAD"></select>
+      <button id="b-folder" title="Elegir la carpeta «modelos» de PipeCAD (cuando no se usa el servidor local)" hidden>Carpeta de modelos…</button>
       <input id="file" type="file" accept=".pcf,.txt,.scad" multiple hidden>
+      <input id="folder" type="file" webkitdirectory multiple hidden>
     </div>
     <div class="group">
-      <button id="b-dl-scad" title="Descargar el código OpenSCAD (todas las variantes)">Descargar .scad</button>
+      <button id="b-dl-scad" title="Descargar el código OpenSCAD, con la librería incluida para abrirlo suelto en OpenSCAD">Descargar .scad</button>
       <button id="b-dl-stl" title="Generar con OpenSCAD y descargar el STL de la variante elegida">Descargar .stl</button>
       <button id="b-dl-pcf" title="Descargar la definición .pcf">Descargar .pcf</button>
+      <button id="b-dl-zip" title="Descargar en un .zip el .pcf, el .scad y los STL de todas las variantes">Descargar .zip</button>
     </div>
     <div class="group">
       <button id="b-save" class="primary" title="Generar los STL de todas las variantes y guardar el accesorio en la biblioteca de PipeCAD">Guardar en PipeCAD</button>
@@ -126,6 +132,7 @@ footer{padding:4px 12px;background:var(--panel);border-top:1px solid var(--borde
           <label title="Volver a generar al cambiar el formulario"><input type="checkbox" id="c-auto" checked> Automático</label>
         </div>
         <div id="busy" hidden></div>
+        <div id="src-banner" hidden></div>
         <div id="view-info">Pulsa «Generar con OpenSCAD» para ver el modelo.</div>
       </div>
       <div id="code">
@@ -182,7 +189,7 @@ function parsePCF(text) {
     const t = tokenizePCF(line), key = t[0].toUpperCase(), ln = i + 1;
     const num = (s, what) => { const v = parseNum(s); if (!isFinite(v)) errs.push(`Línea ${ln}: ${what} debe ser un número («${s ?? ''}»)`); return v; };
     switch (key) {
-      case 'ACCESORIO': def.id = (t[1] || '').toLowerCase(); if (!/^[a-z0-9_-]+$/.test(def.id)) errs.push('El identificador solo admite letras sin tildes, números, «-» y «_»'); break;
+      case 'ACCESORIO': def.id = (t[1] || '').toLowerCase(); if (def.id && !/^[a-z0-9_-]+$/.test(def.id)) errs.push('El identificador solo admite letras sin tildes, números, «-» y «_»'); break;
       case 'NOMBRE': def.name = t.slice(1).join(' '); break;
       case 'DESCRIPCION': case 'DESCRIPCIÓN': def.desc = t.slice(1).join(' '); break;
       case 'BOCA': {
@@ -234,22 +241,89 @@ function parsePCF(text) {
    ===================================================================== */
 const S = { id: '', name: '', desc: '', ports: [], variants: [], clearance: 0.25, fn: 64, manualScad: null };
 const varFor = (ds, z) => ({ od: TYP[Math.max(...ds)].od, rows: ds.map((d, i) => ({ d, z: Array.isArray(z) ? z[i] : z, s: TYP[d].socket, pass: '' })) });
-const C30 = [-Math.cos(Math.PI / 6), Math.sin(Math.PI / 6), 0], C60 = [-0.5, Math.sqrt(3) / 2, 0], D45 = [Math.SQRT1_2, Math.SQRT1_2, 0];
-const T = (id, name, desc, dirs, zByD, ds = null) => ({
-  id, name, desc, ports: dirs.map((dir, i) => ({ name: String.fromCharCode(65 + i), dir })),
-  variants: DIAMETERS.map(d => ({ name: String(d), ...varFor(ds ? ds(d) : dirs.map(() => d), zByD(d)) })),
-});
-const TEMPLATES = {
-  cruz90: T('cruz90', 'Cruz 90°', 'Cuatro bocas a 90° en un mismo plano', [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]], d => TYP[d].z),
-  codo30: T('codo30', 'Codo 30°', 'Giro de 30° (cotas orientativas)', [[1, 0, 0], C30], d => ({ 20: 4, 32: 6, 40: 7 })[d]),
-  codo60: T('codo60', 'Codo 60°', 'Giro de 60° (cotas orientativas)', [[1, 0, 0], C60], d => ({ 20: 8, 32: 12, 40: 15 })[d]),
-  te45: T('te45', 'Te a 45° (Y)', 'Derivación a 45° (cotas orientativas)', [[1, 0, 0], [-1, 0, 0], D45], d => ({ 20: [16, 11, 22], 32: [24, 17, 33], 40: [29, 21, 40] })[d]),
-  te3d: T('te3d', 'Te en esquina', 'Tres bocas a 90° en tres ejes', [[1, 0, 0], [0, 1, 0], [0, 0, 1]], d => TYP[d].z),
-  tapon: T('tapon', 'Tapón', 'Cierra el extremo de un tubo', [[1, 0, 0]], () => 3),
-  manguito: T('manguito_largo', 'Manguito largo', 'Unión recta con tope central', [[1, 0, 0], [-1, 0, 0]], () => 2),
+// Accesorio nuevo desde cero: dos bocas opuestas y una variante de Ø32 con medidas típicas
+function newFitting() {
+  Object.assign(S, { id: '', name: '', desc: '', ports: [{ name: 'A', dir: [1, 0, 0] }, { name: 'B', dir: [-1, 0, 0] }],
+    variants: [{ name: '32', ...varFor([32, 32], TYP[32].z) }], manualScad: null });
+  framed = ''; content.clear(); draw(); $('#view-info').textContent = 'Accesorio nuevo: ponle un identificador y define sus bocas y variantes.';
+  renderForm(); changed(true); dirty = false;
+  status('Accesorio nuevo: rellena el identificador, el nombre, las bocas y las variantes');
+}
+
+/* =====================================================================
+   CARPETA DE MODELOS: catálogo, plantillas, librería OpenSCAD y guardado
+   =====================================================================
+   Los archivos 3D viven en modelos/ (junto a las páginas):
+     catalogo.json · pipecad.scad · serie/ · personalizados/ · plantillas/
+   Se leen por HTTP (GitHub Pages o el servidor local) o, si la página se abre como archivo,
+   desde la carpeta que elija el usuario. Para guardar hace falta el servidor local (servidor.mjs)
+   o un navegador que permita escribir en una carpeta (Chrome, Edge). */
+const SRC = { files: null, dir: null, server: false, catalog: null, lib: '', error: '' };
+const LIB_FILE = 'pipecad.scad', LIB_USE = /^\s*(use|include)\s*<\.\.\/pipecad\.scad>\s*;?\s*$/m;
+async function readModelFile(rel, binary = false) {
+  if (SRC.dir) { // carpeta elegida con permiso de escritura
+    let h = SRC.dir; const parts = rel.split('/');
+    for (const p of parts.slice(0, -1)) h = await h.getDirectoryHandle(p);
+    const f = await (await h.getFileHandle(parts.at(-1))).getFile();
+    return binary ? new Uint8Array(await f.arrayBuffer()) : f.text();
+  }
+  if (SRC.files) {
+    const f = SRC.files.get(rel); if (!f) throw new Error(`No está ${rel} en la carpeta elegida`);
+    return binary ? new Uint8Array(await f.arrayBuffer()) : f.text();
+  }
+  let r; try { r = await fetch('modelos/' + rel, { cache: 'no-cache' }); } catch { throw new Error(`no se puede leer modelos/${rel} (página abierta como archivo, sin servidor)`); }
+  if (!r.ok) throw new Error(`modelos/${rel}: ${r.status}`);
+  return binary ? new Uint8Array(await r.arrayBuffer()) : r.text();
+}
+async function loadSources() {
+  if (!SRC.files && !SRC.dir && location.protocol.startsWith('http')) {
+    try { const r = await fetch('api/estado', { cache: 'no-store' }); SRC.server = r.ok && !!(await r.json()).pipecad; } catch { SRC.server = false; }
+  }
+  try {
+    SRC.catalog = JSON.parse(await readModelFile('catalogo.json'));
+    SRC.lib = await readModelFile(LIB_FILE); SRC.error = '';
+  } catch (e) { SRC.catalog = null; SRC.lib = ''; SRC.error = e.message; }
+  renderSources();
+}
+function renderSources() {
+  const cat = SRC.catalog, b = $('#src-banner');
+  $('#s-template').innerHTML = `<option value="">${cat ? 'Desde plantilla…' : 'Plantillas no disponibles'}</option>` + (cat?.plantillas || []).map(p => `<option value="${esc(p.id)}">${esc(p.nombre || p.id)}</option>`).join('');
+  $('#b-folder').hidden = SRC.server;
+  renderLibSelect();
+  if (!cat) {
+    b.hidden = false;
+    b.innerHTML = `<b>No se encuentra la carpeta de modelos</b> (${esc(SRC.error)}). Sin ella no hay plantillas ni librería de OpenSCAD.
+      Abre el editor con el servidor local (<code>iniciar-servidor</code>, ver el README) o pulsa <button class="mini" id="b-folder2">Carpeta de modelos…</button> y elige la carpeta <code>modelos</code> de PipeCAD.`;
+    $('#b-folder2').onclick = pickFolder;
+  } else b.hidden = true;
+}
+// Elegir la carpeta modelos: con permiso de escritura si el navegador lo permite, si no, solo lectura
+async function pickFolder() {
+  if (window.showDirectoryPicker) {
+    try {
+      const dir = await showDirectoryPicker({ id: 'pipecad-modelos', mode: 'readwrite' });
+      try { await dir.getFileHandle('catalogo.json'); } catch { alert('Esa carpeta no tiene catalogo.json: elige la carpeta «modelos» de PipeCAD.'); return false; }
+      SRC.dir = dir; SRC.files = null; await loadSources();
+      status(`Carpeta «${dir.name}» abierta: los accesorios se guardarán en ella`); return true;
+    } catch (e) { if (e.name !== 'AbortError') status('✘ ' + e.message); return false; }
+  }
+  $('#folder').click(); return false;
+}
+$('#folder').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
+  const map = new Map(); for (const f of files) map.set(f.webkitRelativePath.split('/').slice(1).join('/'), f);
+  if (!map.has('catalogo.json')) { alert('Esa carpeta no tiene catalogo.json: elige la carpeta «modelos» de PipeCAD.'); return; }
+  SRC.files = map; SRC.dir = null; await loadSources();
+  status('Carpeta de modelos abierta (solo lectura: para guardar usa el servidor local o «Descargar .zip»)');
 };
-const TEMPLATE_LABELS = { cruz90: 'Cruz 90°', codo30: 'Codo 30°', codo60: 'Codo 60°', te45: 'Te a 45° (Y)', te3d: 'Te en esquina (3 ejes)', tapon: 'Tapón', manguito: 'Manguito largo' };
-function loadTemplate(key) { Object.assign(S, structuredClone(TEMPLATES[key]), { manualScad: null }); renderForm(); changed(true); status(`Plantilla «${TEMPLATE_LABELS[key]}» cargada: cambia el identificador y las medidas a tu gusto`); }
+$('#b-folder').onclick = pickFolder;
+async function loadTemplate(key) {
+  const p = SRC.catalog?.plantillas?.find(x => x.id === key); if (!p) { status(`No existe la plantilla «${key}»`); return false; }
+  try {
+    loadDef(parsePCF(await readModelFile(p.pcf))); dirty = false;
+    status(`Plantilla «${p.nombre || key}» cargada: cambia el identificador y las medidas a tu gusto`); return true;
+  } catch (e) { status('✘ No se pudo abrir la plantilla: ' + e.message.split('\n')[0]); return false; }
+}
 function loadDef(def, scad = null) {
   Object.assign(S, {
     id: def.id, name: def.name, desc: def.desc || '',
@@ -288,6 +362,7 @@ function scadText() {
 // Código generado por el editor de accesorios de PipeCAD. Medidas en milímetros.
 // Origen: punto donde se cortan los ejes de todas las bocas. Cada boca apunta hacia fuera.
 // Pieza imprimible: cuerpo + embocaduras taladradas (Ø tubo + holgura) + paso interior.
+// Necesita ../pipecad.scad; «Descargar .scad» del editor la incluye dentro para abrirlo suelto.
 
 /* [Fabricación] */
 // Variante a generar
@@ -307,39 +382,17 @@ VARIANTES = [
 ${vars}
 ];
 
-V = VARIANTES[search([variante], VARIANTES, 1, 0)[0]];
-assert(V != undef, str("No existe la variante ", variante));
-R = V[1] / 2;            // radio exterior
-M = V[2];                // medidas de cada boca
-N = len(BOCAS);
-function unidad(v) = v / norm(v);
-DIR = [for (b = BOCAS) unidad(b[1])];
-// Hay bocas no alineadas (codos, Tes, cruces): núcleo esférico y cámara central
-RAMIFICADO = N > 1 && max([for (i = [0:N-1]) for (j = [0:N-1]) 1 - abs(DIR[i] * DIR[j])]) > 1e-6;
-PASO_MAX = max([for (m = M) m[3]]);   // Ø del paso más ancho
+// Geometría: librería común de PipeCAD (modelos/pipecad.scad)
+use <../pipecad.scad>
 
-// Lleva el eje Z local a la dirección v
-module orientar(v) rotate([0, acos(v.z), atan2(v.y, v.x)]) children();
-// Cilindro a lo largo del eje Z local, entre dos distancias al origen
-module tramo(r, desde, hasta) translate([0, 0, desde]) cylinder(r = r, h = hasta - desde);
-
-difference() {
-  union() {
-    for (i = [0:N-1]) orientar(DIR[i]) {
-      tramo(R * 0.94, RAMIFICADO ? 0 : -0.5, M[i][1] + 0.6);   // cuerpo de la boca
-      tramo(R, M[i][1], M[i][1] + M[i][2]);                    // embocadura
-    }
-    if (RAMIFICADO) sphere(r = R * 0.97);                       // núcleo
-  }
-  for (i = [0:N-1]) orientar(DIR[i]) {
-    tramo(M[i][0] / 2 + holgura, M[i][1], M[i][1] + M[i][2] + 1);   // taladro de la embocadura
-    if (N > 1) tramo(M[i][3] / 2, RAMIFICADO ? 0 : -0.5, M[i][1] + 0.5); // paso interior
-  }
-  if (RAMIFICADO) sphere(r = PASO_MAX / 2 * 1.15);               // cámara central (radio algo mayor que el del paso más ancho)
-}
+accesorio_pipecad(BOCAS, VARIANTES, variante, holgura);
 `;
 }
 const currentScad = () => S.manualScad ?? scadText();
+// Versión autónoma (para abrirla con OpenSCAD fuera de la carpeta modelos): la librería va dentro
+const standaloneScad = code => SRC.lib && LIB_USE.test(code)
+  ? code.replace(LIB_USE, () => '// ---- librería pipecad.scad (incluida) ----\n' + SRC.lib.replace(/\r\n/g, '\n').trimEnd() + '\n// ---- fin de la librería ----')
+  : code;
 
 /* =====================================================================
    VALIDACIÓN
@@ -466,8 +519,9 @@ function renderAngles() {
 /* =====================================================================
    CAMBIOS: código, comprobaciones y regeneración automática
    ===================================================================== */
-let renderTimer = 0, lastValid = false;
+let renderTimer = 0, lastValid = false, dirty = false; // dirty: cambios del usuario sin guardar
 function changed(immediate = false) {
+  if (!immediate) dirty = true;
   const { def, msgs } = validate();
   lastValid = !!def;
   $('#msgs').innerHTML = msgs.length ? msgs.map(m => `<div class="m ${m.cls}">${esc(m.t)}</div>`).join('') : '<div class="m ok">Definición correcta.</div>';
@@ -488,15 +542,15 @@ const OPENSCAD_URL = 'https://cdn.jsdelivr.net/npm/openscad-wasm-prebuilt@1.2.0/
 const WORKER_SRC = `
 let mod = null;
 self.onmessage = async ({ data }) => {
-  const { id, code, defs } = data, log = [];
+  const { id, code, defs, lib } = data, log = [];
   try {
     mod ||= await import(${JSON.stringify(OPENSCAD_URL)});
     const sc = await mod.createOpenSCAD({ noInitialRun: true, print: s => log.push(s), printErr: s => log.push(s) });
     const inst = sc.getInstance();
-    inst.FS.writeFile('/pieza.scad', code);
+    inst.FS.writeFile('/pipecad.scad', lib || ''); try { inst.FS.mkdir('/p'); } catch {} inst.FS.writeFile('/p/pieza.scad', code);
     const args = [];
     for (const [k, v] of Object.entries(defs || {})) args.push('-D', k + '=' + v);
-    args.push('--backend=manifold', '/pieza.scad', '--export-format=binstl', '-o', '/pieza.stl');
+    args.push('--backend=manifold', '/p/pieza.scad', '--export-format=binstl', '-o', '/pieza.stl');
     let rc = -1;
     try { rc = inst.callMain(args); } catch (e) { log.push('ERROR: ' + (e && e.message || e)); }
     let stl = null; try { stl = inst.FS.readFile('/pieza.stl'); } catch {}
@@ -506,33 +560,33 @@ self.onmessage = async ({ data }) => {
 let worker = null, workerBroken = false, jobId = 0, firstLoad = true, mainMod = null;
 const pending = new Map();
 // Plan B: si el navegador no permite el hilo aparte (p. ej. algunas vistas previas), OpenSCAD corre en la página
-async function openscadHere(code, defs) {
+async function openscadHere(code, defs, lib) {
   const log = [];
   try {
     mainMod ||= await import(OPENSCAD_URL);
     const sc = await mainMod.createOpenSCAD({ noInitialRun: true, print: s => log.push(s), printErr: s => log.push(s) });
     const inst = sc.getInstance();
-    inst.FS.writeFile('/pieza.scad', code);
+    inst.FS.writeFile('/pipecad.scad', lib || ''); try { inst.FS.mkdir('/p'); } catch {} inst.FS.writeFile('/p/pieza.scad', code);
     const args = []; for (const [k, v] of Object.entries(defs || {})) args.push('-D', k + '=' + v);
-    args.push('--backend=manifold', '/pieza.scad', '--export-format=binstl', '-o', '/pieza.stl');
+    args.push('--backend=manifold', '/p/pieza.scad', '--export-format=binstl', '-o', '/pieza.stl');
     let rc = -1; try { rc = inst.callMain(args); } catch (e) { log.push('ERROR: ' + (e?.message || e)); }
     let stl = null; try { stl = inst.FS.readFile('/pieza.stl'); } catch { /* sin salida */ }
     return { rc, log, stl };
   } catch (e) { return { error: String(e?.message || e), log }; }
 }
 function openscad(code, defs) {
-  if (workerBroken) return openscadHere(code, defs);
+  if (workerBroken) return openscadHere(code, defs, SRC.lib);
   if (!worker) {
     try { worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })), { type: 'module' }); }
-    catch { workerBroken = true; return openscadHere(code, defs); }
+    catch { workerBroken = true; return openscadHere(code, defs, SRC.lib); }
     worker.onmessage = ({ data }) => { const p = pending.get(data.id); if (p) { pending.delete(data.id); p.res(data); } };
     worker.onerror = ev => { // el hilo no ha podido arrancar: se repiten aquí los trabajos pendientes
       ev.preventDefault?.(); workerBroken = true; worker.terminate();
-      for (const [id, p] of pending) { pending.delete(id); openscadHere(p.code, p.defs).then(p.res); }
+      for (const [id, p] of pending) { pending.delete(id); openscadHere(p.code, p.defs, SRC.lib).then(p.res); }
     };
   }
   const id = ++jobId;
-  return new Promise(res => { pending.set(id, { res, code, defs }); worker.postMessage({ id, code, defs }); });
+  return new Promise(res => { pending.set(id, { res, code, defs }); worker.postMessage({ id, code, defs, lib: SRC.lib }); });
 }
 const variantDefine = v => ({ variante: JSON.stringify(String(v)) });
 // Interpreta el registro de OpenSCAD: errores, avisos y si el resultado es un único sólido
@@ -547,6 +601,7 @@ function showLog(log, head) {
 const stlCache = new Map(); // `${código}|${variante}` → Uint8Array
 async function stlFor(variant) {
   const code = currentScad(), key = code + '|' + variant;
+  if (!SRC.lib && LIB_USE.test(code)) throw new Error('falta la librería modelos/pipecad.scad: abre el editor con el servidor local o elige la carpeta de modelos');
   if (stlCache.has(key)) return { stl: stlCache.get(key), cached: true };
   const busy = $('#busy'); busy.hidden = false;
   busy.textContent = firstLoad ? 'Cargando OpenSCAD (≈11 MB, solo la primera vez)…' : `OpenSCAD está generando la variante ${variant}…`;
@@ -650,82 +705,197 @@ $('#b-copy').onclick = async () => {
   const pane = $('.tabs [data-pane].on').dataset.pane, text = pane === 'scad' ? $('#scad').value : pane === 'pcf' ? $('#pcf').textContent : $('#log').textContent;
   try { await navigator.clipboard.writeText(text); status('Copiado al portapapeles'); } catch { status('No se pudo copiar: selecciona el texto y usa Ctrl+C'); }
 };
-$('#scad').addEventListener('input', e => { S.manualScad = e.target.value; $('#manual-banner').hidden = false; clearTimeout(renderTimer); if ($('#c-auto').checked) renderTimer = setTimeout(renderPreview, 1200); });
+$('#scad').addEventListener('input', e => { S.manualScad = e.target.value; dirty = true; $('#manual-banner').hidden = false; clearTimeout(renderTimer); if ($('#c-auto').checked) renderTimer = setTimeout(renderPreview, 1200); });
 $('#b-regen').onclick = () => { S.manualScad = null; changed(true); status('Código OpenSCAD regenerado desde el formulario'); };
 $('#b-render').onclick = () => renderPreview();
 $('#s-variant').onchange = () => renderPreview();
 $('#c-auto').onchange = e => { if (e.target.checked) renderPreview(); };
-$('#b-dl-scad').onclick = () => { download(`${S.id || 'accesorio'}.scad`, currentScad(), 'text/plain;charset=utf-8'); status(`${S.id}.scad descargado: ábrelo con OpenSCAD (Personalizador: variante, holgura y resolución)`); };
-$('#b-dl-pcf').onclick = () => { download(`${S.id}.pcf`, pcfText(), 'text/plain;charset=utf-8'); status(`${S.id}.pcf descargado: cárgalo en PipeCAD desde la pestaña Biblioteca`); };
+$('#b-dl-scad').onclick = () => {
+  const code = standaloneScad(currentScad());
+  download(`${S.id || 'accesorio'}.scad`, code, 'text/plain;charset=utf-8');
+  status(`${S.id}.scad descargado${code !== currentScad() ? ' con la librería incluida' : ''}: ábrelo con OpenSCAD (Personalizador: variante, holgura y resolución)`);
+};
+$('#b-dl-pcf').onclick = () => { download(`${S.id}.pcf`, pcfText(), 'text/plain;charset=utf-8'); status(`${S.id}.pcf descargado`); };
 $('#b-dl-stl').onclick = async () => {
   const v = $('#s-variant').value;
   try { const { stl } = await stlFor(v); download(`${S.id}_${v}.stl`, stl, 'model/stl'); status(`${S.id}_${v}.stl descargado (generado con OpenSCAD)`); }
   catch (e) { status('✘ ' + e.message); }
 };
-// Guardar en PipeCAD: genera los STL de todas las variantes y escribe en la biblioteca del navegador
+
+// ---- Guardar: STL de todas las variantes y archivos en modelos/personalizados
+async function allStls() {
+  const out = {};
+  for (const v of S.variants) {
+    status(`Generando con OpenSCAD la variante ${v.name} (${Object.keys(out).length + 1} de ${S.variants.length})…`);
+    const r = await stlFor(v.name), pieces = countPieces(r.stl);
+    if (pieces !== 1 && !confirm(`La variante ${v.name} sale en ${pieces} piezas separadas (no se podría imprimir como un accesorio). ¿Seguir igualmente?`)) { status(`Cancelado: revisa la variante ${v.name}`); return null; }
+    out[v.name] = r.stl;
+  }
+  return out;
+}
+const modelsOf = stls => Object.fromEntries(Object.keys(stls).map(v => [v, `${S.id}_${v}.stl`]));
+// Entrada del catálogo (la misma que escribe servidor.mjs)
+function catalogEntry(stls) {
+  const rel = f => `personalizados/${f}`;
+  return { id: S.id, tipo: 'personalizado', nombre: S.name || S.id, pcf: rel(`${S.id}.pcf`), stl: Object.fromEntries(Object.keys(stls).map(v => [v, rel(`${S.id}_${v}.stl`)])), scad: rel(`${S.id}.scad`) };
+}
+const notifyPipeCAD = () => { try { const ch = new BroadcastChannel('pipecad'); ch.postMessage({ tipo: 'modelos', id: S.id }); ch.close(); } catch { /* sin canal */ } };
+async function saveToServer(stls) {
+  const body = { id: S.id, nombre: S.name || S.id, pcf: pcfText(modelsOf(stls)), scad: currentScad(), stl: Object.fromEntries(Object.entries(stls).map(([v, u8]) => [v, bufToB64(u8)])) };
+  const r = await fetch('api/accesorios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `el servidor respondió ${r.status}`);
+  return j.actualizado;
+}
+async function saveToDir(stls) {
+  const dir = SRC.dir;
+  if (dir.requestPermission && (await dir.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('no hay permiso para escribir en la carpeta');
+  const cat = JSON.parse(await readModelFile('catalogo.json')); cat.accesorios ||= [];
+  const prev = cat.accesorios.find(a => a.id === S.id);
+  if (prev && prev.tipo !== 'personalizado') throw new Error(`«${S.id}» es un accesorio de serie`);
+  const sub = await dir.getDirectoryHandle('personalizados', { create: true });
+  const put = async (h, name, data) => { const w = await (await h.getFileHandle(name, { create: true })).createWritable(); await w.write(data); await w.close(); };
+  await put(sub, `${S.id}.pcf`, pcfText(modelsOf(stls)));
+  await put(sub, `${S.id}.scad`, currentScad());
+  for (const [v, u8] of Object.entries(stls)) await put(sub, `${S.id}_${v}.stl`, u8);
+  if (prev) for (const [v, f] of Object.entries(prev.stl || {})) if (!stls[v]) { try { await sub.removeEntry(f.split('/').pop()); } catch { /* ya no estaba */ } }
+  cat.accesorios = cat.accesorios.filter(a => a.id !== S.id); cat.accesorios.push(catalogEntry(stls));
+  await put(dir, 'catalogo.json', JSON.stringify(cat, null, 2) + '\n');
+  return !!prev;
+}
+// Sin servidor ni carpeta: en el almacenamiento del navegador (PipeCAD de este navegador lo ve)
+function saveToBrowser(stls) {
+  let lib; try { lib = JSON.parse(store.get('pipecad-lib') || '{}'); } catch { lib = {}; }
+  const before = (lib.custom || []).length;
+  lib.disabled ||= []; lib.custom = (lib.custom || []).filter(c => { try { return parsePCF(c.source).id !== S.id; } catch { return true; } });
+  const models = modelsOf(stls);
+  lib.custom.push({ source: pcfText(models), stl: Object.fromEntries(Object.entries(stls).map(([v, u8]) => [v, { name: models[v], b64: bufToB64(u8) }])), ...(S.manualScad != null ? { scad: S.manualScad } : {}) });
+  if (!store.set('pipecad-lib', JSON.stringify(lib))) throw new Error('no cabe en el almacenamiento del navegador: usa «Descargar .zip» o el servidor local');
+  return lib.custom.length === before;
+}
 $('#b-save').onclick = async () => {
   const { def } = validate(); if (!def) return;
-  const stl = {}, models = {};
+  if (SRC.catalog?.accesorios?.some(a => a.id === S.id && a.tipo !== 'personalizado')) { alert(`«${S.id}» es un accesorio de serie: usa otro identificador.`); return; }
+  let stls; try { stls = await allStls(); } catch (e) { status('✘ No se ha guardado: ' + e.message); return; }
+  if (!stls) return;
   try {
-    for (const v of S.variants) {
-      status(`Generando con OpenSCAD la variante ${v.name} (${Object.keys(stl).length + 1} de ${S.variants.length})…`);
-      const r = await stlFor(v.name);
-      const pieces = countPieces(r.stl);
-      if (pieces !== 1 && !confirm(`La variante ${v.name} sale en ${pieces} piezas separadas (no se podría imprimir como un accesorio). ¿Guardar igualmente?`)) { status(`Guardado cancelado: revisa la variante ${v.name}`); return; }
-      const file = `${S.id}_${v.name}.stl`; models[v.name] = file; stl[v.name] = { name: file, b64: bufToB64(r.stl) };
+    let where, replaced;
+    if (SRC.server) { replaced = await saveToServer(stls); where = 'en modelos/personalizados (servidor local)'; }
+    else {
+      if (!SRC.dir && window.showDirectoryPicker && confirm('Elige a continuación la carpeta «modelos» de PipeCAD para guardar en ella el accesorio.\n\nCancelar = guardarlo solo en este navegador.')) await pickFolder();
+      if (SRC.dir) { replaced = await saveToDir(stls); where = `en la carpeta ${SRC.dir.name}/personalizados`; }
+      else { replaced = saveToBrowser(stls); where = 'solo en este navegador (con «Descargar .zip» lo llevas a la carpeta modelos)'; }
     }
-  } catch (e) { status('✘ No se ha guardado: ' + e.message); return; }
-  const source = pcfText(models);
-  let lib; try { lib = JSON.parse(store.get('pipecad-lib') || '{}'); } catch { lib = {}; }
-  lib.disabled ||= []; lib.custom = (lib.custom || []).filter(c => { try { return parsePCF(c.source).id !== S.id; } catch { return true; } });
-  const replaced = (JSON.parse(store.get('pipecad-lib') || '{}').custom || []).length !== lib.custom.length;
-  lib.custom.push({ source, stl, ...(S.manualScad != null ? { scad: S.manualScad } : {}) }); // el código editado a mano se conserva
-  if (!store.set('pipecad-lib', JSON.stringify(lib))) {
-    status('✘ No cabe en el almacenamiento del navegador. Descarga el .pcf y los .stl y cárgalos en PipeCAD con «Cargar accesorio…», o baja la resolución.');
-    return;
-  }
-  renderLibSelect();
-  status(`«${S.name}» ${replaced ? 'actualizado' : 'guardado'} en la biblioteca de PipeCAD con ${S.variants.length} modelo(s) STL de OpenSCAD. Si PipeCAD está abierto en otra pestaña, ya lo tiene.`);
+    dirty = false; notifyPipeCAD(); await loadSources();
+    status(`«${S.name || S.id}» ${replaced ? 'actualizado' : 'guardado'} ${where} con ${Object.keys(stls).length} STL de OpenSCAD. Si PipeCAD está abierto, ya lo tiene.`);
+  } catch (e) { status('✘ No se ha guardado: ' + e.message); }
 };
-function libEntries() {
+
+// ---- .zip con todos los archivos del accesorio (sin compresión: los STL apenas comprimen y así no hace falta ninguna librería)
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function makeZip(files) {
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(12, 0x21, true); // nombres UTF-8, fecha 1-1-1980
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(14, 0x21, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  const size = central.reduce((n, p) => n + p.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, size, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/zip' });
+}
+$('#b-dl-zip').onclick = async () => {
+  const { def } = validate(); if (!def) return;
+  let stls; try { stls = await allStls(); } catch (e) { status('✘ ' + e.message); return; }
+  if (!stls) return;
+  const entry = catalogEntry(stls);
+  const leeme = `Accesorio «${S.name || S.id}» (${S.id}) para PipeCAD
+
+Copia el contenido de la carpeta «personalizados» de este .zip en la carpeta modelos/personalizados de PipeCAD
+y añade esta entrada a la lista "accesorios" de modelos/catalogo.json:
+
+${JSON.stringify(entry, null, 2)}
+
+También puedes cargarlo desde PipeCAD › Biblioteca › «Cargar accesorio…», eligiendo a la vez el .pcf y los .stl.
+Con el servidor local (servidor.mjs) se copian solos a la carpeta modelos.
+El .scad necesita ../pipecad.scad (la librería de la carpeta modelos): «Descargar .scad» en el editor da una versión que la lleva dentro.
+`;
+  const files = [{ name: `personalizados/${S.id}.pcf`, data: pcfText(modelsOf(stls)) }, { name: `personalizados/${S.id}.scad`, data: currentScad() },
+    ...Object.entries(stls).map(([v, u8]) => ({ name: `personalizados/${S.id}_${v}.stl`, data: u8 })), { name: 'LEEME.txt', data: leeme }];
+  download(`${S.id}.zip`, makeZip(files), 'application/zip');
+  status(`${S.id}.zip descargado: ${files.length - 1} archivos y un LEEME.txt con los pasos para añadirlo a la carpeta modelos`);
+};
+
+// ---- biblioteca: accesorios de la carpeta modelos y, por compatibilidad, los guardados en el navegador
+function browserEntries() {
   let lib; try { lib = JSON.parse(store.get('pipecad-lib') || '{}'); } catch { lib = {}; }
   return (lib.custom || []).map(c => { try { return { def: parsePCF(c.source), scad: c.scad || null }; } catch { return null; } }).filter(Boolean);
 }
 function renderLibSelect() {
-  const list = libEntries();
-  $('#s-lib').innerHTML = `<option value="">${list.length ? 'Editar de la biblioteca…' : 'Biblioteca de PipeCAD vacía'}</option>` + list.map(e => `<option value="${esc(e.def.id)}">${esc(e.def.name)} (${esc(e.def.id)})</option>`).join('');
+  const folder = (SRC.catalog?.accesorios || []).filter(a => a.tipo === 'personalizado'), nav = browserEntries().filter(e => !folder.some(a => a.id === e.def.id));
+  const opts = [...folder.map(a => `<option value="${esc(a.id)}">${esc(a.nombre || a.id)} (${esc(a.id)})</option>`),
+    ...nav.map(e => `<option value="${esc(e.def.id)}">${esc(e.def.name)} (${esc(e.def.id)}) · en el navegador</option>`)];
+  $('#s-lib').innerHTML = `<option value="">${opts.length ? 'Editar de la biblioteca…' : 'Biblioteca sin accesorios propios'}</option>` + opts.join('');
 }
-function editFromLib(id) {
-  const e = libEntries().find(x => x.def.id === id);
-  if (!e) { status(`No está «${id}» en la biblioteca de PipeCAD de este navegador`); return false; }
-  loadDef(e.def, e.scad || null);
-  status(`Editando «${e.def.name}» de la biblioteca de PipeCAD` + (e.scad ? ' (con su código OpenSCAD editado a mano)' : ''));
-  return true;
+async function editFromLib(id) {
+  try {
+    const a = SRC.catalog?.accesorios?.find(x => x.id === id && x.tipo === 'personalizado');
+    if (a) {
+      const def = parsePCF(await readModelFile(a.pcf));
+      let code = null;
+      if (a.scad) {
+        code = (await readModelFile(a.scad)).replace(/\r\n/g, '\n');
+        const clr = /^holgura\s*=\s*([\d.]+)\s*;/m.exec(code), fn = /^\$fn\s*=\s*(\d+)\s*;/m.exec(code);
+        if (clr) S.clearance = +clr[1];
+        if (fn) S.fn = +fn[1];
+      }
+      loadDef(def);
+      if (code != null && code.trim() !== scadText().trim()) { S.manualScad = code; changed(true); } // retocado a mano: se respeta
+      dirty = false;
+      status(`Editando «${def.name}» de ${a.pcf}` + (S.manualScad != null ? ' (con su código OpenSCAD retocado a mano)' : ''));
+      return true;
+    }
+    const e = browserEntries().find(x => x.def.id === id);
+    if (e) { loadDef(e.def, e.scad || null); dirty = false; status(`Editando «${e.def.name}», guardado en este navegador`); return true; }
+  } catch (err) { status('✘ No se pudo abrir: ' + err.message.split('\n')[0]); return false; }
+  status(`No está «${id}» en la biblioteca de PipeCAD`); return false;
 }
-$('#s-lib').onchange = e => { if (e.target.value) editFromLib(e.target.value); e.target.value = ''; };
-$('#s-template').innerHTML += Object.entries(TEMPLATE_LABELS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
-$('#s-template').onchange = e => { if (e.target.value) loadTemplate(e.target.value); e.target.value = ''; };
+const discardOk = () => !dirty || confirm('Hay cambios sin guardar en este accesorio. ¿Descartarlos?');
+$('#s-lib').onchange = e => { const id = e.target.value; e.target.value = ''; if (id && discardOk()) editFromLib(id); };
+$('#s-template').onchange = e => { const k = e.target.value; e.target.value = ''; if (k && discardOk()) loadTemplate(k); };
+$('#b-new').onclick = () => { if (discardOk()) newFitting(); };
 $('#b-open').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
   const files = [...e.target.files]; e.target.value = '';
   const pcf = files.find(f => !/\.scad$/i.test(f.name)), scad = files.find(f => /\.scad$/i.test(f.name));
   try {
-    if (pcf) loadDef(parsePCF(await pcf.text()), scad ? await scad.text() : null);
+    if (pcf) { loadDef(parsePCF(await pcf.text()), scad ? await scad.text() : null); dirty = false; }
     else if (scad) { S.manualScad = await scad.text(); changed(true); }
     status(`Abierto: ${files.map(f => f.name).join(', ')}` + (scad ? ' · el código OpenSCAD abierto se usa tal cual (editado a mano)' : ''));
   } catch (err) { alert('No se pudo abrir:\n\n' + err.message); }
 };
+addEventListener('beforeunload', e => { if (dirty) e.preventDefault(); });
 
 /* =====================================================================
    ARRANQUE
    ===================================================================== */
-renderLibSelect();
-const params = new URLSearchParams(location.search);
-if (params.get('edit') && editFromLib(params.get('edit'))) { /* editando */ }
-else if (params.get('plantilla') && TEMPLATES[params.get('plantilla')]) loadTemplate(params.get('plantilla'));
-else loadTemplate('cruz90');
 resize();
-window.pceditor = { S, parsePCF, pcfText, scadText, openscad, stlFor, validate, loadTemplate }; // para pruebas desde la consola
+(async () => {
+  await loadSources();
+  const params = new URLSearchParams(location.search);
+  if (params.get('edit') && await editFromLib(params.get('edit'))) { /* editando */ }
+  else if (params.get('plantilla') && await loadTemplate(params.get('plantilla'))) { /* plantilla */ }
+  else if (params.has('nuevo') || !(await loadTemplate('cruz90'))) newFitting();
+})();
+window.pceditor = { S, SRC, parsePCF, pcfText, scadText, standaloneScad, openscad, stlFor, validate, loadTemplate, newFitting, loadSources, makeZip, countPieces }; // para pruebas desde la consola
 </script>
 </body>
 </html>
