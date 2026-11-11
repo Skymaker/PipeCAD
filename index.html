@@ -340,7 +340,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <h4>Planos de trabajo</h4>
       <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
-      <p>Arriba a la derecha. Arrástralo para girar la vista; haz clic en una cara (planta, alzado…), una arista o un vértice (isométricas) para ir a esa vista. El interruptor cambia entre <b>Iso</b> (ortográfica) y <b>Persp</b> (perspectiva).</p>
+      <p>Arriba a la derecha. Arrástralo para girar la vista. Haz clic en una <b>cara</b> (planta, alzado…: un eje), en el <b>plano de una arista</b> (vista a 45° entre dos ejes) o en el <b>triángulo de un vértice</b> (isométrica, tres ejes) para ir a esa vista; la zona bajo el ratón se resalta. El interruptor cambia entre <b>Iso</b> (ortográfica) y <b>Persp</b> (perspectiva).</p>
       <h4>Colores</h4>
       <p><span class="swatch" style="background:var(--c20)"></span>Ø20 <span class="swatch" style="background:var(--c32)"></span>Ø32 <span class="swatch" style="background:var(--c40)"></span>Ø40 ·
         <span class="swatch" style="background:var(--warn)"></span>aviso · <span class="swatch" style="background:var(--err)"></span>error</p>
@@ -1445,8 +1445,56 @@ function orbitBy(dAz, dEl) {
 }
 
 // ---------- cubo de vistas (esquina superior derecha)
-const VC_FACES = ['Derecha', 'Izquierda', 'Superior', 'Inferior', 'Frontal', 'Posterior']; // orden de BoxGeometry (+X −X +Y −Y +Z −Z) antes de girar el cubo
-const vc = { renderer: null, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1.55, 1.55, 1.55, -1.55, 0.1, 20), cube: null, tex: [], hover: -1, ray: new THREE.Raycaster() };
+// Cubo achaflanado: 6 caras (vista de un eje), 12 planos de arista (vista a 45° entre dos ejes)
+// y 8 triángulos de vértice (isométrica, proporcional a tres ejes).
+const VC_FACES = [ // normal y nombre de cada cara principal
+  [[1, 0, 0], 'Derecha'], [[-1, 0, 0], 'Izquierda'], [[0, 1, 0], 'Posterior'],
+  [[0, -1, 0], 'Frontal'], [[0, 0, 1], 'Superior'], [[0, 0, -1], 'Inferior'],
+];
+const VC_H = 0.8, VC_C = 0.24; // semilado y chaflán (las zonas de arista y vértice miden ~13 px)
+const vc = { renderer: null, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1.55, 1.55, 1.55, -1.55, 0.1, 20), cube: null, parts: [], tex: [], hover: null, ray: new THREE.Raycaster() };
+// Polígonos del cubo achaflanado: {kind, normal, verts (en orden antihorario visto desde fuera), label?}
+function chamferedCubeParts(h = VC_H, c = VC_C) {
+  const k = h - c, parts = [], E = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+  const order = (verts, n) => { // ordena alrededor del centro y asegura sentido antihorario respecto a la normal
+    const cen = verts.reduce((a, v) => a.add(v), new THREE.Vector3()).divideScalar(verts.length);
+    const r = verts[0].clone().sub(cen).normalize(), u = n.clone().cross(r);
+    return verts.sort((a, b) => Math.atan2(a.clone().sub(cen).dot(u), a.clone().sub(cen).dot(r)) - Math.atan2(b.clone().sub(cen).dot(u), b.clone().sub(cen).dot(r)));
+  };
+  VC_FACES.forEach(([nv, label], i) => {
+    const n = new THREE.Vector3(...nv), up = Math.abs(n.z) > 0.5 ? E.y.clone() : E.z.clone(), right = up.clone().cross(n);
+    const verts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => n.clone().multiplyScalar(h).addScaledVector(right, a * k).addScaledVector(up, b * k));
+    parts.push({ kind: 'face', normal: n, verts, label, index: i, right, up });
+  });
+  const axes = ['x', 'y', 'z'];
+  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) for (const sa of [1, -1]) for (const sb of [1, -1]) {
+    const a = axes[i], b = axes[j], d = axes[3 - i - j];
+    const n = E[a].clone().multiplyScalar(sa).addScaledVector(E[b], sb).normalize();
+    const verts = [];
+    for (const t of [k, -k]) {
+      verts.push(E[a].clone().multiplyScalar(sa * h).addScaledVector(E[b], sb * k).addScaledVector(E[d], t));
+      verts.push(E[a].clone().multiplyScalar(sa * k).addScaledVector(E[b], sb * h).addScaledVector(E[d], t));
+    }
+    parts.push({ kind: 'edge', normal: n, verts: order(verts, n) });
+  }
+  for (const sx of [1, -1]) for (const sy of [1, -1]) for (const sz of [1, -1]) {
+    const n = new THREE.Vector3(sx, sy, sz).normalize();
+    const verts = [new THREE.Vector3(sx * h, sy * k, sz * k), new THREE.Vector3(sx * k, sy * h, sz * k), new THREE.Vector3(sx * k, sy * k, sz * h)];
+    parts.push({ kind: 'corner', normal: n, verts: order(verts, n) });
+  }
+  return parts;
+}
+function partGeometry(p) {
+  const pos = [], uv = [];
+  for (let i = 1; i < p.verts.length - 1; i++) for (const v of [p.verts[0], p.verts[i], p.verts[i + 1]]) {
+    pos.push(v.x, v.y, v.z);
+    if (p.kind === 'face') { const k = VC_H - VC_C; uv.push(v.dot(p.right) / (2 * k) + 0.5, v.dot(p.up) / (2 * k) + 0.5); } else uv.push(0, 0);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
 function faceTexture(text, hot) {
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const g = c.getContext('2d');
@@ -1457,20 +1505,37 @@ function faceTexture(text, hot) {
   g.fillText(text.toUpperCase(), 64, 66);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
+// Colores del cubo según el tema; la zona bajo el ratón se resalta con el color de acento
+function paintViewCube() {
+  for (const p of vc.parts) {
+    const hot = vc.hover === p;
+    if (p.kind === 'face') { p.mesh.material.map = vc.tex[p.index][hot ? 1 : 0]; p.mesh.material.color.set(0xffffff); }
+    else p.mesh.material.color.set(hot ? cssVar('--accent') : p.kind === 'edge' ? cssVar('--panel-2') : cssVar('--hover'));
+    p.mesh.material.needsUpdate = true;
+    if (p.line) p.line.material.color.set(cssVar('--muted'));
+  }
+}
 function buildViewCubeTextures() {
   for (const t of vc.tex.flat()) t.dispose();
-  vc.tex = VC_FACES.map(f => [faceTexture(f, false), faceTexture(f, true)]);
-  if (vc.cube) vc.cube.material.forEach((m, i) => { m.map = vc.tex[i][vc.hover === i ? 1 : 0]; m.needsUpdate = true; });
+  vc.tex = VC_FACES.map(([, label]) => [faceTexture(label, false), faceTexture(label, true)]);
+  if (vc.parts.length) paintViewCube();
 }
 function initViewCube() {
   const canvas = $('#vc-canvas');
   vc.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   vc.renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); vc.renderer.setSize(120, 120, false);
   buildViewCubeTextures();
-  const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
-  vc.cube = new THREE.Mesh(geo, vc.tex.map(t => new THREE.MeshBasicMaterial({ map: t[0] })));
-  vc.cube.rotation.x = Math.PI / 2; // Y-arriba → Z-arriba: las caras laterales quedan con el texto derecho
-  vc.cube.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x8a94a0 })));
+  vc.cube = new THREE.Group();
+  vc.parts = chamferedCubeParts();
+  for (const p of vc.parts) {
+    p.mesh = new THREE.Mesh(partGeometry(p), new THREE.MeshBasicMaterial({ side: THREE.FrontSide }));
+    p.mesh.userData.part = p;
+    // contorno de cada zona para que se distingan caras, aristas y vértices
+    const loop = [...p.verts, p.verts[0]].map(v => v.clone().multiplyScalar(1.002));
+    p.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(loop), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.6 }));
+    vc.cube.add(p.mesh, p.line);
+  }
+  paintViewCube();
   vc.scene.add(vc.cube);
   // pequeños ejes de referencia en la esquina inferior del cubo
   const ax = new THREE.AxesHelper(1.2); ax.position.set(-0.85, -0.85, -0.85); vc.scene.add(ax);
@@ -1478,9 +1543,13 @@ function initViewCube() {
   const hit = e => {
     const r = canvas.getBoundingClientRect();
     vc.ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), vc.cam);
-    return vc.ray.intersectObject(vc.cube, false)[0];
+    return vc.ray.intersectObjects(vc.parts.map(p => p.mesh), false)[0];
   };
-  const setHover = i => { if (i === vc.hover) return; vc.hover = i; vc.cube.material.forEach((m, k) => { m.map = vc.tex[k][k === i ? 1 : 0]; }); requestRender(); };
+  const NAMES = { face: 'Vista', edge: 'Vista a 45° entre dos ejes', corner: 'Vista isométrica (tres ejes)' };
+  const setHover = p => {
+    if (p === vc.hover) return; vc.hover = p; paintViewCube(); requestRender();
+    canvas.title = p ? (p.kind === 'face' ? `Vista ${p.label.toLowerCase()}` : NAMES[p.kind]) + ' · arrastra para girar' : 'Arrastra para girar la vista · clic en una cara, arista o vértice';
+  };
   canvas.addEventListener('pointerdown', e => {
     down = { x: e.clientX, y: e.clientY, moved: false };
     try { canvas.setPointerCapture(e.pointerId); } catch { /* sin captura: el arrastre sigue funcionando dentro del cubo */ }
@@ -1492,17 +1561,15 @@ function initViewCube() {
       down.moved = true; down.x = e.clientX; down.y = e.clientY;
       cancelAnimationFrame(viewAnim); orbitBy(-dx * 0.012, dy * 0.012); return;
     }
-    const h = hit(e); setHover(h ? h.face.materialIndex : -1);
+    const h = hit(e); setHover(h ? h.object.userData.part : null);
   });
   canvas.addEventListener('pointerup', e => {
     const d = down; down = null; if (!d || d.moved) return;
     const h = hit(e); if (!h) return;
-    // cara, arista o vértice según la zona pulsada
-    const q = h.point.clone().divideScalar(0.8), dir = new THREE.Vector3();
-    for (const k of ['x', 'y', 'z']) if (Math.abs(q[k]) > 0.55) dir[k] = Math.sign(q[k]);
-    if (dir.lengthSq()) animateView(dir);
+    // la dirección de la vista es la normal de la zona: cara (1 eje), arista (2 ejes) o vértice (3 ejes)
+    animateView(h.object.userData.part.normal.clone());
   });
-  canvas.addEventListener('pointerleave', () => { if (!down) setHover(-1); });
+  canvas.addEventListener('pointerleave', () => { if (!down) setHover(null); });
   $$('.vc-switch button').forEach(b => b.onclick = () => setProjection(b.dataset.proj === 'ortho'));
   syncProjSwitch();
 }
@@ -3158,6 +3225,15 @@ function runTests() {
   test('Desagrupar un grupo concreto deja los demás', () => {
     const t = groupModel(); const g2 = t.m.addGroup([t.nodes[0]], []); t.m.groups.delete(t.gid);
     return all(!t.m.groups.has(t.gid) || 'sigue', t.m.groups.size === 1 || `${t.m.groups.size} grupos`);
+  });
+  test('Cubo de vistas: 6 caras, 12 aristas a 45° y 8 vértices isométricos', () => {
+    const parts = chamferedCubeParts(), by = k => parts.filter(p => p.kind === k);
+    const nz = p => ['x', 'y', 'z'].filter(a => Math.abs(p.normal[a]) > 1e-6).length;
+    const ccw = p => { const [a, b, c] = p.verts; return b.clone().sub(a).cross(c.clone().sub(a)).dot(p.normal) > 0; };
+    return all(by('face').length === 6 && by('face').every(p => nz(p) === 1) || 'caras',
+      by('edge').length === 12 && by('edge').every(p => nz(p) === 2 && p.verts.length === 4) || 'aristas',
+      by('corner').length === 8 && by('corner').every(p => nz(p) === 3 && p.verts.length === 3) || 'vértices',
+      parts.every(ccw) || 'orientación de las caras');
   });
   test('Ejemplo sin errores', () => {
     const m = new Model(); buildExample(m); const an = analyze(m);
