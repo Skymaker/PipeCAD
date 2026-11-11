@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor de accesorios</title>
+<style>
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --panel-2:#f7f8fa; --border:#d8dce2; --text:#1c2128; --muted:#66707c;
+  --accent:#2f6fde; --accent-soft:#e3ecfb; --accent-text:#ffffff; --hover:#eef1f5;
+  --viewport:#e8ecf1; --ok:#2b8a53; --warn:#c77d00; --err:#d4373c; --fitting:#d9dde2; --code:#f6f8fa;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181c; --panel:#1d2127; --panel-2:#22272e; --border:#323840; --text:#e2e6eb; --muted:#8b95a1;
+    --accent:#5b8ff0; --accent-soft:#24324a; --hover:#2a3038; --viewport:#20252b;
+    --ok:#4cbf7d; --warn:#e8a33a; --err:#f0616a; --fitting:#c9ced5; --code:#171a1f;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#app{display:grid;grid-template-rows:auto 1fr auto;height:100vh}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
+.brand{font-weight:700;margin-right:10px;white-space:nowrap}
+.brand span{color:var(--accent)}
+.brand small{font-weight:500;color:var(--muted)}
+.group{display:flex;align-items:center;gap:4px;padding-right:8px;border-right:1px solid var(--border)}
+.group:last-child{border-right:0}
+button,select,input{font:inherit;color:var(--text)}
+button,select{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;min-height:30px;cursor:pointer}
+button:hover:not(:disabled),select:hover{background:var(--hover)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+a.btn{display:inline-flex;align-items:center;text-decoration:none;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;min-height:30px}
+input[type=text],input[type=number]{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 6px;min-height:28px;width:100%}
+input.bad{border-color:var(--err)}
+main{display:grid;grid-template-columns:minmax(380px,460px) 1fr;min-height:0}
+#form{overflow:auto;padding:12px 14px 30px;background:var(--panel);border-right:1px solid var(--border)}
+#right{display:grid;grid-template-rows:1fr minmax(200px,38%);min-height:0}
+h2{font-size:14px;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+h2:first-child{margin-top:2px}
+.hint{color:var(--muted);font-size:12px;margin:4px 0}
+.row{display:grid;grid-template-columns:110px 1fr;gap:6px;align-items:center;margin:4px 0}
+table{width:100%;border-collapse:collapse}
+th,td{padding:3px 3px;text-align:left;font-size:12px}
+th{color:var(--muted);font-weight:600}
+td input{min-height:26px;padding:2px 5px}
+td select{min-height:26px;padding:1px 4px;width:100%}
+.mini{min-height:24px;padding:1px 7px;font-size:12px}
+.card{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:8px 0;background:var(--panel-2)}
+.card-h{display:flex;gap:6px;align-items:center;margin-bottom:4px}
+.card-h input{max-width:110px}
+.angles{font-size:12px;color:var(--muted);margin:4px 0 0}
+.msgs .m{font-size:12px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;margin:4px 0}
+.msgs .err{border-color:var(--err);color:var(--err)}
+.msgs .warn{border-color:var(--warn);color:var(--warn)}
+.msgs .ok{border-color:var(--ok);color:var(--ok)}
+#view{position:relative;background:var(--viewport);min-height:0;overflow:hidden}
+#view canvas{display:block}
+#view-bar{position:absolute;left:10px;top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 8px}
+#view-info{position:absolute;left:10px;bottom:10px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;max-width:calc(100% - 20px)}
+#busy{position:absolute;right:12px;top:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px}
+#code{display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--border);background:var(--panel)}
+.tabs{display:flex;gap:2px;align-items:center;border-bottom:1px solid var(--border);padding:0 8px}
+.tabs button{border:0;border-radius:0;background:transparent;border-bottom:2px solid transparent;padding:7px 10px}
+.tabs button.on{border-bottom-color:var(--accent);color:var(--accent);background:transparent}
+.tabs .sp{flex:1}
+.pane{display:none;flex:1;min-height:0}
+.pane.on{display:flex;flex-direction:column}
+textarea,pre.code{flex:1;margin:0;border:0;resize:none;background:var(--code);color:var(--text);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;padding:10px 12px;overflow:auto;white-space:pre;tab-size:2}
+textarea:focus{outline:2px solid var(--accent);outline-offset:-2px}
+#manual-banner{background:var(--accent-soft);color:var(--accent);font-size:12px;padding:5px 10px;display:flex;gap:8px;align-items:center}
+#log .e{color:var(--err)} #log .w{color:var(--warn)}
+footer{padding:4px 12px;background:var(--panel);border-top:1px solid var(--border);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:900px){
+  body{overflow:auto}
+  #app{height:auto;min-height:100vh}
+  main{grid-template-columns:1fr}
+  #form{border-right:0;border-bottom:1px solid var(--border)}
+  #right{grid-template-rows:60vh 420px}
+  header{padding:6px 16px}
+  .group{border-right:0}
+}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Pipe<span>CAD</span> <small>· Editor de accesorios</small></div>
+    <div class="group">
+      <select id="s-template" title="Empezar desde una plantilla" aria-label="Plantilla">
+        <option value="">Nuevo desde plantilla…</option>
+      </select>
+      <button id="b-open" title="Abrir un .pcf (y, si quieres, su .scad)">Abrir…</button>
+      <select id="s-lib" title="Editar un accesorio guardado en PipeCAD" aria-label="Biblioteca de PipeCAD"></select>
+      <input id="file" type="file" accept=".pcf,.txt,.scad" multiple hidden>
+    </div>
+    <div class="group">
+      <button id="b-dl-scad" title="Descargar el código OpenSCAD (todas las variantes)">Descargar .scad</button>
+      <button id="b-dl-stl" title="Generar con OpenSCAD y descargar el STL de la variante elegida">Descargar .stl</button>
+      <button id="b-dl-pcf" title="Descargar la definición .pcf">Descargar .pcf</button>
+    </div>
+    <div class="group">
+      <button id="b-save" class="primary" title="Generar los STL de todas las variantes y guardar el accesorio en la biblioteca de PipeCAD">Guardar en PipeCAD</button>
+      <a class="btn" href="index.html" target="pipecad" title="Abrir PipeCAD">Ir a PipeCAD</a>
+    </div>
+  </header>
+  <main>
+    <section id="form" aria-label="Definición del accesorio"></section>
+    <section id="right">
+      <div id="view">
+        <div id="view-bar">
+          <label>Variante <select id="s-variant"></select></label>
+          <button id="b-render" class="primary" title="Generar el modelo con OpenSCAD">Generar con OpenSCAD</button>
+          <label title="Volver a generar al cambiar el formulario"><input type="checkbox" id="c-auto" checked> Automático</label>
+        </div>
+        <div id="busy" hidden></div>
+        <div id="view-info">Pulsa «Generar con OpenSCAD» para ver el modelo.</div>
+      </div>
+      <div id="code">
+        <div class="tabs" role="tablist">
+          <button data-pane="scad" class="on">OpenSCAD</button>
+          <button data-pane="pcf">.pcf</button>
+          <button data-pane="log">Registro de OpenSCAD</button>
+          <span class="sp"></span>
+          <button id="b-copy" class="mini" title="Copiar el contenido de la pestaña">Copiar</button>
+        </div>
+        <div class="pane on" id="pane-scad">
+          <div id="manual-banner" hidden>Código editado a mano: el formulario ya no lo sobrescribe. <button id="b-regen" class="mini">Volver a generarlo desde el formulario</button></div>
+          <textarea id="scad" spellcheck="false" aria-label="Código OpenSCAD"></textarea>
+        </div>
+        <div class="pane" id="pane-pcf"><pre class="code" id="pcf"></pre></div>
+        <div class="pane" id="pane-log"><pre class="code" id="log">Sin ejecuciones todavía.</pre></div>
+      </div>
+    </section>
+  </main>
+  <footer id="status">Listo</footer>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+
+/* =====================================================================
+   UTILIDADES Y LENGUAJE .pcf (mismo formato que PipeCAD)
+   ===================================================================== */
+const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const NF = {}; const fmt = (x, d = 1) => (NF[d] ||= new Intl.NumberFormat('es-ES', { maximumFractionDigits: d })).format(Math.round(x * 10 ** d) / 10 ** d);
+const parseNum = s => { s = String(s ?? '').trim(); if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); return s === '' ? NaN : parseFloat(s); };
+const fmtN = x => String(Math.round(x * 1e6) / 1e6);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } } };
+const DIAMETERS = [20, 32, 40];
+const TYP = { 20: { socket: 16, od: 27, z: 11, pass: 16 }, 32: { socket: 22, od: 41, z: 17, pass: 27 }, 40: { socket: 26, od: 50, z: 21, pass: 34 } };
+const BUILTIN_IDS = ['elbow90', 'elbow45', 'tee', 'teeReduced', 'coupling', 'reducer'];
+const status = m => { $('#status').textContent = m; };
+function download(name, data, type) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const bufToB64 = buf => { const u8 = new Uint8Array(buf); let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
+
+const PCF_KEYS = { DIAMETROS: 'ds', 'DIÁMETROS': 'ds', Z: 'zs', EMBOCADURA: 'sockets', EXTERIOR: 'od', PASO: 'pass' };
+function tokenizePCF(line) { const out = [], re = /"([^"]*)"|(\S+)/g; let m; while ((m = re.exec(line))) out.push(m[1] ?? m[2]); return out; }
+function parsePCF(text) {
+  const def = { id: '', name: '', desc: '', ports: [], variants: [], models: {} }, errs = [];
+  String(text).split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/#.*$/, '').trim(); if (!line) return;
+    const t = tokenizePCF(line), key = t[0].toUpperCase(), ln = i + 1;
+    const num = (s, what) => { const v = parseNum(s); if (!isFinite(v)) errs.push(`Línea ${ln}: ${what} debe ser un número («${s ?? ''}»)`); return v; };
+    switch (key) {
+      case 'ACCESORIO': def.id = (t[1] || '').toLowerCase(); if (!/^[a-z0-9_-]+$/.test(def.id)) errs.push('El identificador solo admite letras sin tildes, números, «-» y «_»'); break;
+      case 'NOMBRE': def.name = t.slice(1).join(' '); break;
+      case 'DESCRIPCION': case 'DESCRIPCIÓN': def.desc = t.slice(1).join(' '); break;
+      case 'BOCA': {
+        if (t.length !== 5) { errs.push(`Línea ${ln}: BOCA necesita un nombre y tres números`); break; }
+        const v = new THREE.Vector3(num(t[2], 'X'), num(t[3], 'Y'), num(t[4], 'Z'));
+        if (!(v.lengthSq() > 1e-12)) { errs.push(`Boca «${t[1]}»: la dirección no puede ser 0 0 0`); break; }
+        if (def.ports.some(p => p.name === t[1])) errs.push(`La boca «${t[1]}» está repetida`);
+        def.ports.push({ name: t[1], dir: v.normalize() }); break;
+      }
+      case 'VARIANTE': {
+        const v = { name: t[1], ds: [], zs: [], sockets: [], pass: [], od: NaN, line: ln }; let cur = null;
+        if (!t[1] || PCF_KEYS[t[1].toUpperCase()]) { errs.push(`Línea ${ln}: falta el nombre de la variante`); break; }
+        for (const tok of t.slice(2)) {
+          const k = PCF_KEYS[tok.toUpperCase()]; if (k) { cur = k; continue; }
+          if (!cur) { errs.push(`Línea ${ln}: «${tok}» fuera de lugar`); continue; }
+          const val = num(tok, cur); if (cur === 'od') v.od = val; else v[cur].push(val);
+        }
+        def.variants.push(v); break;
+      }
+      case 'MODELO': if (t.length === 3) def.models[t[1]] = t[2]; break;
+      default: errs.push(`Línea ${ln}: palabra clave desconocida «${t[0]}»`);
+    }
+  });
+  if (!def.id) errs.push('Falta el identificador');
+  if (BUILTIN_IDS.includes(def.id)) errs.push(`«${def.id}» es el identificador de un accesorio de serie: usa otro`);
+  if (!def.name) def.name = def.id;
+  if (!def.ports.length) errs.push('El accesorio necesita al menos una boca');
+  if (!def.variants.length) errs.push('El accesorio necesita al menos una variante');
+  const n = def.ports.length;
+  for (const v of def.variants) {
+    const w = `Variante «${v.name}»`;
+    for (const [k, label] of [['ds', 'Ø'], ['zs', 'Z'], ['sockets', 'embocadura']]) if (v[k].length !== n) errs.push(`${w}: faltan valores de ${label}`);
+    if (v.ds.some(d => !DIAMETERS.includes(d))) errs.push(`${w}: los diámetros deben ser 20, 32 o 40`);
+    if (v.zs.some(z => !(z >= 0))) errs.push(`${w}: la Z no puede ser negativa`);
+    if (v.sockets.some(s => !(s > 0))) errs.push(`${w}: la embocadura debe ser mayor que 0`);
+    if (!(v.od > Math.max(...v.ds))) errs.push(`${w}: el Ø exterior debe ser mayor que el mayor de los diámetros`);
+    if (v.pass.length && v.pass.length !== n) errs.push(`${w}: rellena el paso de todas las bocas o de ninguna`);
+    if (v.pass.some((p, k) => !(p > 0) || p >= v.ds[k])) errs.push(`${w}: cada paso debe ser mayor que 0 y menor que el Ø de su boca`);
+    if (!v.pass.length) delete v.pass;
+  }
+  const names = def.variants.map(v => v.name);
+  if (new Set(names).size !== names.length) errs.push('Hay variantes con el mismo nombre');
+  if (errs.length) { const e = new Error(errs.join('\n')); e.list = [...new Set(errs)]; throw e; }
+  return def;
+}
+
+/* =====================================================================
+   ESTADO DEL EDITOR, PLANTILLAS
+   ===================================================================== */
+const S = { id: '', name: '', desc: '', ports: [], variants: [], clearance: 0.25, fn: 64, manualScad: null };
+const varFor = (ds, z) => ({ od: TYP[Math.max(...ds)].od, rows: ds.map((d, i) => ({ d, z: Array.isArray(z) ? z[i] : z, s: TYP[d].socket, pass: '' })) });
+const C30 = [-Math.cos(Math.PI / 6), Math.sin(Math.PI / 6), 0], C60 = [-0.5, Math.sqrt(3) / 2, 0], D45 = [Math.SQRT1_2, Math.SQRT1_2, 0];
+const T = (id, name, desc, dirs, zByD, ds = null) => ({
+  id, name, desc, ports: dirs.map((dir, i) => ({ name: String.fromCharCode(65 + i), dir })),
+  variants: DIAMETERS.map(d => ({ name: String(d), ...varFor(ds ? ds(d) : dirs.map(() => d), zByD(d)) })),
+});
+const TEMPLATES = {
+  cruz90: T('cruz90', 'Cruz 90°', 'Cuatro bocas a 90° en un mismo plano', [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]], d => TYP[d].z),
+  codo30: T('codo30', 'Codo 30°', 'Giro de 30° (cotas orientativas)', [[1, 0, 0], C30], d => ({ 20: 4, 32: 6, 40: 7 })[d]),
+  codo60: T('codo60', 'Codo 60°', 'Giro de 60° (cotas orientativas)', [[1, 0, 0], C60], d => ({ 20: 8, 32: 12, 40: 15 })[d]),
+  te45: T('te45', 'Te a 45° (Y)', 'Derivación a 45° (cotas orientativas)', [[1, 0, 0], [-1, 0, 0], D45], d => ({ 20: [16, 11, 22], 32: [24, 17, 33], 40: [29, 21, 40] })[d]),
+  te3d: T('te3d', 'Te en esquina', 'Tres bocas a 90° en tres ejes', [[1, 0, 0], [0, 1, 0], [0, 0, 1]], d => TYP[d].z),
+  tapon: T('tapon', 'Tapón', 'Cierra el extremo de un tubo', [[1, 0, 0]], () => 3),
+  manguito: T('manguito_largo', 'Manguito largo', 'Unión recta con tope central', [[1, 0, 0], [-1, 0, 0]], () => 2),
+};
+const TEMPLATE_LABELS = { cruz90: 'Cruz 90°', codo30: 'Codo 30°', codo60: 'Codo 60°', te45: 'Te a 45° (Y)', te3d: 'Te en esquina (3 ejes)', tapon: 'Tapón', manguito: 'Manguito largo' };
+function loadTemplate(key) { Object.assign(S, structuredClone(TEMPLATES[key]), { manualScad: null }); renderForm(); changed(true); status(`Plantilla «${TEMPLATE_LABELS[key]}» cargada: cambia el identificador y las medidas a tu gusto`); }
+function loadDef(def, scad = null) {
+  Object.assign(S, {
+    id: def.id, name: def.name, desc: def.desc || '',
+    ports: def.ports.map(p => ({ name: p.name, dir: [p.dir.x, p.dir.y, p.dir.z].map(x => Math.round(x * 1e6) / 1e6) })),
+    variants: def.variants.map(v => ({ name: v.name, od: v.od, rows: v.ds.map((d, i) => ({ d, z: v.zs[i], s: v.sockets[i], pass: v.pass ? v.pass[i] : '' })) })),
+    manualScad: scad,
+  });
+  renderForm(); changed(true);
+}
+
+/* =====================================================================
+   GENERADORES: .pcf y OpenSCAD
+   ===================================================================== */
+const unit = d => { const l = Math.hypot(...d) || 1; return d.map(x => x / l); };
+function pcfText(models = null) {
+  const L = ['# PipeCAD · definición de accesorio (lenguaje .pcf), creada con el editor de accesorios', '# Medidas en mm. Origen: punto donde se cortan los ejes de las bocas.', `ACCESORIO ${S.id}`, `NOMBRE "${S.name || S.id}"`];
+  if (S.desc) L.push(`DESCRIPCION "${S.desc}"`);
+  L.push('');
+  for (const p of S.ports) L.push(`BOCA ${p.name}  ${p.dir.map(fmtN).join(' ')}`);
+  L.push('');
+  for (const v of S.variants) {
+    const hasPass = v.rows.some(r => r.pass !== '' && r.pass != null);
+    L.push(`VARIANTE ${v.name}  DIAMETROS ${v.rows.map(r => r.d).join(' ')}  Z ${v.rows.map(r => fmtN(r.z)).join(' ')}  EMBOCADURA ${v.rows.map(r => fmtN(r.s)).join(' ')}`
+      + (hasPass ? `  PASO ${v.rows.map(r => r.pass === '' ? fmtN(TYP[r.d].pass) : fmtN(r.pass)).join(' ')}` : '') + `  EXTERIOR ${fmtN(v.od)}`);
+  }
+  if (models) { L.push(''); for (const [k, f] of Object.entries(models)) L.push(`MODELO ${k} ${f}`); }
+  return L.join('\n') + '\n';
+}
+// Código OpenSCAD paramétrico: todas las variantes; se elige con «variante» (Personalizador de OpenSCAD)
+function scadText() {
+  const vnames = S.variants.map(v => v.name);
+  const n = S.ports.length, q = s => `"${String(s).replace(/"/g, '')}"`;
+  const bocas = S.ports.map(p => `  [${q(p.name)}, [${unit(p.dir).map(fmtN).join(', ')}]]`).join(',\n');
+  const vars = S.variants.map(v => `  [${q(v.name)}, ${fmtN(v.od)}, [${v.rows.map(r => `[${r.d}, ${fmtN(r.z)}, ${fmtN(r.s)}, ${fmtN(r.pass === '' || r.pass == null ? TYP[r.d].pass : r.pass)}]`).join(', ')}]]`).join(',\n');
+  return `// PipeCAD · ${S.name || S.id} (${S.id})
+// Código generado por el editor de accesorios de PipeCAD. Medidas en milímetros.
+// Origen: punto donde se cortan los ejes de todas las bocas. Cada boca apunta hacia fuera.
+// Pieza imprimible: cuerpo + embocaduras taladradas (Ø tubo + holgura) + paso interior.
+
+/* [Fabricación] */
+// Variante a generar
+variante = ${q(vnames[0] ?? '')}; // [${vnames.map(v => String(v).replace(/[,\]]/g, '')).join(', ')}]
+// Holgura radial de las embocaduras (mm)
+holgura = ${fmtN(S.clearance)}; // [0:0.05:0.6]
+// Resolución de los círculos (número de lados)
+$fn = ${S.fn}; // [24:8:192]
+
+/* [Hidden] */
+// Bocas: [nombre, dirección hacia fuera]
+BOCAS = [
+${bocas}
+];
+// Variantes: [nombre, Ø exterior, por boca: [Ø tubo, Z (origen → tope), embocadura, Ø paso]]
+VARIANTES = [
+${vars}
+];
+
+V = VARIANTES[search([variante], VARIANTES, 1, 0)[0]];
+assert(V != undef, str("No existe la variante ", variante));
+R = V[1] / 2;            // radio exterior
+M = V[2];                // medidas de cada boca
+N = len(BOCAS);
+function unidad(v) = v / norm(v);
+DIR = [for (b = BOCAS) unidad(b[1])];
+// Hay bocas no alineadas (codos, Tes, cruces): núcleo esférico y cámara central
+RAMIFICADO = N > 1 && max([for (i = [0:N-1]) for (j = [0:N-1]) 1 - abs(DIR[i] * DIR[j])]) > 1e-6;
+PASO_MAX = max([for (m = M) m[3]]);   // Ø del paso más ancho
+
+// Lleva el eje Z local a la dirección v
+module orientar(v) rotate([0, acos(v.z), atan2(v.y, v.x)]) children();
+// Cilindro a lo largo del eje Z local, entre dos distancias al origen
+module tramo(r, desde, hasta) translate([0, 0, desde]) cylinder(r = r, h = hasta - desde);
+
+difference() {
+  union() {
+    for (i = [0:N-1]) orientar(DIR[i]) {
+      tramo(R * 0.94, RAMIFICADO ? 0 : -0.5, M[i][1] + 0.6);   // cuerpo de la boca
+      tramo(R, M[i][1], M[i][1] + M[i][2]);                    // embocadura
+    }
+    if (RAMIFICADO) sphere(r = R * 0.97);                       // núcleo
+  }
+  for (i = [0:N-1]) orientar(DIR[i]) {
+    tramo(M[i][0] / 2 + holgura, M[i][1], M[i][1] + M[i][2] + 1);   // taladro de la embocadura
+    if (N > 1) tramo(M[i][3] / 2, RAMIFICADO ? 0 : -0.5, M[i][1] + 0.5); // paso interior
+  }
+  if (RAMIFICADO) sphere(r = PASO_MAX / 2 * 1.15);               // cámara central (radio algo mayor que el del paso más ancho)
+}
+`;
+}
+const currentScad = () => S.manualScad ?? scadText();
+
+/* =====================================================================
+   VALIDACIÓN
+   ===================================================================== */
+function validate() {
+  const msgs = [];
+  let def = null;
+  try { def = parsePCF(pcfText()); } catch (e) { for (const t of e.list || [e.message]) msgs.push({ cls: 'err', t }); }
+  if (def) {
+    for (const v of S.variants) {
+      const R = v.od / 2;
+      v.rows.forEach((r, i) => {
+        const pass = r.pass === '' ? TYP[r.d].pass : +r.pass;
+        const ws = R - (r.d / 2 + S.clearance), wb = R * 0.94 - pass / 2;
+        if (ws < 1.2) msgs.push({ cls: 'warn', t: `Variante ${v.name}, boca ${S.ports[i]?.name}: pared de la embocadura de ${fmt(ws, 2)} mm (mínimo recomendable 1,2)` });
+        if (wb < 1.2) msgs.push({ cls: 'warn', t: `Variante ${v.name}, boca ${S.ports[i]?.name}: pared del paso de ${fmt(wb, 2)} mm` });
+      });
+    }
+    // bocas que se solapan: dos embocaduras con un ángulo muy cerrado
+    for (let i = 0; i < S.ports.length; i++) for (let j = i + 1; j < S.ports.length; j++) {
+      const a = unit(S.ports[i].dir), b = unit(S.ports[j].dir), ang = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * 180 / Math.PI;
+      if (ang < 30) msgs.push({ cls: 'warn', t: `Las bocas ${S.ports[i].name} y ${S.ports[j].name} forman ${fmt(ang)}°: probablemente se solapen` });
+    }
+  }
+  return { def, msgs };
+}
+
+/* =====================================================================
+   FORMULARIO
+   ===================================================================== */
+function renderForm() {
+  const f = $('#form');
+  f.innerHTML = `
+    <h2>Accesorio</h2>
+    <div class="row"><label for="f-id">Identificador</label><input id="f-id" type="text" value="${esc(S.id)}" placeholder="p. ej. cruz90" spellcheck="false"></div>
+    <div class="row"><label for="f-name">Nombre</label><input id="f-name" type="text" value="${esc(S.name)}" placeholder="p. ej. Cruz 90°"></div>
+    <div class="row"><label for="f-desc">Descripción</label><input id="f-desc" type="text" value="${esc(S.desc)}" placeholder="opcional"></div>
+    <h2>Bocas</h2>
+    <p class="hint">Dirección del eje de cada boca, hacia fuera, desde el origen (el punto donde se cortan los ejes). No hace falta que sea unitaria.</p>
+    <table><thead><tr><th style="width:52px">Nombre</th><th>X</th><th>Y</th><th>Z</th><th style="width:96px">Rápida</th><th></th></tr></thead>
+      <tbody>${S.ports.map((p, i) => `<tr>
+        <td><input type="text" data-pn="${i}" value="${esc(p.name)}" aria-label="Nombre de la boca"></td>
+        ${p.dir.map((c, k) => `<td><input type="text" inputmode="decimal" data-pd="${i}" data-k="${k}" value="${fmtN(c).replace('.', ',')}" aria-label="${'XYZ'[k]}"></td>`).join('')}
+        <td><select data-pq="${i}" aria-label="Dirección rápida"><option value="">—</option><option>+X</option><option>−X</option><option>+Y</option><option>−Y</option><option>+Z</option><option>−Z</option><option value="ang">ángulo en planta…</option></select></td>
+        <td><button class="mini" data-pdel="${i}" title="Quitar la boca" ${S.ports.length < 2 ? 'disabled' : ''}>✕</button></td></tr>`).join('')}</tbody></table>
+    <button class="mini" id="b-add-port">+ Añadir boca</button>
+    <p class="angles" id="angles"></p>
+    <h2>Variantes (tamaños)</h2>
+    <p class="hint"><b>Z</b>: del origen al tope de la embocadura · <b>Emboc.</b>: lo que entra el tubo · <b>Paso</b>: Ø del conducto interior (vacío = el típico del Ø).</p>
+    ${S.variants.map((v, vi) => `<div class="card">
+      <div class="card-h"><label>Nombre <input type="text" data-vn="${vi}" value="${esc(v.name)}" aria-label="Nombre de la variante"></label>
+        <label>Ø ext. <input type="text" inputmode="decimal" data-vod="${vi}" value="${fmtN(v.od).replace('.', ',')}" style="max-width:70px" aria-label="Diámetro exterior"></label>
+        <span style="flex:1"></span>
+        <button class="mini" data-vtyp="${vi}" title="Rellenar embocadura y Ø exterior con valores típicos">Típicos</button>
+        <button class="mini" data-vdup="${vi}" title="Duplicar la variante">⧉</button>
+        <button class="mini" data-vdel="${vi}" title="Quitar la variante" ${S.variants.length < 2 ? 'disabled' : ''}>✕</button></div>
+      <table><thead><tr><th style="width:38px">Boca</th><th style="width:74px">Ø tubo</th><th>Z</th><th>Emboc.</th><th>Paso</th></tr></thead><tbody>
+      ${v.rows.map((r, ri) => `<tr><td>${esc(S.ports[ri]?.name ?? '')}</td>
+        <td><select data-vd="${vi}" data-r="${ri}" aria-label="Ø de tubo">${DIAMETERS.map(d => `<option ${d === r.d ? 'selected' : ''}>${d}</option>`).join('')}</select></td>
+        <td><input type="text" inputmode="decimal" data-vz="${vi}" data-r="${ri}" value="${fmtN(r.z).replace('.', ',')}" aria-label="Z"></td>
+        <td><input type="text" inputmode="decimal" data-vs="${vi}" data-r="${ri}" value="${fmtN(r.s).replace('.', ',')}" aria-label="Embocadura"></td>
+        <td><input type="text" inputmode="decimal" data-vp="${vi}" data-r="${ri}" value="${r.pass === '' || r.pass == null ? '' : fmtN(r.pass).replace('.', ',')}" placeholder="${TYP[r.d].pass}" aria-label="Paso"></td></tr>`).join('')}
+      </tbody></table></div>`).join('')}
+    <button class="mini" id="b-add-var">+ Añadir variante</button>
+    <h2>Fabricación (STL)</h2>
+    <div class="row"><label for="f-clr">Holgura</label><input id="f-clr" type="text" inputmode="decimal" value="${fmtN(S.clearance).replace('.', ',')}" title="Holgura radial de las embocaduras, en mm (0,2–0,3 en FDM)"></div>
+    <div class="row"><label for="f-fn">Resolución</label><select id="f-fn">${[32, 48, 64, 96, 128].map(n => `<option ${n === S.fn ? 'selected' : ''} value="${n}">${n} lados${n === 64 ? ' (recomendado)' : ''}</option>`).join('')}</select></div>
+    <h2>Comprobaciones</h2>
+    <div class="msgs" id="msgs"></div>`;
+  bindForm();
+  renderVariantSelect();
+}
+function bindForm() {
+  const f = $('#form'), num = el => parseNum(el.value);
+  const onIn = (sel, fn) => $$(sel, f).forEach(el => el.addEventListener('input', () => { fn(el); changed(); }));
+  $('#f-id').addEventListener('input', e => { S.id = e.target.value.trim().toLowerCase(); changed(); });
+  $('#f-name').addEventListener('input', e => { S.name = e.target.value; changed(); });
+  $('#f-desc').addEventListener('input', e => { S.desc = e.target.value; changed(); });
+  onIn('[data-pn]', el => { S.ports[+el.dataset.pn].name = el.value.trim() || '?'; });
+  onIn('[data-pd]', el => { const v = num(el); el.classList.toggle('bad', !isFinite(v)); if (isFinite(v)) S.ports[+el.dataset.pd].dir[+el.dataset.k] = v; });
+  $$('[data-pq]', f).forEach(el => el.onchange = () => {
+    const i = +el.dataset.pq, v = el.value; if (!v) return;
+    if (v === 'ang') { const a = parseNum(prompt('Ángulo en planta respecto a +X, en grados (p. ej. 30, 135):', '45')); if (isFinite(a)) S.ports[i].dir = [Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180), 0].map(x => Math.round(x * 1e6) / 1e6); }
+    else S.ports[i].dir = { '+X': [1, 0, 0], '−X': [-1, 0, 0], '+Y': [0, 1, 0], '−Y': [0, -1, 0], '+Z': [0, 0, 1], '−Z': [0, 0, -1] }[v];
+    renderForm(); changed();
+  });
+  $$('[data-pdel]', f).forEach(b => b.onclick = () => { const i = +b.dataset.pdel; S.ports.splice(i, 1); S.variants.forEach(v => v.rows.splice(i, 1)); renderForm(); changed(); });
+  $('#b-add-port').onclick = () => {
+    const used = new Set(S.ports.map(p => p.name)); let c = 65; while (used.has(String.fromCharCode(c))) c++;
+    S.ports.push({ name: String.fromCharCode(c), dir: [0, 0, 1] });
+    S.variants.forEach(v => { const last = v.rows[v.rows.length - 1] || { d: 32, z: 17, s: 22, pass: '' }; v.rows.push({ ...last }); });
+    renderForm(); changed();
+  };
+  onIn('[data-vn]', el => { S.variants[+el.dataset.vn].name = el.value.trim(); renderVariantSelect(); });
+  onIn('[data-vod]', el => { const v = num(el); el.classList.toggle('bad', !(v > 0)); if (isFinite(v)) S.variants[+el.dataset.vod].od = v; });
+  $$('[data-vd]', f).forEach(el => el.onchange = () => { S.variants[+el.dataset.vd].rows[+el.dataset.r].d = +el.value; renderForm(); changed(); });
+  for (const [attr, key] of [['vz', 'z'], ['vs', 's']]) onIn(`[data-${attr}]`, el => { const v = num(el); el.classList.toggle('bad', !isFinite(v)); if (isFinite(v)) S.variants[+el.dataset[attr]].rows[+el.dataset.r][key] = v; });
+  onIn('[data-vp]', el => { const v = num(el); el.classList.toggle('bad', el.value.trim() !== '' && !isFinite(v)); S.variants[+el.dataset.vp].rows[+el.dataset.r].pass = el.value.trim() === '' ? '' : (isFinite(v) ? v : ''); });
+  $$('[data-vtyp]', f).forEach(b => b.onclick = () => { const v = S.variants[+b.dataset.vtyp]; v.rows.forEach(r => { r.s = TYP[r.d].socket; }); v.od = TYP[Math.max(...v.rows.map(r => r.d))].od; renderForm(); changed(); });
+  $$('[data-vdup]', f).forEach(b => b.onclick = () => { const v = structuredClone(S.variants[+b.dataset.vdup]); v.name += '_b'; S.variants.splice(+b.dataset.vdup + 1, 0, v); renderForm(); changed(); });
+  $$('[data-vdel]', f).forEach(b => b.onclick = () => { S.variants.splice(+b.dataset.vdel, 1); renderForm(); changed(); });
+  $('#b-add-var').onclick = () => {
+    const used = S.variants.map(v => v.name), d = DIAMETERS.find(x => !used.includes(String(x))) ?? 32;
+    S.variants.push({ name: used.includes(String(d)) ? `v${S.variants.length + 1}` : String(d), ...varFor(S.ports.map(() => d), TYP[d].z) });
+    renderForm(); changed();
+  };
+  $('#f-clr').addEventListener('input', e => { const v = parseNum(e.target.value); e.target.classList.toggle('bad', !(v >= 0 && v <= 1)); if (v >= 0 && v <= 1) { S.clearance = v; changed(); } });
+  $('#f-fn').onchange = e => { S.fn = +e.target.value; changed(); };
+}
+function renderVariantSelect() {
+  const sel = $('#s-variant'), cur = sel.value;
+  sel.innerHTML = S.variants.map(v => `<option>${esc(v.name)}</option>`).join('');
+  if (S.variants.some(v => v.name === cur)) sel.value = cur;
+}
+function renderAngles() {
+  const out = [];
+  for (let i = 0; i < S.ports.length; i++) for (let j = i + 1; j < S.ports.length; j++) {
+    const a = unit(S.ports[i].dir), b = unit(S.ports[j].dir);
+    out.push(`${S.ports[i].name}–${S.ports[j].name} ${fmt(Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * 180 / Math.PI)}°`);
+  }
+  $('#angles').textContent = out.length ? 'Ángulos entre bocas: ' + out.join(' · ') : '';
+}
+
+/* =====================================================================
+   CAMBIOS: código, comprobaciones y regeneración automática
+   ===================================================================== */
+let renderTimer = 0, lastValid = false;
+function changed(immediate = false) {
+  const { def, msgs } = validate();
+  lastValid = !!def;
+  $('#msgs').innerHTML = msgs.length ? msgs.map(m => `<div class="m ${m.cls}">${esc(m.t)}</div>`).join('') : '<div class="m ok">Definición correcta.</div>';
+  renderAngles();
+  $('#pcf').textContent = pcfText();
+  if (S.manualScad == null) $('#scad').value = scadText();
+  $('#manual-banner').hidden = S.manualScad == null;
+  for (const id of ['#b-dl-pcf', '#b-dl-stl', '#b-save', '#b-render']) $(id).disabled = !def;
+  document.title = `${S.name || 'Accesorio'} · Editor de accesorios`;
+  clearTimeout(renderTimer);
+  if (def && $('#c-auto').checked) renderTimer = setTimeout(() => renderPreview(), immediate ? 50 : 900);
+}
+
+/* =====================================================================
+   OPENSCAD (en un hilo aparte para que la página no se congele)
+   ===================================================================== */
+const OPENSCAD_URL = 'https://cdn.jsdelivr.net/npm/openscad-wasm-prebuilt@1.2.0/dist/openscad.js';
+const WORKER_SRC = `
+let mod = null;
+self.onmessage = async ({ data }) => {
+  const { id, code, defs } = data, log = [];
+  try {
+    mod ||= await import(${JSON.stringify(OPENSCAD_URL)});
+    const sc = await mod.createOpenSCAD({ noInitialRun: true, print: s => log.push(s), printErr: s => log.push(s) });
+    const inst = sc.getInstance();
+    inst.FS.writeFile('/pieza.scad', code);
+    const args = [];
+    for (const [k, v] of Object.entries(defs || {})) args.push('-D', k + '=' + v);
+    args.push('--backend=manifold', '/pieza.scad', '--export-format=binstl', '-o', '/pieza.stl');
+    let rc = -1;
+    try { rc = inst.callMain(args); } catch (e) { log.push('ERROR: ' + (e && e.message || e)); }
+    let stl = null; try { stl = inst.FS.readFile('/pieza.stl'); } catch {}
+    self.postMessage({ id, rc, log, stl }, stl ? [stl.buffer] : []);
+  } catch (e) { self.postMessage({ id, error: String(e && e.message || e), log }); }
+};`;
+let worker = null, workerBroken = false, jobId = 0, firstLoad = true, mainMod = null;
+const pending = new Map();
+// Plan B: si el navegador no permite el hilo aparte (p. ej. algunas vistas previas), OpenSCAD corre en la página
+async function openscadHere(code, defs) {
+  const log = [];
+  try {
+    mainMod ||= await import(OPENSCAD_URL);
+    const sc = await mainMod.createOpenSCAD({ noInitialRun: true, print: s => log.push(s), printErr: s => log.push(s) });
+    const inst = sc.getInstance();
+    inst.FS.writeFile('/pieza.scad', code);
+    const args = []; for (const [k, v] of Object.entries(defs || {})) args.push('-D', k + '=' + v);
+    args.push('--backend=manifold', '/pieza.scad', '--export-format=binstl', '-o', '/pieza.stl');
+    let rc = -1; try { rc = inst.callMain(args); } catch (e) { log.push('ERROR: ' + (e?.message || e)); }
+    let stl = null; try { stl = inst.FS.readFile('/pieza.stl'); } catch { /* sin salida */ }
+    return { rc, log, stl };
+  } catch (e) { return { error: String(e?.message || e), log }; }
+}
+function openscad(code, defs) {
+  if (workerBroken) return openscadHere(code, defs);
+  if (!worker) {
+    try { worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })), { type: 'module' }); }
+    catch { workerBroken = true; return openscadHere(code, defs); }
+    worker.onmessage = ({ data }) => { const p = pending.get(data.id); if (p) { pending.delete(data.id); p.res(data); } };
+    worker.onerror = ev => { // el hilo no ha podido arrancar: se repiten aquí los trabajos pendientes
+      ev.preventDefault?.(); workerBroken = true; worker.terminate();
+      for (const [id, p] of pending) { pending.delete(id); openscadHere(p.code, p.defs).then(p.res); }
+    };
+  }
+  const id = ++jobId;
+  return new Promise(res => { pending.set(id, { res, code, defs }); worker.postMessage({ id, code, defs }); });
+}
+const variantDefine = v => ({ variante: JSON.stringify(String(v)) });
+// Interpreta el registro de OpenSCAD: errores, avisos y si el resultado es un único sólido
+function readLog(log) {
+  const errors = log.filter(l => /^(ERROR|TRACE)/.test(l)), warnings = log.filter(l => /^WARNING/.test(l));
+  const vol = log.map(l => /Volumes:\s+(\d+)/.exec(l)).filter(Boolean).pop();
+  return { errors, warnings, solids: vol ? +vol[1] - 1 : null };
+}
+function showLog(log, head) {
+  $('#log').innerHTML = esc(head) + '\n\n' + log.map(l => `<span class="${/^(ERROR|TRACE)/.test(l) ? 'e' : /^WARNING/.test(l) ? 'w' : ''}">${esc(l)}</span>`).join('\n');
+}
+const stlCache = new Map(); // `${código}|${variante}` → Uint8Array
+async function stlFor(variant) {
+  const code = currentScad(), key = code + '|' + variant;
+  if (stlCache.has(key)) return { stl: stlCache.get(key), cached: true };
+  const busy = $('#busy'); busy.hidden = false;
+  busy.textContent = firstLoad ? 'Cargando OpenSCAD (≈11 MB, solo la primera vez)…' : `OpenSCAD está generando la variante ${variant}…`;
+  const t0 = performance.now();
+  const r = await openscad(code, variantDefine(variant));
+  firstLoad = false; busy.hidden = true;
+  const info = readLog(r.log || []), ms = Math.round(performance.now() - t0);
+  showLog(r.log || [], `Variante ${variant} · ${ms} ms · código de salida ${r.rc ?? '—'}`);
+  if (r.error || !r.stl || !r.stl.length || info.errors.length) {
+    const msg = r.error || info.errors[0] || 'OpenSCAD no ha generado el STL';
+    throw Object.assign(new Error(msg), { log: r.log });
+  }
+  stlCache.set(key, r.stl);
+  if (stlCache.size > 24) stlCache.delete(stlCache.keys().next().value);
+  return { stl: r.stl, info, ms };
+}
+
+/* =====================================================================
+   VISTA 3D
+   ===================================================================== */
+const view = $('#view'), renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); view.prepend(renderer.domElement);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, 1, 20000);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f96, 1.6));
+const head = new THREE.DirectionalLight(0xffffff, 1.3); head.position.set(0.3, 0.5, 1); camera.add(head); scene.add(camera);
+const controls = new OrbitControls(camera, renderer.domElement); controls.addEventListener('change', () => draw());
+const grid = new THREE.GridHelper(400, 40); grid.rotation.x = Math.PI / 2; grid.material.transparent = true; grid.material.opacity = 0.35; scene.add(grid);
+const content = new THREE.Group(); scene.add(content);
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function draw() { renderer.render(scene, camera); }
+function resize() { const w = view.clientWidth, h = view.clientHeight; if (!w || !h) return; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); draw(); }
+new ResizeObserver(resize).observe(view);
+renderer.setClearColor(new THREE.Color(cssVar('--viewport')));
+camera.position.set(160, -200, 140); controls.update();
+function parseSTL(u8) {
+  const buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength), dv = new DataView(buf), n = dv.getUint32(80, true), pos = new Float32Array(n * 9);
+  for (let i = 0; i < n; i++) for (let k = 0; k < 9; k++) pos[i * 9 + k] = dv.getFloat32(84 + 50 * i + 12 + 4 * k, true);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+}
+// Piezas del STL: triángulos unidos por vértices compartidos. Un accesorio correcto es una sola pieza.
+function countPieces(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), n = dv.getUint32(80, true), ids = new Map(), par = [];
+  const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const vid = o => { const k = [0, 1, 2].map(i => Math.round(dv.getFloat32(o + 4 * i, true) * 1000)).join(','); if (!ids.has(k)) { ids.set(k, par.length); par.push(par.length); } return ids.get(k); };
+  const first = [];
+  for (let i = 0; i < n; i++) { const o = 84 + 50 * i + 12, a = vid(o), b = vid(o + 12), c = vid(o + 24); par[find(a)] = find(b); par[find(b)] = find(c); first.push(a); }
+  return new Set(first.map(find)).size;
+}
+let framed = '';
+function showModel(stl, variant) {
+  content.clear();
+  const g = parseSTL(stl);
+  content.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: new THREE.Color(cssVar('--fitting')), roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide })));
+  // ejes de las bocas, su nombre y un trozo de tubo transparente metido hasta el tope
+  const v = S.variants.find(x => x.name === variant);
+  S.ports.forEach((p, i) => {
+    const d = new THREE.Vector3(...unit(p.dir)), r = v?.rows[i], z = r?.z ?? 0, s = r?.s ?? 20, L = z + s + 70;
+    content.add(new THREE.ArrowHelper(d, new THREE.Vector3(), L, 0x2f6fde, 8, 5));
+    if (r) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(r.d / 2, r.d / 2, L - z, 40, 1, true), new THREE.MeshStandardMaterial({ color: 0x4f9fd6, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d); tube.position.copy(d).multiplyScalar(z + (L - z) / 2); content.add(tube);
+    }
+    const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+    x.fillStyle = '#2f6fde'; x.font = 'bold 40px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(p.name, 32, 34);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false })); sp.scale.setScalar(14); sp.position.copy(d).multiplyScalar(L + 10); content.add(sp);
+  });
+  g.computeBoundingSphere();
+  const key = S.id + '|' + S.ports.length;
+  if (framed !== key) { // encuadra solo cuando cambia el accesorio, para no perder la vista del usuario
+    framed = key; const R = g.boundingSphere.radius + 70;
+    controls.target.set(0, 0, 0); camera.position.set(R * 1.7, -R * 2.1, R * 1.5); controls.update();
+  }
+  draw();
+  return g;
+}
+async function renderPreview() {
+  if (!lastValid) return;
+  const variant = $('#s-variant').value || S.variants[0]?.name;
+  try {
+    const r = await stlFor(variant);
+    const g = showModel(r.stl, variant); g.computeBoundingBox();
+    const sz = g.boundingBox.getSize(new THREE.Vector3()), info = r.info, pieces = countPieces(r.stl);
+    $('#view-info').innerHTML = `Variante <b>${esc(variant)}</b> · ${fmt(g.getAttribute('position').count / 3, 0)} triángulos · ${fmt(r.stl.length / 1024, 0)} KB · ${fmt(sz.x)} × ${fmt(sz.y)} × ${fmt(sz.z)} mm`
+      + (pieces === 1 ? ' · <span style="color:var(--ok)">una sola pieza</span>' : ` · <span style="color:var(--err)">✘ ${pieces} piezas separadas: revisa Z, embocaduras y paso</span>`)
+      + (info?.warnings.length ? ` · <span style="color:var(--warn)">${info.warnings.length} aviso(s) de OpenSCAD</span>` : '');
+    status(`Modelo generado con OpenSCAD${r.ms ? ` en ${fmt(r.ms / 1000, 1)} s` : ''}`);
+  } catch (e) {
+    $('#view-info').innerHTML = `<span style="color:var(--err)">✘ ${esc(e.message)}</span> · mira la pestaña «Registro de OpenSCAD»`;
+    status('✘ OpenSCAD no ha podido generar el modelo: ' + e.message);
+  }
+}
+
+/* =====================================================================
+   ARCHIVOS, BIBLIOTECA DE PIPECAD Y PESTAÑAS
+   ===================================================================== */
+$$('.tabs [data-pane]').forEach(b => b.onclick = () => {
+  $$('.tabs [data-pane]').forEach(x => x.classList.toggle('on', x === b));
+  $$('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.pane));
+});
+$('#b-copy').onclick = async () => {
+  const pane = $('.tabs [data-pane].on').dataset.pane, text = pane === 'scad' ? $('#scad').value : pane === 'pcf' ? $('#pcf').textContent : $('#log').textContent;
+  try { await navigator.clipboard.writeText(text); status('Copiado al portapapeles'); } catch { status('No se pudo copiar: selecciona el texto y usa Ctrl+C'); }
+};
+$('#scad').addEventListener('input', e => { S.manualScad = e.target.value; $('#manual-banner').hidden = false; clearTimeout(renderTimer); if ($('#c-auto').checked) renderTimer = setTimeout(renderPreview, 1200); });
+$('#b-regen').onclick = () => { S.manualScad = null; changed(true); status('Código OpenSCAD regenerado desde el formulario'); };
+$('#b-render').onclick = () => renderPreview();
+$('#s-variant').onchange = () => renderPreview();
+$('#c-auto').onchange = e => { if (e.target.checked) renderPreview(); };
+$('#b-dl-scad').onclick = () => { download(`${S.id || 'accesorio'}.scad`, currentScad(), 'text/plain;charset=utf-8'); status(`${S.id}.scad descargado: ábrelo con OpenSCAD (Personalizador: variante, holgura y resolución)`); };
+$('#b-dl-pcf').onclick = () => { download(`${S.id}.pcf`, pcfText(), 'text/plain;charset=utf-8'); status(`${S.id}.pcf descargado: cárgalo en PipeCAD desde la pestaña Biblioteca`); };
+$('#b-dl-stl').onclick = async () => {
+  const v = $('#s-variant').value;
+  try { const { stl } = await stlFor(v); download(`${S.id}_${v}.stl`, stl, 'model/stl'); status(`${S.id}_${v}.stl descargado (generado con OpenSCAD)`); }
+  catch (e) { status('✘ ' + e.message); }
+};
+// Guardar en PipeCAD: genera los STL de todas las variantes y escribe en la biblioteca del navegador
+$('#b-save').onclick = async () => {
+  const { def } = validate(); if (!def) return;
+  const stl = {}, models = {};
+  try {
+    for (const v of S.variants) {
+      status(`Generando con OpenSCAD la variante ${v.name} (${Object.keys(stl).length + 1} de ${S.variants.length})…`);
+      const r = await stlFor(v.name);
+      const pieces = countPieces(r.stl);
+      if (pieces !== 1 && !confirm(`La variante ${v.name} sale en ${pieces} piezas separadas (no se podría imprimir como un accesorio). ¿Guardar igualmente?`)) { status(`Guardado cancelado: revisa la variante ${v.name}`); return; }
+      const file = `${S.id}_${v.name}.stl`; models[v.name] = file; stl[v.name] = { name: file, b64: bufToB64(r.stl) };
+    }
+  } catch (e) { status('✘ No se ha guardado: ' + e.message); return; }
+  const source = pcfText(models);
+  let lib; try { lib = JSON.parse(store.get('pipecad-lib') || '{}'); } catch { lib = {}; }
+  lib.disabled ||= []; lib.custom = (lib.custom || []).filter(c => { try { return parsePCF(c.source).id !== S.id; } catch { return true; } });
+  const replaced = (JSON.parse(store.get('pipecad-lib') || '{}').custom || []).length !== lib.custom.length;
+  lib.custom.push({ source, stl, ...(S.manualScad != null ? { scad: S.manualScad } : {}) }); // el código editado a mano se conserva
+  if (!store.set('pipecad-lib', JSON.stringify(lib))) {
+    status('✘ No cabe en el almacenamiento del navegador. Descarga el .pcf y los .stl y cárgalos en PipeCAD con «Cargar accesorio…», o baja la resolución.');
+    return;
+  }
+  renderLibSelect();
+  status(`«${S.name}» ${replaced ? 'actualizado' : 'guardado'} en la biblioteca de PipeCAD con ${S.variants.length} modelo(s) STL de OpenSCAD. Si PipeCAD está abierto en otra pestaña, ya lo tiene.`);
+};
+function libEntries() {
+  let lib; try { lib = JSON.parse(store.get('pipecad-lib') || '{}'); } catch { lib = {}; }
+  return (lib.custom || []).map(c => { try { return { def: parsePCF(c.source), scad: c.scad || null }; } catch { return null; } }).filter(Boolean);
+}
+function renderLibSelect() {
+  const list = libEntries();
+  $('#s-lib').innerHTML = `<option value="">${list.length ? 'Editar de la biblioteca…' : 'Biblioteca de PipeCAD vacía'}</option>` + list.map(e => `<option value="${esc(e.def.id)}">${esc(e.def.name)} (${esc(e.def.id)})</option>`).join('');
+}
+function editFromLib(id) {
+  const e = libEntries().find(x => x.def.id === id);
+  if (!e) { status(`No está «${id}» en la biblioteca de PipeCAD de este navegador`); return false; }
+  loadDef(e.def, e.scad || null);
+  status(`Editando «${e.def.name}» de la biblioteca de PipeCAD` + (e.scad ? ' (con su código OpenSCAD editado a mano)' : ''));
+  return true;
+}
+$('#s-lib').onchange = e => { if (e.target.value) editFromLib(e.target.value); e.target.value = ''; };
+$('#s-template').innerHTML += Object.entries(TEMPLATE_LABELS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+$('#s-template').onchange = e => { if (e.target.value) loadTemplate(e.target.value); e.target.value = ''; };
+$('#b-open').onclick = () => $('#file').click();
+$('#file').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  const pcf = files.find(f => !/\.scad$/i.test(f.name)), scad = files.find(f => /\.scad$/i.test(f.name));
+  try {
+    if (pcf) loadDef(parsePCF(await pcf.text()), scad ? await scad.text() : null);
+    else if (scad) { S.manualScad = await scad.text(); changed(true); }
+    status(`Abierto: ${files.map(f => f.name).join(', ')}` + (scad ? ' · el código OpenSCAD abierto se usa tal cual (editado a mano)' : ''));
+  } catch (err) { alert('No se pudo abrir:\n\n' + err.message); }
+};
+
+/* =====================================================================
+   ARRANQUE
+   ===================================================================== */
+renderLibSelect();
+const params = new URLSearchParams(location.search);
+if (params.get('edit') && editFromLib(params.get('edit'))) { /* editando */ }
+else if (params.get('plantilla') && TEMPLATES[params.get('plantilla')]) loadTemplate(params.get('plantilla'));
+else loadTemplate('cruz90');
+resize();
+window.pceditor = { S, parsePCF, pcfText, scadText, openscad, stlFor, validate, loadTemplate }; // para pruebas desde la consola
+</script>
+</body>
+</html>

@@ -377,6 +377,7 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
       <p>Los comandos están a la izquierda. El primer botón lo contrae (solo iconos, con el nombre al pasar el ratón) o lo expande (icono con el texto debajo). <b>Ajustes</b> permite ocultar el botón «Ejemplo» y agrandar el cubo de vistas y el gizmo de planos (hasta el doble).</p>
       <h4>Biblioteca de accesorios</h4>
       <p>En la pestaña <b>Biblioteca</b> se cargan y quitan los accesorios uno a uno: los de serie con su casilla y los personalizados desde un archivo <code>.pcf</code> (un texto sencillo que describe sus bocas y medidas) y, opcionalmente, su modelo <code>.stl</code>. Cada accesorio se puede descargar en STL para imprimirlo en 3D. Allí mismo está la guía para crear accesorios propios y una plantilla.</p>
+      <p>El <b>Editor de accesorios</b> (botón de la pestaña Biblioteca o <code>editor.html</code>) permite crearlos con un formulario: genera el código <b>OpenSCAD</b>, que se puede descargar, y con él los STL imprimibles.</p>
       <h4>Planos de trabajo</h4>
       <p>Arriba a la izquierda: tres planos (XY azul, XZ verde, YZ rojo). Pulsa uno para trabajar en él: los clics en el vacío caen sobre ese plano y la rejilla se coloca en él. Su posición se ajusta en la casilla de la barra (Z, Y o X plano). La barra de estado muestra siempre X, Y y Z del punto que estás marcando.</p>
       <h4>Cubo de vistas</h4>
@@ -3743,14 +3744,14 @@ $('#b-mirror-v').onclick = () => mirrorSelection('v');
 
 // ---------- biblioteca de accesorios (estado de la aplicación, guardado en el navegador)
 function saveLib() {
-  const ok = store.set('pipecad-lib', JSON.stringify({ disabled: [...LIB.disabled], custom: [...LIB.custom.values()].map(e => ({ source: e.source, stl: e.stl })) }));
+  const ok = store.set('pipecad-lib', JSON.stringify({ disabled: [...LIB.disabled], custom: [...LIB.custom.values()].map(e => ({ source: e.source, stl: e.stl, ...(e.scad ? { scad: e.scad } : {}) })) }));
   return ok;
 }
 function loadLib() {
   try {
     const j = JSON.parse(store.get('pipecad-lib') || '{}');
     LIB.disabled = new Set((j.disabled || []).filter(k => BUILTIN_KINDS.includes(k)));
-    for (const c of j.custom || []) { try { const def = parsePCF(c.source); LIB.custom.set(def.id, { def, source: c.source, stl: c.stl || {} }); } catch { /* definición dañada: se ignora */ } }
+    for (const c of j.custom || []) { try { const def = parsePCF(c.source); LIB.custom.set(def.id, { def, source: c.source, stl: c.stl || {}, ...(c.scad ? { scad: c.scad } : {}) }); } catch { /* definición dañada: se ignora */ } }
   } catch { /* sin biblioteca guardada */ }
 }
 // Tras cualquier cambio: se recalcula el modelo (los nudos pueden dejar de ser válidos o pasar a reconocerse)
@@ -3860,17 +3861,19 @@ function renderLibrary() {
         <select class="lib-var" data-id="${def.id}" aria-label="Variante">${def.variants.map(v => `<option>${esc(v.name)}</option>`).join('')}</select>
         <button class="lib-stl" data-id="${def.id}" title="Descargar el modelo STL de la variante (imprimible)">STL</button>
         <button class="lib-pcf" data-id="${def.id}" title="Descargar la definición .pcf">.pcf</button>
-        ${builtin ? '' : `<button class="lib-del" data-id="${def.id}" title="Quitar de la biblioteca">Quitar</button>`}
+        ${builtin ? '' : `<button class="lib-edit" data-id="${def.id}" title="Abrir en el editor de accesorios (OpenSCAD)">Editar</button> <button class="lib-del" data-id="${def.id}" title="Quitar de la biblioteca">Quitar</button>`}
       </td></tr>`).join('');
   const all = libDefs(), custom = all.filter(x => !x.builtin);
   el.innerHTML = `<h3>Biblioteca de accesorios</h3>
-    <div class="btns"><button id="lib-load" class="primary">Cargar accesorio…</button><button id="lib-template">Descargar plantilla</button></div>
+    <div class="btns"><button id="lib-editor" class="primary" title="Crear y editar accesorios con modelos generados por OpenSCAD">Editor de accesorios</button><button id="lib-load">Cargar accesorio…</button><button id="lib-template">Descargar plantilla</button></div>
     <p class="hint">Marca o desmarca los de serie para cargarlos o quitarlos; los personalizados se cargan desde su archivo <code>.pcf</code> (y sus <code>.stl</code>, si los tienen) y se quitan uno a uno. Los cambios se guardan en este navegador.</p>
     <h4>De serie</h4><table>${rows(all.filter(x => x.builtin))}</table>
     <h4>Personalizados (${custom.length})</h4>
     ${custom.length ? `<table>${rows(custom)}</table>` : '<p class="hint">Todavía no hay ninguno. Descarga la plantilla, edítala y cárgala.</p>'}
     <details class="lib-guide"><summary>Cómo crear un accesorio personalizado</summary>${LIB_GUIDE}</details>`;
   $('#lib-load').onclick = () => $('#lib-file').click();
+  $('#lib-editor').onclick = () => window.open('editor.html', 'pceditor');
+  $$('.lib-edit', el).forEach(b => b.onclick = () => window.open('editor.html?edit=' + encodeURIComponent(b.dataset.id), 'pceditor'));
   $('#lib-template').onclick = () => { download('plantilla_accesorio.pcf', TEMPLATE_PCF, 'text/plain;charset=utf-8'); status('Plantilla descargada: edítala con cualquier editor de texto y cárgala con «Cargar accesorio…»'); };
   $$('.lib-on', el).forEach(c => c.onchange = () => {
     if (c.checked) LIB.disabled.delete(c.dataset.id); else LIB.disabled.add(c.dataset.id);
@@ -3882,6 +3885,7 @@ function renderLibrary() {
   $$('.lib-del', el).forEach(b => b.onclick = () => removeCustom(b.dataset.id));
 }
 const LIB_GUIDE = `
+<p><b>La forma más cómoda es el <a href="editor.html" target="pceditor">Editor de accesorios</a></b>: un formulario con plantillas que genera el <code>.pcf</code> y el código <b>OpenSCAD</b> (que puedes descargar y retocar), crea los STL con OpenSCAD y guarda el accesorio en esta biblioteca. Lo que sigue explica el formato por si prefieres escribirlo a mano.</p>
 <p>Un accesorio se describe en un archivo de texto <code>.pcf</code> con una instrucción por línea. Lo que va detrás de <code>#</code> es un comentario. Las palabras clave pueden ir en mayúsculas o minúsculas; los decimales, con punto o coma.</p>
 <h4>Instrucciones</h4>
 <table>
@@ -3921,6 +3925,15 @@ BOCA A  1 0 0
 BOCA B -0.866 0.5 0     # 150° entre bocas = giro de 30°
 VARIANTE 32  DIAMETROS 32 32  Z 6 6  EMBOCADURA 22 22  EXTERIOR 41</pre>`;
 $('#lib-file').onchange = async e => { const files = [...e.target.files]; e.target.value = ''; if (files.length) await importLibFiles(files); };
+// Si el editor de accesorios (otra pestaña) guarda en la biblioteca, se recarga aquí al momento
+addEventListener('storage', e => {
+  if (e.key !== 'pipecad-lib') return;
+  const before = new Set(LIB.custom.keys());
+  LIB.custom.clear(); loadLib();
+  LIB.version++; LIB.geo.clear(); clearCache(); renderFitSelect(); renderLibrary(); model.emit();
+  const added = [...LIB.custom.values()].filter(x => !before.has(x.def.id)).map(x => x.def.name);
+  status(added.length ? `Biblioteca actualizada desde el editor: ${added.join(', ')}` : 'Biblioteca actualizada desde el editor de accesorios');
+});
 
 // ---------- ajustes de la interfaz (este navegador)
 const PREFS = { showExample: true, gizmoPct: 100, clearance: 0.25 };
