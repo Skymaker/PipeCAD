@@ -54,6 +54,14 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 #start h1{font-size:20px;margin:0 0 6px}
 #start p{margin:6px 0 14px;color:var(--muted)}
 #start .btns{display:grid;gap:8px}
+/* iPhone / iPad: hoja con la imagen que abre AR Quick Look */
+#ql{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.35)}
+#ql .card{padding:18px;max-width:420px;width:100%}
+#ql h2{font-size:18px;margin:0 0 6px}
+#ql p{margin:6px 0 12px;color:var(--muted);font-size:13px}
+#ql-link{display:block;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--viewport)}
+#ql-link img{display:block;width:100%;height:auto}
+#ql .row{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:10px}
 /* Realidad aumentada: interfaz superpuesta (Android, dom-overlay); en las gafas no se ve */
 #xr-ui{position:fixed;inset:0;pointer-events:none;color:#fff;font-size:15px}
 #xr-ui .card{background:rgba(20,23,28,.72);border-color:rgba(255,255,255,.18);color:#fff;pointer-events:auto}
@@ -113,6 +121,16 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 </div>
 <input id="file" type="file" accept=".json,application/json" hidden>
 
+<div id="ql" hidden>
+  <div class="card" role="dialog" aria-labelledby="ql-t">
+    <h2 id="ql-t">Ver en realidad aumentada</h2>
+    <p>Se abre con AR Quick Look, el visor de iOS: la estructura aparece a tamaño real sobre el suelo y se puede mover y girar con los dedos. En iPhone y iPad <b>no hay gravedad simulada</b> ni se puede coger como en las Quest o en Android.</p>
+    <!-- Quick Look exige un enlace rel="ar" cuyo único hijo sea una imagen -->
+    <a id="ql-link" rel="ar"><img id="ql-img" alt="Toca para abrir la estructura en realidad aumentada"></a>
+    <div class="row"><span class="hint" id="ql-info"></span><button id="ql-close">Cerrar</button></div>
+  </div>
+</div>
+
 <div id="xr-ui" hidden>
   <div id="xr-msg" class="card">Busca el suelo con la cámara…</div>
   <div id="xr-btns" class="card">
@@ -126,7 +144,8 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
 
 /* =====================================================================
    VISOR DE REALIDAD AUMENTADA — fase R1: proyecto en metros, vista 3D adaptable y
@@ -299,6 +318,7 @@ async function openProject(json, source) {
   $('#name').textContent = model.name || 'Proyecto sin título';
   document.title = `${model.name || 'Proyecto'} · PipeCAD RA`;
   showFacts(); makeGrid(Math.max(current.size.x, current.size.z) + 1); homeView(); requestRender();
+  if (AR.quicklook && !AR.webxr) prepareQuickLook();
   const bad = [...an.nodes.values()].filter(n => n.errors.length).length;
   message(bad ? `⚠ El proyecto tiene ${bad} unión(es) no válida(s): se muestran tal cual` : `Proyecto «${model.name}» cargado a tamaño real · arrástralo para cogerlo`, bad ? 'err' : '');
 }
@@ -655,6 +675,45 @@ function xrTouchFrame(frame, time) {
   updatePointers(rays, xrLastT ? (time - xrLastT) / 1000 : 0); xrLastT = time;
 }
 
+// ---------------------------------------------------------------- iPhone / iPad: AR Quick Look (R6)
+// Safari de iOS no tiene WebXR: se genera en el navegador un modelo .usdz (USDZExporter de Three.js) en
+// metros, con Y vertical y la base en y = 0, anclado a un plano horizontal, y se abre con un enlace
+// rel="ar" (#allowsContentScaling=0 impide escalarlo: siempre a tamaño real). Se prepara de antemano
+// para que el toque abra Quick Look sin esperas (iOS solo lo abre como respuesta directa a un toque).
+const QL = { url: null, size: 0, building: null, version: 0 };
+async function buildUSDZ() {
+  const root = new THREE.Group();
+  for (const m of assembly.children) {
+    const g = mergeVertices(m.geometry.clone(), 1e-5); // con índice: el archivo ocupa mucho menos
+    root.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: m.material.color.clone(), roughness: 0.55, metalness: 0.05 })));
+  }
+  const data = await new USDZExporter().parse(root, { quickLookCompatible: true, ar: { anchoring: { type: 'plane' }, planeAnchoring: { alignment: 'horizontal' } } });
+  for (const m of root.children) { m.geometry.dispose(); m.material.dispose(); }
+  return new Blob([data], { type: 'model/vnd.usdz+zip' });
+}
+function prepareQuickLook() {
+  if (!current || !AR.quicklook) return;
+  const v = ++QL.version;
+  if (QL.url) { URL.revokeObjectURL(QL.url); QL.url = null; }
+  $('#b-enter').disabled = true; $('#b-enter').title = 'Preparando el modelo para Quick Look…';
+  QL.building = buildUSDZ().then(blob => {
+    if (v !== QL.version) return; // ya se está preparando otro proyecto
+    QL.url = URL.createObjectURL(blob); QL.size = blob.size;
+    $('#b-enter').disabled = false; $('#b-enter').title = 'Ver el proyecto a tamaño real con AR Quick Look';
+  }).catch(err => { console.warn('USDZ', err); message('No se pudo preparar el modelo para Quick Look: ' + err.message, 'err', 8000); });
+  return QL.building;
+}
+function openQuickLookSheet() {
+  if (!QL.url) return;
+  renderer.render(scene, camera); // imagen de la vista actual para el enlace
+  $('#ql-img').src = renderer.domElement.toDataURL('image/png');
+  $('#ql-link').href = QL.url + '#allowsContentScaling=0';
+  $('#ql-info').textContent = `Toca la imagen · ${fmt(QL.size / 1048576, 1)} MB`;
+  $('#ql').hidden = false;
+}
+$('#ql-close').onclick = () => { $('#ql').hidden = true; };
+$('#ql').addEventListener('click', e => { if (e.target.id === 'ql') $('#ql').hidden = true; });
+
 $('#b-drop').onclick = () => drop(0.5); // en la vista 3D, medio metro: se ve caer sin salirse del encuadre
 $('#b-reset').onclick = () => resetPose();
 
@@ -681,7 +740,8 @@ renderer.setAnimationLoop((time, frame) => {
   needRender = false; renderer.render(scene, camera);
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { makeMaterials(); buildAssembly(); if (current) makeGrid(Math.max(current.size.x, current.size.z) + 1); requestRender(); });
-hooks.stlLoaded = () => { buildAssembly(); requestRender(); };
+let qlTimer = 0;
+hooks.stlLoaded = () => { buildAssembly(); requestRender(); if (AR.quicklook && !AR.webxr) { clearTimeout(qlTimer); qlTimer = setTimeout(prepareQuickLook, 300); } };
 hooks.modelsChanged = () => { if (current) { current.analysis = analyze(current.model); buildAssembly(); showFacts(); requestRender(); } };
 
 // ---------------------------------------------------------------- capacidades de RA
@@ -696,9 +756,10 @@ async function detectAR() {
   else if (ios) txt = '<b>iOS</b>: abre esta página en Safari para verla en realidad aumentada.';
   else if (!isSecureContext) txt = '<b>Sin RA</b>: hace falta abrir la página por HTTPS (o en localhost).';
   else txt = `<b>Sin RA</b> en este navegador. Ábrela en unas Meta Quest 3, en Chrome de Android (con ARCore) o en Safari de iPhone.`;
-  $('#ar').innerHTML = txt + (AR.webxr ? '' : AR.quicklook ? '<br>Quick Look llega en una fase posterior del visor.' : '');
-  $('#b-enter').disabled = !AR.webxr;
-  $('#b-enter').title = AR.webxr ? 'Ver el proyecto a tamaño real sobre el suelo' : AR.quicklook ? 'Quick Look (iPhone) llega en una fase posterior del visor' : 'Este dispositivo no permite realidad aumentada en el navegador';
+  $('#ar').innerHTML = txt;
+  $('#b-enter').disabled = !AR.webxr && !(AR.quicklook && QL.url);
+  $('#b-enter').title = AR.webxr ? 'Ver el proyecto a tamaño real sobre el suelo' : AR.quicklook ? 'Ver el proyecto a tamaño real con AR Quick Look' : 'Este dispositivo no permite realidad aumentada en el navegador';
+  if (AR.quicklook && !AR.webxr && current && !QL.url) prepareQuickLook();
 }
 
 // ---------------------------------------------------------------- realidad aumentada (WebXR: Meta Quest 3 y Android)
@@ -837,7 +898,7 @@ function exitedAR() {
   if (grid) grid.visible = $('#b-grid').classList.contains('on');
   resize(); homeView();
 }
-$('#b-enter').onclick = enterAR;
+$('#b-enter').onclick = () => (AR.webxr ? enterAR() : AR.quicklook ? openQuickLookSheet() : null);
 $('#xr-place').onclick = () => place();
 $('#xr-replace').onclick = () => startPlacing();
 $('#xr-exit').onclick = () => XR.session?.end();
@@ -873,7 +934,7 @@ loadPhysics();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>
