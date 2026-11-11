@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15181c">
+<title>PipeCAD RA</title>
+<style>
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --panel-2:#f7f8fa; --border:#d8dce2; --text:#1c2128; --muted:#66707c;
+  --accent:#2f6fde; --accent-soft:#e3ecfb; --accent-text:#ffffff; --hover:#eef1f5; --viewport:#e8ecf1;
+  --ok:#2b8a53; --warn:#c77d00; --err:#d4373c;
+  --c20:#4f9fd6; --c32:#8e99a5; --c40:#d4954a; --fitting:#d9dde2;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181c; --panel:#1d2127; --panel-2:#22272e; --border:#323840; --text:#e2e6eb; --muted:#8b95a1;
+    --accent:#5b8ff0; --accent-soft:#24324a; --hover:#2a3038; --viewport:#20252b;
+    --ok:#4cbf7d; --warn:#e8a33a; --err:#f0616a;
+    --c20:#5aaee6; --c32:#a3aeba; --c40:#e2a660; --fitting:#c9ced5;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:var(--viewport);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+#view{position:fixed;inset:0;touch-action:none}
+#view canvas{display:block}
+button,a.btn{font:inherit;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:8px 14px;min-height:44px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none}
+button:hover:not(:disabled){background:var(--hover)}
+button:disabled{opacity:.5;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.card{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--border);border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.12);backdrop-filter:blur(6px)}
+#top{position:fixed;left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));top:max(12px,env(safe-area-inset-top));display:flex;gap:10px;align-items:flex-start;pointer-events:none}
+#top > *{pointer-events:auto}
+#title{padding:8px 12px;min-width:0;flex:1}
+#title b{font-size:15px}
+#title .brand span{color:var(--accent)}
+#name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px}
+#info{position:fixed;right:max(12px,env(safe-area-inset-right));top:calc(max(12px,env(safe-area-inset-top)) + 64px);padding:10px 12px;font-size:13px;width:250px}
+#info dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:0}
+#info dt{color:var(--muted)}
+#info dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+#ar{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+#ar b{color:var(--text)}
+#bar{position:fixed;left:0;right:0;margin:0 auto;width:fit-content;bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:8px;padding:8px;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px)}
+#msg{position:fixed;left:0;right:0;margin:0 auto;width:fit-content;bottom:calc(max(14px,env(safe-area-inset-bottom)) + 76px);padding:8px 14px;font-size:13px;max-width:calc(100% - 24px);text-align:center}
+#msg.err{border-color:var(--err);color:var(--err)}
+#start{position:fixed;inset:0;display:grid;place-items:center;padding:16px}
+#start .card{padding:20px;max-width:420px;width:100%}
+#start h1{font-size:20px;margin:0 0 6px}
+#start p{margin:6px 0 14px;color:var(--muted)}
+#start .btns{display:grid;gap:8px}
+@media (max-width:700px){
+  #info{left:max(12px,env(safe-area-inset-left));right:auto;width:auto;max-width:calc(100% - 24px);top:auto;bottom:calc(max(14px,env(safe-area-inset-bottom)) + 76px)}
+  #msg{bottom:calc(max(14px,env(safe-area-inset-bottom)) + 76px)}
+  #bar button{padding:8px 10px}
+  .lbl{display:none}
+}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="view" aria-label="Vista 3D del proyecto"></div>
+
+<div id="top">
+  <div id="title" class="card"><b class="brand">Pipe<span>CAD</span> RA</b><span id="name">Sin proyecto</span></div>
+  <button id="b-info" class="card" title="Mostrar u ocultar los datos del proyecto" aria-label="Datos del proyecto">ⓘ</button>
+</div>
+
+<div id="info" class="card" hidden>
+  <dl id="facts"></dl>
+  <div id="ar"></div>
+</div>
+
+<div id="bar" class="card" hidden>
+  <button id="b-open" title="Abrir un proyecto .json">📂<span class="lbl">Abrir</span></button>
+  <button id="b-home" title="Volver a la vista inicial">⌂<span class="lbl">Vista</span></button>
+  <button id="b-grid" class="on" title="Mostrar u ocultar la rejilla del suelo">▦<span class="lbl">Rejilla</span></button>
+  <button id="b-enter" class="primary" disabled title="Ver el proyecto en realidad aumentada">Ver en RA</button>
+</div>
+
+<div id="msg" class="card" hidden></div>
+
+<div id="start" hidden>
+  <div class="card">
+    <h1>Visor de realidad aumentada</h1>
+    <p>Abre un proyecto de PipeCAD para verlo a tamaño real.</p>
+    <div class="btns">
+      <button id="s-last" class="primary" hidden>Último proyecto de PipeCAD</button>
+      <button id="s-open">Abrir proyecto (.json)…</button>
+      <button id="s-example">Ver el proyecto de ejemplo</button>
+    </div>
+  </div>
+</div>
+<input id="file" type="file" accept=".json,application/json" hidden>
+
+<script src="js/nucleo.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =====================================================================
+   VISOR DE REALIDAD AUMENTADA — fase R1: proyecto en metros, vista 3D adaptable y
+   detección de lo que permite el dispositivo (WebXR en Quest 3 y Android, Quick Look en iOS).
+   PipeCAD trabaja en mm con Z vertical; esta escena, como WebXR, en metros con Y vertical.
+   ===================================================================== */
+const hooks = {};
+const N = globalThis.crearNucleoPipeCAD(THREE, hooks);
+const { Model, analyze, DEFAULT_CONFIG, LIB, customGeometry, localToWorldQuat, loadModels, loadExampleJSON, store, fmt, esc, cssVar } = N;
+const $ = s => document.querySelector(s);
+const MM = 0.001;
+const MOBILE = matchMedia('(pointer: coarse)').matches;
+const SEG = MOBILE ? 20 : 32;                    // lados de los cilindros (menos en teléfonos)
+
+// ---------------------------------------------------------------- mensajes
+let msgTimer = 0;
+function message(text, kind = '', ms = 4000) {
+  const m = $('#msg'); m.textContent = text; m.className = 'card ' + kind; m.hidden = !text;
+  clearTimeout(msgTimer); if (text && ms) msgTimer = setTimeout(() => { m.hidden = true; }, ms);
+}
+
+// ---------------------------------------------------------------- proyecto en el enlace (#p=…)
+// El proyecto va comprimido (deflate) y en base64url dentro del fragmento: no se envía a ningún servidor.
+const b64url = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64url = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+async function packProject(json) {
+  const stream = new Blob([JSON.stringify(json)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
+}
+async function unpackProject(s) {
+  const stream = new Blob([unb64url(s)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(stream).text());
+}
+
+// ---------------------------------------------------------------- escena (metros, Y vertical)
+const view = $('#view');
+const renderer = new THREE.WebGLRenderer({ antialias: !MOBILE || devicePixelRatio < 2, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.append(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
+camera.position.set(2.2, 1.6, 2.6);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.target.set(0, 0.3, 0); controls.maxPolarAngle = Math.PI * 0.495; // no se mete bajo el suelo
+controls.addEventListener('change', requestRender);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa1a8, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(2, 4, 1.5); sun.castShadow = true;
+sun.shadow.mapSize.setScalar(MOBILE ? 1024 : 2048);
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.01;
+scene.add(sun, sun.target);
+
+// Suelo: recoge las sombras (en RA, sobre el suelo real) y lleva una rejilla de 10 cm que se puede ocultar
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.28 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+let grid = null;
+function makeGrid(size) {
+  if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+  const n = Math.max(2, Math.ceil(size / 0.5) * 5); // divisiones de 10 cm
+  grid = new THREE.GridHelper(n * 0.1, n, new THREE.Color(cssVar('--muted')), new THREE.Color(cssVar('--border')));
+  grid.material.transparent = true; grid.material.opacity = 0.55; grid.position.y = 0.0005;
+  grid.visible = $('#b-grid').classList.contains('on'); scene.add(grid);
+}
+
+// ---------------------------------------------------------------- montaje del proyecto
+// Toda la estructura es una sola pieza (tubos encolados): mallas fusionadas por material para
+// dibujarla rápido en gafas y teléfonos, y una lista de formas simples (cilindros y bolas) para la física.
+const PVC_DENSITY = 1400;                               // kg/m³
+const WALL = { 20: 1.5, 32: 2.4, 40: 3.0 };             // pared del tubo PVC presión (mm), para el peso
+const assembly = new THREE.Group(); scene.add(assembly); // en metros, apoyado en el suelo (y = 0) y centrado
+let current = null;                                     // { model, analysis, json, shapes, size, mass }
+const mats = {};
+function makeMaterials() {
+  const std = c => new THREE.MeshStandardMaterial({ color: new THREE.Color(c), roughness: 0.55, metalness: 0.05 });
+  for (const d of [20, 32, 40]) mats['tube' + d] = std(cssVar('--c' + d));
+  mats.fitting = std(cssVar('--fitting')); mats.fitting.side = THREE.DoubleSide; // los STL pueden traer caras invertidas
+}
+makeMaterials();
+const Y = new THREE.Vector3(0, 1, 0);
+// Cilindro en mm entre dos distancias a lo largo de dir, como geometría sin índice y solo con posición y normal
+function cylGeo(origin, dir, from, to, r) {
+  const g = new THREE.CylinderGeometry(r, r, to - from, SEG, 1, false);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(Y, dir));
+  g.translate(...origin.clone().addScaledVector(dir, (from + to) / 2).toArray());
+  return clean(g);
+}
+function ballGeo(c, r) { const g = new THREE.SphereGeometry(r, SEG, Math.round(SEG / 2)); g.translate(c.x, c.y, c.z); return clean(g); }
+function clean(g) { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k); if (!n.attributes.normal) n.computeVertexNormals(); return n; }
+
+function buildAssembly() {
+  for (const c of [...assembly.children]) { assembly.remove(c); c.geometry?.dispose(); }
+  if (!current) return;
+  const { model, analysis: an } = current, F = model.config.fittings;
+  const byMat = { tube20: [], tube32: [], tube40: [], fitting: [] }, shapes = [];
+  let mass = 0;
+  // Tubos: del tope de una embocadura al de la otra (longitud real de corte)
+  for (const s of an.segs.values()) {
+    if (s.Le < 1e-6 || s.Lr <= 0) continue;
+    const A = an.nodes.get(s.a).pos, r = s.d / 2;
+    byMat['tube' + s.d]?.push(cylGeo(A, s.dir, s.zA, s.zA + s.Lr, r));
+    const a = A.clone().addScaledVector(s.dir, s.zA), b = A.clone().addScaledVector(s.dir, s.zA + s.Lr);
+    shapes.push({ type: 'cyl', a, b, r });
+    const t = WALL[s.d] ?? s.d * 0.075;
+    mass += PVC_DENSITY * Math.PI * (r * r - (r - t) * (r - t)) * s.Lr * 1e-9;
+  }
+  // Accesorios
+  for (const n of an.nodes.values()) {
+    if (['end', 'invalid', 'isolated'].includes(n.kind)) continue;
+    const ports = [...n.ports, ...n.open];
+    let rMax = 0, vol = 0;
+    if (n.kind === 'custom') {
+      const g = clean(customGeometry(n).clone());
+      g.applyQuaternion(localToWorldQuat(ports.filter(p => p.local).map(p => ({ local: p.local, world: p.dir }))));
+      g.translate(n.pos.x, n.pos.y, n.pos.z);
+      byMat.fitting.push(g);
+    }
+    for (const p of ports) {
+      const R = (F[p.d]?.od ?? n.od ?? p.d * 1.3) / 2; rMax = Math.max(rMax, R);
+      if (n.kind !== 'custom') {
+        if (p.z > 0) byMat.fitting.push(cylGeo(n.pos, p.dir, 0, p.z, R * 0.94));
+        byMat.fitting.push(cylGeo(n.pos, p.dir, p.z, p.z + p.socket, R));
+      }
+      shapes.push({ type: 'cyl', a: n.pos.clone(), b: n.pos.clone().addScaledVector(p.dir, p.z + p.socket), r: R });
+      vol += Math.PI * (R * R - (p.d / 2) ** 2) * p.socket + Math.PI * (R * 0.94) ** 2 * p.z * 0.35; // embocadura hueca + cuerpo
+    }
+    const branched = ports.some(a => ports.some(b => Math.abs(a.dir.dot(b.dir)) < 1 - 1e-6));
+    if (branched) { if (n.kind !== 'custom') byMat.fitting.push(ballGeo(n.pos, rMax * 0.94)); shapes.push({ type: 'ball', c: n.pos.clone(), r: rMax * 0.94 }); vol += 4 / 3 * Math.PI * rMax ** 3 * 0.35; }
+    mass += PVC_DENSITY * vol * 1e-9;
+  }
+  // mm (Z vertical) → metros (Y vertical): giro de −90° sobre X y escala 0,001
+  const toM = new THREE.Matrix4().makeRotationX(-Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(MM, MM, MM));
+  const box = new THREE.Box3();
+  for (const [k, list] of Object.entries(byMat)) {
+    if (!list.length) continue;
+    const g = mergeGeometries(list, false); list.forEach(x => x.dispose());
+    g.applyMatrix4(toM); g.computeBoundingBox(); box.union(g.boundingBox);
+    const m = new THREE.Mesh(g, mats[k]); m.castShadow = true; m.receiveShadow = true; assembly.add(m);
+  }
+  if (box.isEmpty()) { current.size = new THREE.Vector3(); return; }
+  // apoyada en el suelo y centrada en planta
+  const c = box.getCenter(new THREE.Vector3());
+  const shift = new THREE.Vector3(-c.x, -box.min.y, -c.z);
+  for (const m of assembly.children) m.geometry.translate(shift.x, shift.y, shift.z);
+  current.size = box.getSize(new THREE.Vector3());
+  current.mass = mass;
+  current.toWorld = toM.clone().premultiply(new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z)); // mm del proyecto → metros de la escena
+  current.shapes = shapes;
+  current.triangles = assembly.children.reduce((t, m) => t + m.geometry.attributes.position.count / 3, 0);
+}
+
+// ---------------------------------------------------------------- carga
+async function openProject(json, source) {
+  const model = new Model();
+  model.load(json);
+  if (!json.name && source) model.name = source;
+  const an = analyze(model);
+  current = { model, analysis: an, json };
+  buildAssembly();
+  $('#start').hidden = true; $('#bar').hidden = false; $('#info').hidden = innerWidth <= 700; // en el móvil, con el botón ⓘ
+  $('#name').textContent = model.name || 'Proyecto sin título';
+  document.title = `${model.name || 'Proyecto'} · PipeCAD RA`;
+  showFacts(); makeGrid(Math.max(current.size.x, current.size.z) + 1); homeView(); requestRender();
+  const bad = [...an.nodes.values()].filter(n => n.errors.length).length;
+  message(bad ? `⚠ El proyecto tiene ${bad} unión(es) no válida(s): se muestran tal cual` : `Proyecto «${model.name}» cargado a tamaño real`, bad ? 'err' : '');
+}
+function showFacts() {
+  const { analysis: an, size, mass } = current;
+  const tubes = [...an.segs.values()].filter(s => s.Lr > 0).length;
+  const fits = [...an.nodes.values()].filter(n => !['end', 'invalid', 'isolated'].includes(n.kind)).length;
+  const m = x => fmt(x, 2).replace(/^0,/, '0,') + ' m';
+  $('#facts').innerHTML = `
+    <dt>Tubos</dt><dd>${tubes}</dd><dt>Accesorios</dt><dd>${fits}</dd>
+    <dt>Ancho × fondo</dt><dd>${m(size.x)} × ${m(size.z)}</dd><dt>Alto</dt><dd>${m(size.y)}</dd>
+    <dt>Peso aprox.</dt><dd>${fmt(mass, mass < 10 ? 2 : 1)} kg</dd>`;
+}
+
+// ---------------------------------------------------------------- vista
+function homeView() {
+  const s = current?.size ?? new THREE.Vector3(1, 1, 1), r = Math.max(0.4, Math.hypot(s.x, s.y, s.z) / 2);
+  controls.target.set(0, s.y / 2, 0);
+  const vfov = THREE.MathUtils.degToRad(camera.fov), hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
+  const d = r / Math.sin(Math.min(vfov, hfov) / 2) * 1.05; // cabe también en pantallas verticales
+  camera.position.set(d * 0.62, s.y / 2 + d * 0.5, d * 0.78); camera.near = Math.max(0.005, d / 200); camera.updateProjectionMatrix();
+  controls.update(); requestRender();
+}
+let needRender = true;
+function requestRender() { needRender = true; }
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); requestRender(); }
+addEventListener('resize', resize);
+renderer.setAnimationLoop(() => {
+  if (controls.update()) needRender = true;
+  if (!needRender) return;
+  needRender = false; renderer.render(scene, camera);
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { makeMaterials(); buildAssembly(); if (current) makeGrid(Math.max(current.size.x, current.size.z) + 1); requestRender(); });
+hooks.stlLoaded = () => { buildAssembly(); requestRender(); };
+hooks.modelsChanged = () => { if (current) { current.analysis = analyze(current.model); buildAssembly(); showFacts(); requestRender(); } };
+
+// ---------------------------------------------------------------- capacidades de RA
+const AR = { webxr: false, quicklook: false, reason: '' };
+async function detectAR() {
+  try { AR.webxr = !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch { AR.webxr = false; }
+  AR.quicklook = document.createElement('a').relList?.supports?.('ar') ?? false;
+  const ua = navigator.userAgent, quest = /OculusBrowser|Quest/i.test(ua), ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let txt;
+  if (AR.webxr) txt = `<b>${quest ? 'Meta Quest' : 'RA con WebXR'}</b>: realidad aumentada con gravedad y ${quest ? 'agarre con las manos' : 'manejo táctil'}.`;
+  else if (AR.quicklook) txt = '<b>iPhone / iPad</b>: realidad aumentada con AR Quick Look (sin gravedad simulada).';
+  else if (ios) txt = '<b>iOS</b>: abre esta página en Safari para verla en realidad aumentada.';
+  else if (!isSecureContext) txt = '<b>Sin RA</b>: hace falta abrir la página por HTTPS (o en localhost).';
+  else txt = `<b>Sin RA</b> en este navegador. Ábrela en unas Meta Quest 3, en Chrome de Android (con ARCore) o en Safari de iPhone.`;
+  $('#ar').innerHTML = txt + '<br>La entrada en realidad aumentada llega en la siguiente fase del visor.';
+  $('#b-enter').disabled = true;
+  $('#b-enter').title = AR.webxr || AR.quicklook ? 'Disponible en la siguiente fase del visor' : 'Este dispositivo no permite realidad aumentada en el navegador';
+}
+
+// ---------------------------------------------------------------- botones
+const pickFile = () => $('#file').click();
+$('#file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { await openProject(JSON.parse(await f.text()), f.name.replace(/\.json$/i, '')); history.replaceState(null, '', location.pathname); }
+  catch (err) { message('No se pudo abrir: ' + err.message, 'err', 8000); }
+};
+$('#b-open').onclick = $('#s-open').onclick = pickFile;
+$('#s-example').onclick = async () => {
+  try { await openProject(await loadExampleJSON(), 'Ejemplo'); } catch (err) { message('No se pudo cargar el ejemplo: ' + err.message, 'err', 8000); }
+};
+$('#s-last').onclick = () => { try { openProject(JSON.parse(store.get('pipecad-autosave')), 'Último proyecto'); } catch (err) { message('No se pudo abrir: ' + err.message, 'err'); } };
+$('#b-home').onclick = homeView;
+$('#b-grid').onclick = e => { const on = e.currentTarget.classList.toggle('on'); if (grid) grid.visible = on; requestRender(); };
+$('#b-info').onclick = () => { if (current) $('#info').hidden = !$('#info').hidden; };
+
+// ---------------------------------------------------------------- arranque
+resize();
+detectAR();
+(async () => {
+  await loadModels().catch(() => null); // accesorios personalizados y sus STL (si hay carpeta modelos)
+  const p = /[#&]p=([\w-]+)/.exec(location.hash)?.[1];
+  const params = new URLSearchParams(location.search);
+  try {
+    if (p) return await openProject(await unpackProject(p), 'Proyecto compartido');
+    if (params.has('ejemplo')) return await openProject(await loadExampleJSON(), 'Ejemplo');
+  } catch (err) { message('No se pudo abrir el proyecto del enlace: ' + err.message, 'err', 8000); }
+  $('#s-last').hidden = !store.get('pipecad-autosave');
+  $('#start').hidden = false;
+})();
+window.pipecadRA = { get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+</script>
+</body>
+</html>

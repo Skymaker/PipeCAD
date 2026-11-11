@@ -97,6 +97,7 @@ Pero solo `servidor.mjs` permite **guardar** accesorios desde el editor. Sin él
   - `plantillas/`: las plantillas del editor;
   - `pipecad.scad`: la librería OpenSCAD común.
 - **Editor de accesorios** ([`editor.html`](editor.html)): crea y edita accesorios con un formulario, desde cero o desde plantillas. Genera código **OpenSCAD** paramétrico (descargable) y, con él, los STL imprimibles en el propio navegador; los guarda en la carpeta `modelos/`.
+- **Visor de realidad aumentada** ([`ra.html`](ra.html), en desarrollo): muestra el proyecto a tamaño real (medidas y peso aproximado), con vista 3D adaptable al móvil. Se abre con un proyecto `.json`, con el último proyecto de PipeCAD de este navegador o con un enlace que lleva el proyecto dentro. Está planificado para Meta Quest 3, Android e iPhone (ver [PLAN.md](PLAN.md)).
 - **Proyecto de ejemplo** en [`ejemplos/ejemplo.json`](ejemplos/ejemplo.json) (botón «Ejemplo»).
 - **Ajustes** de la interfaz: botón «Ejemplo» visible u oculto y tamaño de los gizmos de navegación.
 - **Cubo de vistas** para orbitar y saltar a caras, aristas o vértices, con interruptor isométrica / perspectiva.
@@ -108,7 +109,7 @@ Pero solo `servidor.mjs` permite **guardar** accesorios desde el editor. Sin él
 
 ## Desarrollo
 
-El plan de fases y el estado del proyecto están en [PLAN.md](PLAN.md). Las pruebas del motor de cálculo se ejecutan desde la pestaña **Configuración** (sección «Pruebas del motor») o abriendo `index.html?test` desde un servidor; sin servidor, las pruebas del proyecto de ejemplo se omiten.
+El plan de fases y el estado del proyecto están en [PLAN.md](PLAN.md). El cálculo (modelo, accesorios, despiece, `.pcf`, STL y carpeta de modelos) está en [`js/nucleo.js`](js/nucleo.js), compartido por PipeCAD y el visor RA. Las pruebas del motor de cálculo se ejecutan desde la pestaña **Configuración** (sección «Pruebas del motor») o abriendo `index.html?test` desde un servidor; sin servidor, las pruebas del proyecto de ejemplo se omiten.
 
 ## Licencia
 

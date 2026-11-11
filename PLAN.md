@@ -66,6 +66,8 @@ Los reductores (32→20, 40→20 y 40→32) y las Tes reducidas tienen su propia
 ```
 index.html            PipeCAD: dibujo, cálculo, despiece, biblioteca, configuración y pruebas
 editor.html           Editor de accesorios (formulario → .pcf + OpenSCAD → STL)
+ra.html               Visor de realidad aumentada (Quest 3, Android, iPhone)
+js/nucleo.js          Núcleo compartido: modelo, cálculo de accesorios, despiece, .pcf, STL y carpeta de modelos
 servidor.mjs          Servidor local con API para guardar accesorios
 iniciar-servidor.bat  / iniciar-servidor.sh   arranque con doble clic o desde la terminal
 ejemplos/ejemplo.json Proyecto de ejemplo
@@ -244,6 +246,83 @@ Cada fase termina con algo que funciona y se puede comprobar en el navegador. La
 - Rendimiento con cientos de tramos.
 - ✅ Criterio: con 624 tramos el arrastre baja de 36 a 4 ms por fotograma y la vista se mantiene a 60 fps.
 
+### Bloque RA — Visor de realidad aumentada (`ra.html`)
+
+Objetivo: ver el proyecto **a tamaño real** sobre el suelo, agarrarlo y que caiga con la gravedad. Debe funcionar en las **Meta Quest 3**, en **Android** y en **iPhone / iPad**.
+
+| Dispositivo | Realidad aumentada | Física (gravedad) | Interacción |
+|---|---|---|---|
+| Meta Quest 3 (navegador de Quest) | WebXR `immersive-ar` sobre la imagen real | ✅ Rapier | Manos y mandos: agarrar, lanzar, dos manos |
+| Android con ARCore (Chrome) | WebXR `immersive-ar` en la pantalla | ✅ Rapier | Táctil: tocar y arrastrar, girar con dos dedos, botones |
+| iPhone / iPad (Safari) | AR Quick Look con `.usdz` generado en el navegador | ❌ La apoya el sistema en el suelo, sin física propia | La de Quick Look, con el escalado bloqueado (1:1) |
+| Sin RA | Vista 3D con ratón o táctil | ✅ En pantalla | Órbita, zoom y arrastre |
+
+Decisiones:
+- **Escala** 1:1 fija. Conversión: mm con Z vertical → metros con Y vertical (× 0,001 y −90° sobre X).
+- **Física** con Rapier (`@dimforge/rapier3d-compat`). La estructura es **un cuerpo rígido compuesto**: un cilindro por tubo y una bola por accesorio. La masa sale del PVC real (1,4 g/cm³, con la pared según el Ø).
+- **Suelo**: `local-floor`, afinado con `hit-test` y `plane-detection`. Suelo físico fijo, plano que recoge sombras y rejilla que se puede ocultar.
+- **Paso del proyecto a las gafas o al móvil**: enlace con el proyecto comprimido dentro (deflate + base64url) y **código QR** desde PipeCAD. Funciona en GitHub Pages sin servidor.
+- **HTTPS**, obligatorio para WebXR:
+  - GitHub Pages;
+  - servidor local por USB con `adb reverse` (Quest y Android);
+  - servidor local por wifi con `--https` y `mkcert` (también iPhone).
+
+#### Fase 17 (R0) — Núcleo común
+- `js/nucleo.js` con lo que comparten las páginas:
+  - catálogo, modelo, motor de accesorios y despiece;
+  - `.pcf`, STL, carpeta de modelos y ejemplo.
+- Es un script clásico con una fábrica `crearNucleoPipeCAD(THREE, avisos)`, para que PipeCAD siga funcionando al abrirlo como archivo.
+- ✅ Criterio: PipeCAD funciona igual y las pruebas del motor siguen pasando.
+
+#### Fase 18 (R1) — Página `ra.html` (vista 3D)
+- Carga el proyecto desde el enlace (`#p=`), desde un `.json` o desde el ejemplo.
+- Construye la escena en metros con el núcleo: tubos recortados a su longitud real, accesorios de serie y STL de los personalizados.
+- Diseño adaptable a móvil, geometría aligerada en los teléfonos y detección de capacidades (WebXR `immersive-ar` o Quick Look).
+- ✅ Criterio: el ejemplo se ve igual que en PipeCAD y con las medidas correctas.
+
+#### Fase 19 (R2) — Sesión de RA y suelo (Quest y Android)
+- `immersive-ar` con `local-floor`, `hit-test`, `dom-overlay`, `hand-tracking` y `plane-detection` (estas cuatro, opcionales).
+- Retícula de colocación: en la Quest se coloca con un pellizco y en Android tocando la pantalla.
+- ✅ Criterio: la estructura queda apoyada en el suelo real a tamaño real.
+
+#### Fase 20 (R3) — Física
+- Rapier con gravedad de 9,81 m/s², paso fijo, suelo fijo y cuerpo compuesto con la masa real.
+- ✅ Criterio: cae, se asienta sin temblar y vuelca si queda en mala postura.
+
+#### Fase 21 (R4) — Agarre con las manos (Quest)
+- Pellizco o puño cerca de la pieza, rayo con pellizco a distancia y agarre con dos manos para mover y girar, sin escalar.
+- Mientras se agarra, la estructura sigue a la mano con un muelle amortiguado; al soltar conserva la velocidad de la mano.
+- ✅ Criterio: coger, girar, dejar y lanzar suavemente, con las manos y con los mandos.
+
+#### Fase 22 (R5) — Interacción táctil (Android y vista 3D)
+- Tocar y arrastrar: un muelle levanta la estructura unos 20 cm y la lleva al punto del suelo bajo el dedo; al soltar, cae.
+- Girar sobre el eje vertical con dos dedos.
+- ✅ Criterio: en Android con ARCore se coloca, se arrastra, cae y se apoya.
+
+#### Fase 23 (R6) — iPhone y iPad: AR Quick Look
+- `.usdz` generado con `USDZExporter`, con el origen en la base y colores por Ø.
+- Se abre con `<a rel="ar">` y la opción `#allowsContentScaling=0`.
+- Antes de abrir, la página explica que en iOS no hay gravedad simulada.
+- ✅ Criterio: en Safari de iOS se abre a tamaño real sobre el suelo.
+
+#### Fase 24 (R7) — Menús
+- Quest: panel en la muñeca, que aparece al mirar la palma.
+- Teléfonos: barra superpuesta con `dom-overlay`.
+- Opciones: Reiniciar, Gravedad sí/no, Fijar al suelo, Cotas, Rejilla, Colores por Ø y Salir.
+
+#### Fase 25 (R8) — «Ver en RA» desde PipeCAD y HTTPS
+- Botón en PipeCAD con el enlace y el QR.
+- `servidor.mjs --https` con certificados de `mkcert`.
+- README con los pasos para Quest, Android e iPhone.
+
+#### Fase 26 (R9) — Opcional: entorno real como obstáculo
+- En Quest 3, con `mesh-detection`, las mesas y paredes reales pasan a ser colisionadores.
+
+Limitaciones previstas:
+- En iOS no hay WebXR, así que no habrá gravedad ni agarre con física.
+- Android necesita un teléfono compatible con ARCore.
+- Las pruebas en Quest 3, Android e iPhone las tiene que hacer el usuario; en el ordenador se verifica con el emulador de WebXR y la vista móvil.
+
 ---
 
 ## 5. Estado
@@ -267,6 +346,9 @@ Cada fase termina con algo que funciona y se puede comprobar en el navegador. La
 | 14 Editor de accesorios | ✅ |
 | 15 Servidor local e instalación | ✅ |
 | 16 Interfaz, ayuda, ejemplo y pruebas | ✅ **79/79 pruebas del motor** |
+| 17 (R0) Núcleo común | ✅ `js/nucleo.js` (93 funciones y datos compartidos); PipeCAD, 79/79 pruebas |
+| 18 (R1) Página ra.html | ✅ Vista 3D adaptable a móvil, proyecto por enlace `#p=` (el ejemplo ocupa 1 KB), `.json`, último proyecto o ejemplo; medidas, peso y formas para la física; detección de RA |
+| 19–26 (R2–R9) Realidad aumentada | ⏳ Pendiente |
 
 ### Pendiente y limitaciones conocidas
 - El guardado en una carpeta elegida (Chrome / Edge, sin servidor) no se ha probado en un navegador real.
@@ -285,5 +367,6 @@ Cada fase termina con algo que funciona y se puede comprobar en el navegador. La
 | Producción | 9–11 | Despiece, exportación y configuración |
 | Accesorios ampliables | 12–15 | Biblioteca, modelos 3D, editor OpenSCAD y servidor local |
 | Cierre | 16 | Interfaz, ayuda, ejemplo, pruebas y rendimiento |
+| Realidad aumentada | 17–26 | Visor RA a tamaño real en Quest 3, Android e iPhone |
 
 Tras cada bloque se revisa en el navegador antes de seguir, y cada cambio se registra con un commit en GitHub.
