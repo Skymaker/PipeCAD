@@ -54,6 +54,14 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 #start h1{font-size:20px;margin:0 0 6px}
 #start p{margin:6px 0 14px;color:var(--muted)}
 #start .btns{display:grid;gap:8px}
+/* Opciones (vista 3D y RA en Android) */
+.opts{padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px;width:min(340px,calc(100% - 24px))}
+.opts button{justify-content:flex-start;font-size:13px}
+.opts button .tick{width:18px;text-align:center}
+#opts{position:fixed;left:0;right:0;margin:0 auto;bottom:calc(max(14px,env(safe-area-inset-bottom)) + 76px)}
+#xr-opts{position:absolute;left:0;right:0;margin:0 auto;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 76px)}
+#xr-opts button{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);color:#fff}
+#xr-opts button.on{background:rgba(91,143,240,.45);border-color:#5b8ff0}
 /* iPhone / iPad: hoja con la imagen que abre AR Quick Look */
 #ql{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.35)}
 #ql .card{padding:18px;max-width:420px;width:100%}
@@ -100,12 +108,13 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 <div id="bar" class="card" hidden>
   <button id="b-open" title="Abrir un proyecto .json">📂<span class="lbl">Abrir</span></button>
   <button id="b-home" title="Volver a la vista inicial">⌂<span class="lbl">Vista</span></button>
-  <button id="b-grid" class="on" title="Mostrar u ocultar la rejilla del suelo">▦<span class="lbl">Rejilla</span></button>
   <button id="b-drop" title="Levantar la estructura 50 cm y soltarla (gravedad)" disabled>⤓<span class="lbl">Soltar</span></button>
   <button id="b-reset" title="Volver a dejar la estructura derecha en su sitio" disabled>↺<span class="lbl">Reiniciar</span></button>
+  <button id="b-opts" title="Opciones: gravedad, fijar, cotas, rejilla y colores" aria-expanded="false">⚙<span class="lbl">Opciones</span></button>
   <button id="b-enter" class="primary" disabled title="Ver el proyecto en realidad aumentada">Ver en RA</button>
 </div>
 
+<div id="opts" class="card opts" hidden></div>
 <div id="msg" class="card" hidden></div>
 
 <div id="start" hidden>
@@ -136,8 +145,10 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
   <div id="xr-btns" class="card">
     <button id="xr-place" class="primary">Colocar aquí</button>
     <button id="xr-replace" hidden>Recolocar</button>
+    <button id="xr-opts-b">Opciones</button>
     <button id="xr-exit">Salir</button>
   </div>
+  <div id="xr-opts" class="card opts" hidden></div>
 </div>
 
 <script src="js/nucleo.js"></script>
@@ -212,7 +223,7 @@ function makeGrid(size) {
   const n = Math.max(2, Math.ceil(size / 0.5) * 5); // divisiones de 10 cm
   grid = new THREE.GridHelper(n * 0.1, n, new THREE.Color(cssVar('--muted')), new THREE.Color(cssVar('--border')));
   grid.material.transparent = true; grid.material.opacity = 0.55; grid.position.y = 0.0005;
-  grid.visible = $('#b-grid').classList.contains('on'); stage.add(grid);
+  grid.visible = OPTS.grid; stage.add(grid);
 }
 
 // ---------------------------------------------------------------- montaje del proyecto
@@ -222,10 +233,14 @@ const PVC_DENSITY = 1400;                               // kg/m³
 const WALL = { 20: 1.5, 32: 2.4, 40: 3.0 };             // pared del tubo PVC presión (mm), para el peso
 const assembly = new THREE.Group(); stage.add(assembly); // en metros, apoyado en el suelo (y = 0) y centrado
 let current = null;                                     // { model, analysis, json, shapes, size, mass }
+// Opciones del visor (se cambian desde el menú de la vista 3D, el de Android o el de la muñeca en las Quest)
+const OPTS = { gravity: true, fixed: false, dims: false, grid: true, colors: true };
 const mats = {};
+const PVC_GREY = '#b9bec5';
+const tubeColor = d => (OPTS.colors ? cssVar('--c' + d) : PVC_GREY);
 function makeMaterials() {
   const std = c => new THREE.MeshStandardMaterial({ color: new THREE.Color(c), roughness: 0.55, metalness: 0.05 });
-  for (const d of [20, 32, 40]) mats['tube' + d] = std(cssVar('--c' + d));
+  for (const d of [20, 32, 40]) mats['tube' + d] = std(tubeColor(d));
   mats.fitting = std(cssVar('--fitting')); mats.fitting.side = THREE.DoubleSide; // los STL pueden traer caras invertidas
 }
 makeMaterials();
@@ -240,11 +255,30 @@ function cylGeo(origin, dir, from, to, r) {
 function ballGeo(c, r) { const g = new THREE.SphereGeometry(r, SEG, Math.round(SEG / 2)); g.translate(c.x, c.y, c.z); return clean(g); }
 function clean(g) { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k); if (!n.attributes.normal) n.computeVertexNormals(); return n; }
 
+// Cotas: la longitud real de corte de cada tubo, en una etiqueta que mira siempre a la cámara
+const dims = new THREE.Group(); dims.visible = false; stage.add(dims);
+function labelTexture(text) {
+  const c = document.createElement('canvas'), g = c.getContext('2d'); c.width = 256; c.height = 96;
+  g.fillStyle = 'rgba(20,23,28,.82)'; g.beginPath(); g.roundRect(4, 4, 248, 88, 22); g.fill();
+  g.fillStyle = '#fff'; g.font = '600 52px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 50);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function buildDims(list) {
+  for (const sp of [...dims.children]) { dims.remove(sp); sp.material.map.dispose(); sp.material.dispose(); }
+  const M = current.toWorld, maxDim = Math.max(current.size.x, current.size.y, current.size.z), h = THREE.MathUtils.clamp(maxDim * 0.035, 0.02, 0.07);
+  for (const L of list) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(L.text + ' mm'), depthTest: false, transparent: true }));
+    sp.scale.set(h * 2.67, h, 1); sp.renderOrder = 15;
+    sp.position.copy(L.p).applyMatrix4(M); sp.position.y += L.r * MM + h * 0.7; // encima del tubo
+    dims.add(sp);
+  }
+  dims.visible = OPTS.dims;
+}
 function buildAssembly() {
   for (const c of [...assembly.children]) { assembly.remove(c); c.geometry?.dispose(); }
   if (!current) return;
   const { model, analysis: an } = current, F = model.config.fittings;
-  const byMat = { tube20: [], tube32: [], tube40: [], fitting: [] }, shapes = [];
+  const byMat = { tube20: [], tube32: [], tube40: [], fitting: [] }, shapes = [], labelsData = [];
   let mass = 0;
   // Tubos: del tope de una embocadura al de la otra (longitud real de corte)
   for (const s of an.segs.values()) {
@@ -255,6 +289,7 @@ function buildAssembly() {
     const t = WALL[s.d] ?? s.d * 0.075, m = PVC_DENSITY * Math.PI * (r * r - (r - t) * (r - t)) * s.Lr * 1e-9;
     shapes.push({ type: 'cyl', a, b, r, mass: m });
     mass += m;
+    labelsData.push({ p: a.clone().add(b).multiplyScalar(0.5), r, text: fmt(s.Lr, 0) });
   }
   // Accesorios
   for (const n of an.nodes.values()) {
@@ -300,6 +335,7 @@ function buildAssembly() {
   current.mass = mass;
   current.toWorld = toM.clone().premultiply(new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z)); // mm del proyecto → metros de la escena
   current.shapes = shapes;
+  buildDims(labelsData);
   buildPhysics();
   const half = Math.max(current.size.x, current.size.z) / 2 + 0.3, cam = sun.shadow.camera;
   cam.left = cam.bottom = -half * 1.4; cam.right = cam.top = half * 1.4; cam.near = 0.1; cam.far = 12; cam.updateProjectionMatrix();
@@ -371,13 +407,14 @@ function buildPhysics() {
     world.createCollider(desc, body);
   }
   PH.world = world; PH.body = body; PH.acc = 0;
-  resetPose();
+  resetPose(); applyPhysicsOpts();
   $('#b-drop').disabled = $('#b-reset').disabled = false;
 }
 function syncAssembly() {
   if (!PH.body) return;
   const t = PH.body.translation(), q = PH.body.rotation();
   assembly.position.set(t.x, t.y, t.z); assembly.quaternion.set(q.x, q.y, q.z, q.w);
+  dims.position.copy(assembly.position); dims.quaternion.copy(assembly.quaternion);
 }
 // Avanza la simulación; devuelve true si la estructura se está moviendo
 function physicsStep(dt) {
@@ -394,6 +431,13 @@ function resetPose() {
   B.setTranslation({ x: 0, y: 0, z: 0 }, false); B.setRotation({ x: 0, y: 0, z: 0, w: 1 }, false);
   B.setLinvel({ x: 0, y: 0, z: 0 }, false); B.setAngvel({ x: 0, y: 0, z: 0 }, false);
   B.sleep(); syncAssembly(); requestRender();
+}
+function applyPhysicsOpts() { // tras crear el cuerpo o cambiar una opción
+  const B = PH.body, R = PH.R; if (!B || !R) return;
+  PH.world.gravity = { x: 0, y: OPTS.gravity ? -9.81 : 0, z: 0 };
+  B.setLinearDamping(OPTS.gravity ? 0.05 : 1.2); B.setAngularDamping(OPTS.gravity ? 0.15 : 1.2); // sin gravedad flota y se frena sola
+  B.setBodyType(OPTS.fixed ? R.RigidBodyType.Fixed : R.RigidBodyType.Dynamic, true);
+  if (!OPTS.fixed) B.wakeUp();
 }
 // La levanta (1 m por defecto) con una pequeña inclinación y la suelta
 function drop(height = 1, tiltDeg = 8) {
@@ -449,6 +493,7 @@ function startTwoHands() {
 // pose = { p: Vector3, q: Quaternion } en el sistema del escenario
 function beginGrab(id, pose) {
   if (!PH.body || GRAB.hands.has(id)) return false;
+  if (OPTS.fixed) { xrMessage?.('Está fijada al suelo: quita «Fijar al suelo» en el menú para moverla', 3000); return false; }
   const h = { pose: { p: pose.p.clone(), q: pose.q.clone() } };
   anchorHand(h); GRAB.hands.set(id, h);
   if (GRAB.hands.size === 2) startTwoHands();
@@ -525,9 +570,18 @@ function rayHit(c) {
   return raycaster.intersectObjects(assembly.children, false)[0]?.distance ?? null;
 }
 function xrInputs() {
-  if (!XR.placed || !PH.body) { for (const c of INPUTS) c.line.visible = false; return; }
+  updateWristMenu();
+  // apuntar al menú y pellizcar o apretar: pulsa la opción (y no coge la estructura)
+  for (const c of INPUTS) {
+    const inp = readInput(c); if (!inp) continue;
+    const item = menuRayHit(c);
+    if (item) { menuBusy = true; c.line.visible = true; c.line.scale.z = 0.4; c.line.material.color.set(0xffd166); if (inp.grabbing && !c.was) menuAction(item); c.was = inp.grabbing; c.menu = true; }
+    else c.menu = false;
+  }
+  if (!XR.placed || !PH.body) { for (const c of INPUTS) if (!c.menu) c.line.visible = false; return; }
   let hover = false;
   for (const c of INPUTS) {
+    if (c.menu) continue;
     const inp = readInput(c);
     if (!inp) { if (GRAB.hands.has(c.id)) endGrab(c.id); c.line.visible = false; c.was = false; continue; }
     const pose = toStage(inp.p, inp.q), holding = GRAB.hands.has(c.id);
@@ -571,6 +625,7 @@ function rayPlaneY(ray, y) { // corte de un rayo (escenario) con el plano horizo
 }
 function beginPointGrab(id, hitStage) {
   if (!PH.body || TOUCH.point || GRAB.hands.size) return false;
+  if (OPTS.fixed) { (renderer.xr.isPresenting ? xrMessage : message)('Está fijada al suelo: quita «Fijar al suelo» en Opciones para moverla', 3000); return false; }
   const { p, q } = bodyPose();
   TOUCH.point = { id, local: hitStage.clone().sub(p).applyQuaternion(q.invert()), height: hitStage.y + LIFT, target: hitStage.clone().setY(hitStage.y + LIFT), aim: hitStage.clone(), prev: null };
   TOUCH.primary = id; TOUCH.angle = null; TOUCH.yawTarget = null;
@@ -626,7 +681,7 @@ view.addEventListener('pointerdown', e => {
   const ray = pointerRay(e);
   if (!TOUCH.point) {
     const hit = pickStructure(ray); if (!hit) return; // fuera de la estructura: órbita normal
-    beginPointGrab('p' + e.pointerId, hit);
+    if (!beginPointGrab('p' + e.pointerId, hit)) return;
   }
   controls.enabled = false;
   screenRays.set('p' + e.pointerId, rayToStage(ray.o, ray.d));
@@ -661,7 +716,7 @@ function xrTouchStart(e) {
   if (e.inputSource.targetRayMode !== 'screen' || !XR.placed) return;
   const id = 't' + (++xrTouchSeq); xrTouches.set(e.inputSource, id);
   const ray = xrTouchRay(e.frame, e.inputSource); if (!ray) return;
-  if (!TOUCH.point) { const hit = pickStructure(ray); if (hit) beginPointGrab(id, hit); }
+  if (!TOUCH.point && !menuBusy) { const hit = pickStructure(ray); if (hit) beginPointGrab(id, hit); }
 }
 function xrTouchEnd(e) {
   const id = xrTouches.get(e.inputSource); if (!id) return;
@@ -713,6 +768,113 @@ function openQuickLookSheet() {
 }
 $('#ql-close').onclick = () => { $('#ql').hidden = true; };
 $('#ql').addEventListener('click', e => { if (e.target.id === 'ql') $('#ql').hidden = true; });
+
+// ---------------------------------------------------------------- opciones y menús (R7)
+const OPT_LIST = [['gravity', 'Gravedad'], ['fixed', 'Fijar al suelo'], ['dims', 'Cotas'], ['grid', 'Rejilla'], ['colors', 'Colores por Ø']];
+function setOpt(k, v) {
+  OPTS[k] = v;
+  if (k === 'gravity' || k === 'fixed') { if (k === 'fixed' && v) { for (const id of [...GRAB.hands.keys()]) endGrab(id); endPointGrab(); } applyPhysicsOpts(); }
+  if (k === 'dims') dims.visible = v;
+  if (k === 'grid' && grid) grid.visible = v;
+  if (k === 'colors') for (const d of [20, 32, 40]) mats['tube' + d]?.color.set(tubeColor(d));
+  for (const b of document.querySelectorAll(`[data-opt="${k}"]`)) { b.classList.toggle('on', v); b.querySelector('.tick').textContent = v ? '✓' : ''; }
+  wristMenu.dirty = true; requestRender();
+}
+// Menú de opciones en HTML (vista 3D y RA en Android): un botón por opción y Reiniciar
+function renderOptions(el) {
+  el.innerHTML = OPT_LIST.map(([k, l]) => `<button data-opt="${k}" class="${OPTS[k] ? 'on' : ''}" aria-pressed="${OPTS[k]}"><span class="tick">${OPTS[k] ? '✓' : ''}</span>${l}</button>`).join('')
+    + '<button data-act="reset"><span class="tick">↺</span>Reiniciar</button>';
+  for (const b of el.querySelectorAll('[data-opt]')) b.onclick = () => { setOpt(b.dataset.opt, !OPTS[b.dataset.opt]); b.setAttribute('aria-pressed', OPTS[b.dataset.opt]); };
+  el.querySelector('[data-act="reset"]').onclick = () => resetPose();
+}
+renderOptions($('#opts')); renderOptions($('#xr-opts'));
+$('#b-opts').onclick = () => { const o = $('#opts'); o.hidden = !o.hidden; $('#b-opts').classList.toggle('on', !o.hidden); $('#b-opts').setAttribute('aria-expanded', !o.hidden); };
+$('#xr-opts-b').onclick = () => { $('#xr-opts').hidden = !$('#xr-opts').hidden; };
+
+// ---- menú en la muñeca (Quest): aparece al mirar la palma de la mano izquierda (o con el botón X del
+// mando izquierdo); se pulsa tocándolo con el índice de la otra mano o apuntando y pellizcando/apretando
+const WM_W = 0.14, WM_H = 0.2, WM_ITEMS = [['reset', 'Reiniciar'], ['replace', 'Recolocar'], ...OPT_LIST, ['exit', 'Salir']];
+const wristMenu = (() => {
+  const c = document.createElement('canvas'); c.width = 280; c.height = 400;
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(WM_W, WM_H), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  mesh.renderOrder = 30; mesh.visible = false; scene.add(mesh);
+  return { mesh, canvas: c, tex, dirty: true, toggled: false, xWas: false, pokeWas: false, cool: 0 };
+})();
+// Rejilla del menú: título arriba y 2 columnas × 4 filas; u, v de 0 a 1 desde la esquina superior izquierda
+function menuItemAt(u, v) {
+  const top = 0.12; if (u < 0 || u > 1 || v < top || v > 1) return null;
+  const col = Math.min(1, Math.floor(u * 2)), row = Math.min(3, Math.floor((v - top) / ((1 - top) / 4)));
+  return WM_ITEMS[row * 2 + col]?.[0] ?? null;
+}
+function drawWristMenu() {
+  const { canvas: c } = wristMenu, g = c.getContext('2d'), W = c.width, H = c.height, top = H * 0.12, cw = W / 2, ch = (H - top) / 4;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = 'rgba(20,23,28,.88)'; g.beginPath(); g.roundRect(0, 0, W, H, 22); g.fill();
+  g.fillStyle = '#fff'; g.font = '600 22px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PipeCAD RA', W / 2, top / 2 + 2);
+  WM_ITEMS.forEach(([k, label], i) => {
+    const x = (i % 2) * cw + 6, y = top + Math.floor(i / 2) * ch + 6, on = k in OPTS && OPTS[k];
+    g.fillStyle = on ? '#2f6fde' : k === 'exit' ? 'rgba(212,55,60,.85)' : 'rgba(255,255,255,.14)';
+    g.beginPath(); g.roundRect(x, y, cw - 12, ch - 12, 14); g.fill();
+    g.fillStyle = '#fff'; g.font = '600 19px system-ui, sans-serif';
+    const words = label.split(' '), lines = words.length > 2 ? [words.slice(0, 2).join(' '), words.slice(2).join(' ')] : [label];
+    lines.forEach((t, j) => g.fillText((j === 0 && on ? '✓ ' : '') + t, x + (cw - 12) / 2, y + (ch - 12) / 2 + (j - (lines.length - 1) / 2) * 22));
+  });
+  wristMenu.tex.needsUpdate = true; wristMenu.dirty = false;
+}
+let menuBusy = false;
+function menuAction(k) {
+  if (performance.now() < wristMenu.cool) return; wristMenu.cool = performance.now() + 450;
+  if (k in OPTS) setOpt(k, !OPTS[k]);
+  else if (k === 'reset') resetPose();
+  else if (k === 'replace') startPlacing();
+  else if (k === 'exit') XR.session?.end();
+  for (const c of INPUTS) c.source?.gamepad?.hapticActuators?.[0]?.pulse?.(0.3, 20);
+}
+function inputByHand(side) { return INPUTS.find(c => c.source?.handedness === side && c.source.targetRayMode !== 'screen'); }
+const _n = new THREE.Vector3(), _h = new THREE.Vector3();
+// Normal de la palma (hacia fuera de la palma) a partir de la muñeca y los metacarpianos del índice y el meñique
+function palmNormal(wrist, index, pinky, side) {
+  const a = index.clone().sub(wrist), b = pinky.clone().sub(wrist);
+  return (side === 'left' ? b.cross(a) : a.cross(b)).normalize();
+}
+function updateWristMenu() {
+  const M = wristMenu, left = inputByHand('left');
+  const head = renderer.xr.getCamera().getWorldPosition(_h);
+  let show = false;
+  if (left?.source.hand) {
+    const J = left.hand.joints, w = J?.wrist, im = J?.['index-finger-metacarpal'], pm = J?.['pinky-finger-metacarpal'], mm = J?.['middle-finger-metacarpal'];
+    if (w?.visible && im?.visible && pm?.visible && mm?.visible) {
+      const pw = w.getWorldPosition(new THREE.Vector3()), n = palmNormal(pw, im.getWorldPosition(new THREE.Vector3()), pm.getWorldPosition(new THREE.Vector3()), 'left');
+      const center = pw.clone().lerp(mm.getWorldPosition(new THREE.Vector3()), 0.5);
+      show = n.dot(_n.copy(head).sub(center).normalize()) > 0.55; // la palma mira a la cara
+      if (show) { M.mesh.position.copy(center).addScaledVector(n, 0.07); M.mesh.lookAt(head); }
+    }
+  } else if (left) { // mando: el botón X lo muestra u oculta encima del mando
+    const x = !!left.source.gamepad?.buttons?.[4]?.pressed;
+    if (x && !M.xWas) M.toggled = !M.toggled; M.xWas = x;
+    if (M.toggled && left.grip.visible) { show = true; M.mesh.position.copy(left.grip.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0.13, 0)); M.mesh.lookAt(head); }
+  }
+  M.mesh.visible = show;
+  if (show && M.dirty) drawWristMenu();
+  // tocar con el índice de la mano derecha
+  menuBusy = false;
+  if (!show) { M.pokeWas = false; return; }
+  const right = inputByHand('right'), tip = right?.source.hand && right.hand.joints?.['index-finger-tip'];
+  if (tip?.visible) {
+    const l = M.mesh.worldToLocal(tip.getWorldPosition(new THREE.Vector3())), inside = Math.abs(l.x) < WM_W / 2 && Math.abs(l.y) < WM_H / 2, poke = inside && Math.abs(l.z) < 0.015;
+    if (poke && !M.pokeWas) { const k = menuItemAt(l.x / WM_W + 0.5, 0.5 - l.y / WM_H); if (k) menuAction(k); }
+    M.pokeWas = poke; if (inside && Math.abs(l.z) < 0.06) menuBusy = true;
+  }
+}
+// Rayo de una mano o mando contra el menú: elemento apuntado o null
+function menuRayHit(c) {
+  if (!wristMenu.mesh.visible) return null;
+  const o = c.ray.getWorldPosition(new THREE.Vector3()), d = new THREE.Vector3(0, 0, -1).applyQuaternion(c.ray.getWorldQuaternion(new THREE.Quaternion()));
+  raycaster.set(o, d); raycaster.far = 3;
+  const hit = raycaster.intersectObject(wristMenu.mesh, false)[0];
+  return hit?.uv ? menuItemAt(hit.uv.x, 1 - hit.uv.y) : null;
+}
 
 $('#b-drop').onclick = () => drop(0.5); // en la vista 3D, medio metro: se ve caer sin salirse del encuadre
 $('#b-reset').onclick = () => resetPose();
@@ -826,6 +988,7 @@ function updateFloorFromPlanes(frame) {
 function xrFrame(frame) {
   updateFloorFromPlanes(frame);
   if (!XR.placing) { xrInputs(); xrTouchFrame(frame, performance.now()); return; }
+  updateWristMenu();
   const p = floorFromHit(frame) ?? (XR.floorY != null ? floorFromGaze(XR.floorY) : null);
   XR.target = p;
   reticle.visible = !!p; stage.visible = !!p;
@@ -885,17 +1048,18 @@ async function enterAR() {
   // escena de RA: sin rejilla ni fondo (se ve la cámara), con la estructura colocada sobre la retícula
   scene.background = null; ui.hidden = false;
   for (const id of ['#top', '#bar', '#info', '#msg']) $(id).dataset.wasHidden = $(id).hidden, $(id).hidden = true;
-  if (grid) grid.visible = false;
+  XR.gridBefore = OPTS.grid; setOpt('grid', false); // en RA, sin rejilla salvo que se pida
   makeFootprint(); startPlacing();
 }
 function exitedAR() {
+  wristMenu.mesh.visible = false; $('#xr-opts').hidden = true;
   XR.session = null; XR.hitSource?.cancel?.(); XR.hitSource = null; XR.placing = XR.placed = false;
   for (const id of [...GRAB.hands.keys()]) endGrab(id);
   reticle.visible = false; setGhost(false); PH.active = true; resetPose();
   stage.position.set(0, 0, 0); stage.rotation.set(0, 0, 0); stage.visible = true;
   $('#xr-ui').hidden = true;
   for (const id of ['#top', '#bar', '#info', '#msg']) { $(id).hidden = $(id).dataset.wasHidden === 'true'; }
-  if (grid) grid.visible = $('#b-grid').classList.contains('on');
+  setOpt('grid', XR.gridBefore ?? OPTS.grid); setOpt('dims', OPTS.dims);
   resize(); homeView();
 }
 $('#b-enter').onclick = () => (AR.webxr ? enterAR() : AR.quicklook ? openQuickLookSheet() : null);
@@ -916,7 +1080,7 @@ $('#s-example').onclick = async () => {
 };
 $('#s-last').onclick = () => { try { openProject(JSON.parse(store.get('pipecad-autosave')), 'Último proyecto'); } catch (err) { message('No se pudo abrir: ' + err.message, 'err'); } };
 $('#b-home').onclick = homeView;
-$('#b-grid').onclick = e => { const on = e.currentTarget.classList.toggle('on'); if (grid) grid.visible = on; requestRender(); };
+
 $('#b-info').onclick = () => { if (current) $('#info').hidden = !$('#info').hidden; };
 
 // ---------------------------------------------------------------- arranque
@@ -934,7 +1098,7 @@ loadPhysics();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { OPTS, setOpt, dims, wristMenu, menuItemAt, palmNormal, drawWristMenu, QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>
