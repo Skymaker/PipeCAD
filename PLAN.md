@@ -348,7 +348,8 @@ Limitaciones previstas:
 | 16 Interfaz, ayuda, ejemplo y pruebas | ✅ **79/79 pruebas del motor** |
 | 17 (R0) Núcleo común | ✅ `js/nucleo.js` (93 funciones y datos compartidos); PipeCAD, 79/79 pruebas |
 | 18 (R1) Página ra.html | ✅ Vista 3D adaptable a móvil, proyecto por enlace `#p=` (el ejemplo ocupa 1 KB), `.json`, último proyecto o ejemplo; medidas, peso y formas para la física; detección de RA |
-| 19–26 (R2–R9) Realidad aumentada | ⏳ Pendiente |
+| 19 (R2) Sesión de RA y suelo | ✅ Programada y probada con una cámara y fotogramas simulados (mirada contra el suelo, plano «floor», prueba de impacto, giro hacia el usuario). **Falta probarla en Quest 3 y Android.** |
+| 20–26 (R3–R9) Física, manos, táctil, iOS, menús, QR y entorno | ⏳ Pendiente |
 
 ### Pendiente y limitaciones conocidas
 - El guardado en una carpeta elegida (Chrome / Edge, sin servidor) no se ha probado en un navegador real.

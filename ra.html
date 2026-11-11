@@ -54,6 +54,13 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
 #start h1{font-size:20px;margin:0 0 6px}
 #start p{margin:6px 0 14px;color:var(--muted)}
 #start .btns{display:grid;gap:8px}
+/* Realidad aumentada: interfaz superpuesta (Android, dom-overlay); en las gafas no se ve */
+#xr-ui{position:fixed;inset:0;pointer-events:none;color:#fff;font-size:15px}
+#xr-ui .card{background:rgba(20,23,28,.72);border-color:rgba(255,255,255,.18);color:#fff;pointer-events:auto}
+#xr-msg{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;max-width:calc(100% - 24px);top:max(16px,env(safe-area-inset-top));padding:10px 14px;text-align:center}
+#xr-btns{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;bottom:max(18px,env(safe-area-inset-bottom));display:flex;gap:8px;padding:8px}
+#xr-btns button{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);color:#fff;min-height:48px}
+#xr-btns button.primary{background:var(--accent);border-color:var(--accent)}
 @media (max-width:700px){
   #info{left:max(12px,env(safe-area-inset-left));right:auto;width:auto;max-width:calc(100% - 24px);top:auto;bottom:calc(max(14px,env(safe-area-inset-bottom)) + 76px)}
   #msg{bottom:calc(max(14px,env(safe-area-inset-bottom)) + 76px)}
@@ -102,6 +109,15 @@ button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--a
   </div>
 </div>
 <input id="file" type="file" accept=".json,application/json" hidden>
+
+<div id="xr-ui" hidden>
+  <div id="xr-msg" class="card">Busca el suelo con la cámara…</div>
+  <div id="xr-btns" class="card">
+    <button id="xr-place" class="primary">Colocar aquí</button>
+    <button id="xr-replace" hidden>Recolocar</button>
+    <button id="xr-exit">Salir</button>
+  </div>
+</div>
 
 <script src="js/nucleo.js"></script>
 <script type="module">
@@ -156,22 +172,25 @@ controls.enableDamping = true; controls.target.set(0, 0.3, 0); controls.maxPolar
 controls.addEventListener('change', requestRender);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa1a8, 1.5));
+// Escenario: la estructura con su suelo, su rejilla y su luz. En la vista 3D está en el origen;
+// en realidad aumentada se coloca sobre el suelo real (posición y giro alrededor de la vertical).
+const stage = new THREE.Group(); scene.add(stage);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(2, 4, 1.5); sun.castShadow = true;
 sun.shadow.mapSize.setScalar(MOBILE ? 1024 : 2048);
 sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.01;
-scene.add(sun, sun.target);
+stage.add(sun, sun.target);
 
 // Suelo: recoge las sombras (en RA, sobre el suelo real) y lleva una rejilla de 10 cm que se puede ocultar
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.28 }));
-floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; stage.add(floor);
 let grid = null;
 function makeGrid(size) {
-  if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+  if (grid) { stage.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
   const n = Math.max(2, Math.ceil(size / 0.5) * 5); // divisiones de 10 cm
   grid = new THREE.GridHelper(n * 0.1, n, new THREE.Color(cssVar('--muted')), new THREE.Color(cssVar('--border')));
   grid.material.transparent = true; grid.material.opacity = 0.55; grid.position.y = 0.0005;
-  grid.visible = $('#b-grid').classList.contains('on'); scene.add(grid);
+  grid.visible = $('#b-grid').classList.contains('on'); stage.add(grid);
 }
 
 // ---------------------------------------------------------------- montaje del proyecto
@@ -179,7 +198,7 @@ function makeGrid(size) {
 // dibujarla rápido en gafas y teléfonos, y una lista de formas simples (cilindros y bolas) para la física.
 const PVC_DENSITY = 1400;                               // kg/m³
 const WALL = { 20: 1.5, 32: 2.4, 40: 3.0 };             // pared del tubo PVC presión (mm), para el peso
-const assembly = new THREE.Group(); scene.add(assembly); // en metros, apoyado en el suelo (y = 0) y centrado
+const assembly = new THREE.Group(); stage.add(assembly); // en metros, apoyado en el suelo (y = 0) y centrado
 let current = null;                                     // { model, analysis, json, shapes, size, mass }
 const mats = {};
 function makeMaterials() {
@@ -257,6 +276,8 @@ function buildAssembly() {
   current.mass = mass;
   current.toWorld = toM.clone().premultiply(new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z)); // mm del proyecto → metros de la escena
   current.shapes = shapes;
+  const half = Math.max(current.size.x, current.size.z) / 2 + 0.3, cam = sun.shadow.camera;
+  cam.left = cam.bottom = -half * 1.4; cam.right = cam.top = half * 1.4; cam.near = 0.1; cam.far = 12; cam.updateProjectionMatrix();
   current.triangles = assembly.children.reduce((t, m) => t + m.geometry.attributes.position.count / 3, 0);
 }
 
@@ -299,7 +320,8 @@ let needRender = true;
 function requestRender() { needRender = true; }
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); requestRender(); }
 addEventListener('resize', resize);
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop((time, frame) => {
+  if (frame) { xrFrame(frame); renderer.render(scene, camera); return; }
   if (controls.update()) needRender = true;
   if (!needRender) return;
   needRender = false; renderer.render(scene, camera);
@@ -320,10 +342,144 @@ async function detectAR() {
   else if (ios) txt = '<b>iOS</b>: abre esta página en Safari para verla en realidad aumentada.';
   else if (!isSecureContext) txt = '<b>Sin RA</b>: hace falta abrir la página por HTTPS (o en localhost).';
   else txt = `<b>Sin RA</b> en este navegador. Ábrela en unas Meta Quest 3, en Chrome de Android (con ARCore) o en Safari de iPhone.`;
-  $('#ar').innerHTML = txt + '<br>La entrada en realidad aumentada llega en la siguiente fase del visor.';
-  $('#b-enter').disabled = true;
-  $('#b-enter').title = AR.webxr || AR.quicklook ? 'Disponible en la siguiente fase del visor' : 'Este dispositivo no permite realidad aumentada en el navegador';
+  $('#ar').innerHTML = txt + (AR.webxr ? '' : AR.quicklook ? '<br>Quick Look llega en una fase posterior del visor.' : '');
+  $('#b-enter').disabled = !AR.webxr;
+  $('#b-enter').title = AR.webxr ? 'Ver el proyecto a tamaño real sobre el suelo' : AR.quicklook ? 'Quick Look (iPhone) llega en una fase posterior del visor' : 'Este dispositivo no permite realidad aumentada en el navegador';
 }
+
+// ---------------------------------------------------------------- realidad aumentada (WebXR: Meta Quest 3 y Android)
+// Colocación: una retícula sigue al suelo (prueba de impacto o, si no hay, el suelo de la sala a la
+// altura 0 de «local-floor») y la estructura la acompaña en transparente. Seleccionar (pellizco en las
+// gafas, toque en el teléfono o «Colocar aquí») la deja apoyada, mirando hacia el usuario.
+renderer.xr.enabled = true;
+const XR = { session: null, refType: '', hitSource: null, placing: false, placed: false, floorY: null, target: null, viewerSpace: null };
+const reticle = new THREE.Group(); reticle.visible = false; scene.add(reticle);
+{
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.09, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false }));
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.012, 16).rotateX(-Math.PI / 2), ring.material);
+  ring.renderOrder = dot.renderOrder = 20; reticle.add(ring, dot);
+}
+let footprint = null; // contorno en el suelo de lo que ocupará la estructura
+function makeFootprint() {
+  if (footprint) { stage.remove(footprint); footprint.geometry.dispose(); }
+  const { x, z } = current.size, hx = x / 2, hz = z / 2;
+  const g = new THREE.BufferGeometry().setFromPoints([[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz], [-hx, -hz]].map(([a, b]) => new THREE.Vector3(a, 0.002, b)));
+  footprint = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }));
+  stage.add(footprint);
+}
+function setGhost(on) { // estructura semitransparente mientras se coloca
+  for (const m of Object.values(mats)) { m.transparent = on; m.opacity = on ? 0.55 : 1; m.depthWrite = !on; m.needsUpdate = true; }
+  for (const m of assembly.children) m.castShadow = !on;
+  if (footprint) footprint.visible = on;
+}
+const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
+// Giro alrededor de la vertical para que la estructura mire al usuario
+function yawTowardViewer(pos) {
+  const cam = renderer.xr.getCamera().getWorldPosition(new THREE.Vector3());
+  return Math.atan2(cam.x - pos.x, cam.z - pos.z);
+}
+// Impacto horizontal (suelo o mesa) de la prueba de impacto, o null
+function floorFromHit(frame) {
+  if (!XR.hitSource) return null;
+  const refSpace = renderer.xr.getReferenceSpace();
+  for (const hit of frame.getHitTestResults(XR.hitSource)) {
+    const pose = hit.getPose(refSpace); if (!pose) continue;
+    const { position: p, orientation: o } = pose.transform;
+    _q.set(o.x, o.y, o.z, o.w); _v.set(0, 1, 0).applyQuaternion(_q);
+    if (_v.y > 0.9) return new THREE.Vector3(p.x, p.y, p.z); // superficie horizontal
+  }
+  return null;
+}
+// Sin prueba de impacto: rayo de la mirada contra el plano del suelo (altura conocida)
+function floorFromGaze(floorY) {
+  const cam = renderer.xr.getCamera(), o = cam.getWorldPosition(new THREE.Vector3()), d = cam.getWorldDirection(new THREE.Vector3());
+  if (d.y > -0.05) d.y = -0.05; // mirando al horizonte: delante, a unos metros como mucho
+  const t = Math.min((floorY - o.y) / d.y, 6);
+  return t > 0 ? o.addScaledVector(d, t).setY(floorY) : null;
+}
+// Altura del suelo: «local-floor» la da (0) y, en las Quest 3, el plano detectado con la etiqueta «floor»
+function updateFloorFromPlanes(frame) {
+  const planes = frame.detectedPlanes; if (!planes?.size) return;
+  const refSpace = renderer.xr.getReferenceSpace();
+  for (const plane of planes) {
+    if (plane.semanticLabel !== 'floor' && plane.orientation !== 'horizontal') continue;
+    const pose = frame.getPose(plane.planeSpace, refSpace); if (!pose) continue;
+    const y = pose.transform.position.y;
+    if (plane.semanticLabel === 'floor' || XR.floorY == null || y < XR.floorY) XR.floorY = y; // el plano horizontal más bajo
+  }
+}
+function xrFrame(frame) {
+  updateFloorFromPlanes(frame);
+  if (!XR.placing) return;
+  const p = floorFromHit(frame) ?? (XR.floorY != null ? floorFromGaze(XR.floorY) : null);
+  XR.target = p;
+  reticle.visible = !!p; stage.visible = !!p;
+  if (!p) { xrMessage(XR.hitSource ? 'Mueve despacio el dispositivo apuntando al suelo…' : 'Buscando el suelo…'); return; }
+  reticle.position.copy(p);
+  stage.position.copy(p); stage.rotation.set(0, yawTowardViewer(p), 0);
+  xrMessage(XR.isPhone ? 'Toca la pantalla (o «Colocar aquí») para dejar la estructura' : 'Pellizca para dejar la estructura en el suelo');
+}
+function place() {
+  if (!XR.placing || !XR.target) return;
+  XR.placing = false; XR.placed = true; reticle.visible = false; setGhost(false);
+  $('#xr-place').hidden = true; $('#xr-replace').hidden = false;
+  const s = current.size;
+  xrMessage(`Estructura a tamaño real: ${fmt(s.x, 2)} × ${fmt(s.z, 2)} m, ${fmt(s.y, 2)} m de alto`, 5000);
+}
+function startPlacing() {
+  XR.placing = true; XR.placed = false; XR.target = null; setGhost(true);
+  $('#xr-place').hidden = false; $('#xr-replace').hidden = true;
+}
+let xrMsgTimer = 0;
+function xrMessage(text, ms = 0) {
+  const m = $('#xr-msg'); if (m.textContent !== text) m.textContent = text;
+  clearTimeout(xrMsgTimer); m.hidden = false; if (ms) xrMsgTimer = setTimeout(() => { if (!XR.placing) m.hidden = true; }, ms);
+}
+async function enterAR() {
+  if (!current || XR.session) return;
+  const ui = $('#xr-ui');
+  let session;
+  ui.hidden = false; // la raíz de la interfaz superpuesta tiene que estar visible al pedir la sesión
+  try {
+    session = await navigator.xr.requestSession('immersive-ar', {
+      optionalFeatures: ['local-floor', 'hit-test', 'dom-overlay', 'hand-tracking', 'plane-detection'],
+      domOverlay: { root: ui },
+    });
+  } catch (err) { ui.hidden = true; message('No se pudo iniciar la realidad aumentada: ' + err.message, 'err', 8000); return; }
+  XR.session = session;
+  // «local-floor» (suelo a la altura 0) si el dispositivo lo da; si no, «local» y el suelo lo pone la prueba de impacto
+  try { await session.requestReferenceSpace('local-floor'); XR.refType = 'local-floor'; } catch { XR.refType = 'local'; }
+  XR.floorY = XR.refType === 'local-floor' ? 0 : null;
+  renderer.xr.setReferenceSpaceType(XR.refType);
+  XR.isPhone = !!session.domOverlayState; // Android con interfaz superpuesta; en las gafas no la hay
+  try {
+    XR.viewerSpace = await session.requestReferenceSpace('viewer');
+    XR.hitSource = await session.requestHitTestSource?.({ space: XR.viewerSpace }) ?? null;
+  } catch { XR.hitSource = null; }
+  session.addEventListener('select', () => { if (XR.placing) place(); });
+  session.addEventListener('end', exitedAR);
+  // en el teléfono, los toques en los botones no cuentan como «seleccionar» en la escena
+  ui.addEventListener('beforexrselect', e => { if (e.target.closest('button')) e.preventDefault(); });
+  await renderer.xr.setSession(session);
+  // escena de RA: sin rejilla ni fondo (se ve la cámara), con la estructura colocada sobre la retícula
+  scene.background = null; ui.hidden = false;
+  for (const id of ['#top', '#bar', '#info', '#msg']) $(id).dataset.wasHidden = $(id).hidden, $(id).hidden = true;
+  if (grid) grid.visible = false;
+  makeFootprint(); startPlacing();
+}
+function exitedAR() {
+  XR.session = null; XR.hitSource?.cancel?.(); XR.hitSource = null; XR.placing = XR.placed = false;
+  reticle.visible = false; setGhost(false);
+  stage.position.set(0, 0, 0); stage.rotation.set(0, 0, 0); stage.visible = true;
+  $('#xr-ui').hidden = true;
+  for (const id of ['#top', '#bar', '#info', '#msg']) { $(id).hidden = $(id).dataset.wasHidden === 'true'; }
+  if (grid) grid.visible = $('#b-grid').classList.contains('on');
+  resize(); homeView();
+}
+$('#b-enter').onclick = enterAR;
+$('#xr-place').onclick = () => place();
+$('#xr-replace').onclick = () => startPlacing();
+$('#xr-exit').onclick = () => XR.session?.end();
 
 // ---------------------------------------------------------------- botones
 const pickFile = () => $('#file').click();
@@ -355,7 +511,7 @@ detectAR();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>
