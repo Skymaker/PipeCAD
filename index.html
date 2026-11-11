@@ -180,7 +180,9 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.6/build/index.module.js",
+  "three-bvh-csg": "https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.16/build/index.module.js"
 } }
 </script>
 </head>
@@ -320,6 +322,11 @@ kbd{font:11px ui-monospace,monospace;border:1px solid var(--border);border-botto
     <input type="range" id="pf-gizmo" min="100" max="200" step="10" value="100">
     <span class="hint">De 120 px (tamaño original) a 240 px (el doble).</span>
   </label>
+  <label class="pref pref-col">
+    <span>Holgura de impresión en las embocaduras: <b id="pf-clear-out">0,25 mm</b></span>
+    <input type="range" id="pf-clear" min="0" max="0.6" step="0.05" value="0.25">
+    <span class="hint">Se suma al radio del taladro de cada embocadura en los STL generados (0,2–0,3 mm suele ir bien en FDM).</span>
+  </label>
   <p class="hint">Estos ajustes se guardan en este navegador y no forman parte del proyecto.</p>
 </dialog>
 <dialog id="help">
@@ -424,18 +431,23 @@ const builtinEnabled = k => !LIB.disabled.has(k);
 LIB.version = 0; LIB.geo = new Map(); // geometrías ya preparadas (por accesorio y variante)
 // Geometría de un accesorio personalizado en su sistema local: STL cargado o modelo automático
 function customGeometry(n) {
-  const e = LIB.custom.get(n.defId), key = `${n.defId}|${n.variant}|${LIB.version}|${e ? 'lib' : vkeyPorts(n)}`;
+  const e = LIB.custom.get(n.defId), clr = PREFS.clearance;
+  const key = `${n.defId}|${n.variant}|${LIB.version}|${clr}|${e ? 'lib' : vkeyPorts(n)}`;
   if (LIB.geo.has(key)) return LIB.geo.get(key);
   let g = null;
   const stl = e && (e.stl[n.variant] || e.stl['*']);
   if (stl) { try { g = parseSTL(b64ToBuf(stl.b64)); } catch { g = null; } }
   if (!g) {
-    const v = e?.def.variants.find(x => x.name === n.variant);
-    if (e && v) g = autoFittingGeometry(e.def.ports.map(p => p.dir), v);
-    else { // accesorio que ya no está en la biblioteca: modelo automático con las medidas guardadas
+    // modelo automático: primero el rápido; en cuanto está calculado el sólido imprimible, se sustituye
+    let dirs, v = e?.def.variants.find(x => x.name === n.variant);
+    if (e && v) dirs = e.def.ports.map(p => p.dir);
+    else { // accesorio que ya no está en la biblioteca: medidas guardadas en el proyecto
       const ps = [...n.ports, ...n.open].filter(p => p.local);
-      g = autoFittingGeometry(ps.map(p => p.local), { ds: ps.map(p => p.d), zs: ps.map(p => p.z), sockets: ps.map(p => p.socket), od: n.od || Math.max(...ps.map(p => p.d)) * 1.3 });
+      dirs = ps.map(p => p.local);
+      v = { ds: ps.map(p => p.d), zs: ps.map(p => p.z), sockets: ps.map(p => p.socket), od: n.od || Math.max(...ps.map(p => p.d)) * 1.3 };
     }
+    g = autoFittingGeometry(dirs, v);
+    printableFittingGeometry(dirs, v, clr).then(r => { if (r.solid) { LIB.geo.set(key, r.geo); clearCache(); rebuild(); } }).catch(() => {});
   }
   LIB.geo.set(key, g); return g;
 }
@@ -1104,7 +1116,7 @@ function joinSegments(m, sId, oId) {
      VARIANTE 32 DIAMETROS 32 32 32 32 Z 17 17 17 17 EMBOCADURA 22 22 22 22 EXTERIOR 41
      MODELO 32 cruz90_32.stl
 */
-const PCF_KEYS = { DIAMETROS: 'ds', 'DIÁMETROS': 'ds', Z: 'zs', EMBOCADURA: 'sockets', EXTERIOR: 'od' };
+const PCF_KEYS = { DIAMETROS: 'ds', 'DIÁMETROS': 'ds', Z: 'zs', EMBOCADURA: 'sockets', EXTERIOR: 'od', PASO: 'pass' };
 function tokenizePCF(line) { const out = [], re = /"([^"]*)"|(\S+)/g; let m; while ((m = re.exec(line))) out.push(m[1] ?? m[2]); return out; }
 function parsePCF(text) {
   const def = { id: '', name: '', desc: '', ports: [], variants: [], models: {} }, errs = [];
@@ -1127,13 +1139,13 @@ function parsePCF(text) {
         def.ports.push({ name: t[1], dir: v.normalize() }); break;
       }
       case 'VARIANTE': {
-        const v = { name: t[1], ds: [], zs: [], sockets: [], od: NaN, line: ln }; let cur = null;
+        const v = { name: t[1], ds: [], zs: [], sockets: [], pass: [], od: NaN, line: ln }; let cur = null;
         if (!t[1] || PCF_KEYS[t[1].toUpperCase()]) { errs.push(`Línea ${ln}: falta el nombre de la variante (VARIANTE 32 DIAMETROS …)`); break; }
         for (const tok of t.slice(2)) {
           const k = PCF_KEYS[tok.toUpperCase()];
           if (k) { cur = k; continue; }
-          if (!cur) { errs.push(`Línea ${ln}: «${tok}» no va precedido de DIAMETROS, Z, EMBOCADURA o EXTERIOR`); continue; }
-          const val = num(tok, cur === 'ds' ? 'el diámetro' : cur === 'zs' ? 'la Z' : cur === 'sockets' ? 'la embocadura' : 'el diámetro exterior');
+          if (!cur) { errs.push(`Línea ${ln}: «${tok}» no va precedido de DIAMETROS, Z, EMBOCADURA, PASO o EXTERIOR`); continue; }
+          const val = num(tok, cur === 'ds' ? 'el diámetro' : cur === 'zs' ? 'la Z' : cur === 'sockets' ? 'la embocadura' : cur === 'pass' ? 'el paso' : 'el diámetro exterior');
           if (cur === 'od') v.od = val; else v[cur].push(val);
         }
         def.variants.push(v); break;
@@ -1155,6 +1167,9 @@ function parsePCF(text) {
     if (v.zs.some(z => z < 0)) errs.push(`${where}: la Z no puede ser negativa`);
     if (v.sockets.some(s => !(s > 0))) errs.push(`${where}: la embocadura debe ser mayor que 0`);
     if (!(v.od > Math.max(...v.ds))) errs.push(`${where}: EXTERIOR debe ser mayor que el mayor de los diámetros`);
+    if (v.pass.length && v.pass.length !== n) errs.push(`${where}: PASO tiene ${v.pass.length} valores y hay ${n} bocas`);
+    if (v.pass.some((p, k) => !(p > 0) || p >= v.ds[k])) errs.push(`${where}: cada PASO debe ser mayor que 0 y menor que el Ø de su boca`);
+    if (!v.pass.length) delete v.pass;
   }
   const names = def.variants.map(v => v.name);
   if (new Set(names).size !== names.length) errs.push('Hay variantes con el mismo nombre');
@@ -1169,7 +1184,7 @@ function pcfFor(def) {
   L.push('', '# BOCA <nombre> <x> <y> <z>   dirección hacia fuera de la boca');
   for (const p of def.ports) L.push(`BOCA ${p.name}  ${[p.dir.x, p.dir.y, p.dir.z].map(fmtN).join(' ')}`);
   L.push('', '# VARIANTE <nombre> DIAMETROS (Ø de tubo por boca) Z (centro → tope de embocadura) EMBOCADURA (profundidad) EXTERIOR (Ø exterior del cuerpo)');
-  for (const v of def.variants) L.push(`VARIANTE ${v.name}  DIAMETROS ${v.ds.join(' ')}  Z ${v.zs.map(fmtN).join(' ')}  EMBOCADURA ${v.sockets.map(fmtN).join(' ')}  EXTERIOR ${fmtN(v.od)}`);
+  for (const v of def.variants) L.push(`VARIANTE ${v.name}  DIAMETROS ${v.ds.join(' ')}  Z ${v.zs.map(fmtN).join(' ')}  EMBOCADURA ${v.sockets.map(fmtN).join(' ')}${v.pass ? '  PASO ' + v.pass.map(fmtN).join(' ') : ''}  EXTERIOR ${fmtN(v.od)}`);
   const models = Object.entries(def.models || {});
   if (models.length) { L.push(''); for (const [k, f] of models) L.push(`MODELO ${k} ${f}`); }
   return L.join('\n') + '\n';
@@ -1203,6 +1218,75 @@ function autoFittingGeometry(dirs, v) {
   });
   if (dirs.some(a => dirs.some(b => Math.abs(a.dot(b)) < 1 - 1e-6))) geos.push(new THREE.SphereGeometry(R * 0.94, 32, 16));
   return mergePositions(geos);
+}
+// ---- Modelo imprimible y funcional (operaciones booleanas con three-bvh-csg):
+//  · cuerpo: cilindro por boca (origen → fondo de la embocadura) + esfera central si hay bocas no alineadas
+//  · embocaduras: cilindro exterior + taladro de Ø tubo + 2·holgura, abierto por fuera
+//  · paso interior: conducto de Ø PASO de cada embocadura al centro, unidos por una esfera hueca
+//  El resultado es un único sólido cerrado, listo para el laminador.
+const PASS_DEFAULT = { 20: 16, 32: 27, 40: 34 }; // ≈ Ø interior del tubo de PVC presión
+const MIN_WALL = 1.2;                           // pared mínima recomendable para imprimir (mm)
+let csgModule = null;
+const loadCSG = () => csgModule ||= import('three-bvh-csg').catch(err => { console.warn('CSG no disponible', err); return null; });
+function fittingWalls(dirs, v, clearance) {
+  const R = v.od / 2, warn = [];
+  dirs.forEach((_, i) => {
+    const wSocket = R - (v.ds[i] / 2 + clearance), wBody = R * 0.94 - (v.pass?.[i] ?? PASS_DEFAULT[v.ds[i]]) / 2;
+    if (wSocket < MIN_WALL) warn.push(`boca ${i + 1}: pared de la embocadura de ${fmt(wSocket, 2)} mm`);
+    if (wBody < MIN_WALL) warn.push(`boca ${i + 1}: pared del paso de ${fmt(wBody, 2)} mm`);
+  });
+  const u = dirs.map(d => d.clone().normalize());
+  if (u.some(a => u.some(b => Math.abs(a.dot(b)) < 1 - 1e-6))) { // cámara central
+    const wCore = R * 0.97 - 1.15 * Math.max(...dirs.map((_, i) => (v.pass?.[i] ?? PASS_DEFAULT[v.ds[i]]) / 2));
+    if (wCore < MIN_WALL) warn.push(`núcleo: pared de la cámara central de ${fmt(wCore, 2)} mm`);
+  }
+  return warn;
+}
+async function printableFittingGeometry(dirs, v, clearance = 0.25) {
+  const C = await loadCSG();
+  if (!C) return { geo: autoFittingGeometry(dirs, v), solid: false };
+  const R = v.od / 2, Y = new THREE.Vector3(0, 1, 0), ev = new C.Evaluator();
+  ev.attributes = ['position', 'normal']; ev.useGroups = false;
+  const brush = g => { g.deleteAttribute('uv'); const b = new C.Brush(g); b.updateMatrixWorld(); return b; };
+  const cyl = (r, a, b, q, seg = 48) => { const g = new THREE.CylinderGeometry(r, r, b - a, seg, 1, false); g.translate(0, (a + b) / 2, 0); g.applyQuaternion(q); return brush(g); };
+  const units = dirs.map(d => d.clone().normalize()), n = units.length;
+  const branched = units.some(a => units.some(b => Math.abs(a.dot(b)) < 1 - 1e-6));
+  const rp = i => (v.pass?.[i] ?? PASS_DEFAULT[v.ds[i]]) / 2, maxPass = Math.max(...units.map((_, i) => rp(i)));
+  // Las bocas opuestas (alineadas) forman un único cilindro pasante: así no quedan caras coincidentes
+  const partner = units.map((a, i) => units.findIndex((b, j) => j !== i && a.dot(b) < -1 + 1e-6));
+  let solid = null; const add = b => { solid = solid ? ev.evaluate(solid, b, C.ADDITION) : b; };
+  const holes = [];
+  units.forEach((dir, i) => {
+    const q = new THREE.Quaternion().setFromUnitVectors(Y, dir), z = v.zs[i], s = v.sockets[i], j = partner[i];
+    // cuerpo (radio 0,94·R): si tiene pareja, uno solo de embocadura a embocadura; si no, desde el centro
+    if (j < 0) add(cyl(R * 0.94, 0, z + 0.6, q));
+    else if (i < j) add(cyl(R * 0.94, -(v.zs[j] + 0.6), z + 0.6, q));
+    add(cyl(R, z, z + s, q));                                        // embocadura
+    holes.push(cyl(v.ds[i] / 2 + clearance, z, z + s + 1, q));       // taladro de la embocadura (abierto por fuera)
+    if (n < 2) return;                                               // tapón: sin paso
+    // paso interior hasta el fondo de la embocadura
+    if (j < 0) holes.push(cyl(rp(i), 0, z + 0.5, q, 40));
+    else if (rp(i) === rp(j)) { if (i < j) holes.push(cyl(rp(i), -(v.zs[j] + 0.5), z + 0.5, q, 40)); }
+    else holes.push(cyl(rp(i), -1, z + 0.5, q, 40));                 // reductor: dos conductos de Ø distinto que se solapan
+  });
+  if (branched) { // núcleo: esfera algo mayor que los cuerpos y cámara central algo mayor que el paso más ancho
+    add(brush(new THREE.SphereGeometry(R * 0.97, 48, 24)));
+    if (n > 1) holes.push(brush(new THREE.SphereGeometry(maxPass * 1.15, 40, 20)));
+  }
+  for (const h of holes) solid = ev.evaluate(solid, h, C.SUBTRACTION);
+  const geo = solid.geometry; geo.clearGroups(); geo.computeVertexNormals();
+  return { geo, solid: true };
+}
+// Comprueba que una malla es cerrada: cada arista la comparten exactamente dos triángulos
+function isWatertight(geo, tol = 1e-3) {
+  const pos = (geo.index ? geo.toNonIndexed() : geo).getAttribute('position'), key = i => [pos.getX(i), pos.getY(i), pos.getZ(i)].map(x => Math.round(x / tol)).join(',');
+  const edges = new Map();
+  for (let t = 0; t < pos.count; t += 3) for (const [a, b] of [[t, t + 1], [t + 1, t + 2], [t + 2, t]]) {
+    const ka = key(a), kb = key(b); if (ka === kb) continue;
+    const k = ka < kb ? ka + '|' + kb : kb + '|' + ka; edges.set(k, (edges.get(k) || 0) + 1);
+  }
+  let open = 0; for (const n of edges.values()) if (n !== 2) open++;
+  return { edges: edges.size, open };
 }
 function mergePositions(geos) {
   const arrs = geos.map(g => (g.index ? g.toNonIndexed() : g).getAttribute('position').array);
@@ -3572,6 +3656,18 @@ function runTests() {
     const tri = g.getAttribute('position').count / 3, tri2 = g2.getAttribute('position').count / 3;
     return all(tri === tri2 || `${tri} ≠ ${tri2} triángulos`, near(g2.boundingBox.max.x, 17 + 22, 0.01) || 'longitud de boca', buf.byteLength === 84 + 50 * tri || 'tamaño binario');
   });
+  test('.pcf: PASO opcional, con su validación', () => {
+    const ok = parsePCF('ACCESORIO m\nBOCA A 1 0 0\nBOCA B -1 0 0\nVARIANTE 32 DIAMETROS 32 32 Z 2 2 EMBOCADURA 22 22 PASO 26 26 EXTERIOR 41');
+    let msg = ''; try { parsePCF('ACCESORIO m\nBOCA A 1 0 0\nBOCA B -1 0 0\nVARIANTE 32 DIAMETROS 32 32 Z 2 2 EMBOCADURA 22 22 PASO 40 EXTERIOR 41'); } catch (e) { msg = e.message; }
+    const noPass = parsePCF(TEMPLATE_PCF).variants[0].pass;
+    return all(ok.variants[0].pass?.join(',') === '26,26' || 'PASO', /PASO tiene 1 valores/.test(msg) || 'recuento', /menor que el Ø/.test(msg) || 'límite', noPass === undefined || 'por defecto');
+  });
+  test('STL: aviso de paredes finas', () => {
+    const dirs = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0)];
+    const thin = fittingWalls(dirs, { ds: [32, 32], zs: [2, 2], sockets: [22, 22], od: 34 }, 0.25);
+    const ok = fittingWalls(dirs, { ds: [32, 32], zs: [2, 2], sockets: [22, 22], od: 41 }, 0.25);
+    return all(thin.length > 0 || 'sin aviso', ok.length === 0 || ok.join('; '));
+  });
   test('STL: lectura de un STL ASCII', () => {
     const g = parseSTL(new TextEncoder().encode('solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t').buffer);
     return g.getAttribute('position').count === 3 || 'vértices';
@@ -3683,12 +3779,18 @@ function exportPCF(id) {
   download(`${id}.pcf`, it.entry ? it.entry.source : pcfFor(it.def), 'text/plain;charset=utf-8');
   status(`Definición ${id}.pcf exportada`);
 }
-function exportSTL(id, variant) {
+async function exportSTL(id, variant) {
   const it = libDefs().find(x => x.def.id === id); if (!it) return;
   const stl = it.entry && (it.entry.stl[variant] || it.entry.stl['*']);
-  const buf = stl ? b64ToBuf(stl.b64) : geometryToSTL(autoFittingGeometry(it.def.ports.map(p => p.dir), it.def.variants.find(v => v.name === variant)), `${it.def.name} ${variant}`);
-  download(`${id}_${variant}.stl`, buf, 'model/stl');
-  status(`Modelo ${id}_${variant}.stl exportado${stl ? '' : ' (generado automáticamente, listo para imprimir)'}`);
+  if (stl) { download(`${id}_${variant}.stl`, b64ToBuf(stl.b64), 'model/stl'); status(`Modelo ${id}_${variant}.stl exportado (el STL propio del accesorio)`); return; }
+  const v = it.def.variants.find(x => x.name === variant), dirs = it.def.ports.map(p => p.dir), clr = PREFS.clearance;
+  status(`Generando ${id}_${variant}.stl…`);
+  const { geo, solid } = await printableFittingGeometry(dirs, v, clr);
+  download(`${id}_${variant}.stl`, geometryToSTL(geo, `${it.def.name} ${variant}`), 'model/stl');
+  const walls = fittingWalls(dirs, v, clr);
+  status(solid
+    ? `${id}_${variant}.stl exportado: sólido único con paso interior y holgura de ${fmt(clr, 2)} mm en las embocaduras` + (walls.length ? ` · ⚠ paredes finas: ${walls.join('; ')}` : '')
+    : `${id}_${variant}.stl exportado con el modelo simple (sin paso interior): no se pudo cargar la librería de operaciones booleanas`);
 }
 async function importLibFiles(files) {
   const texts = [], stls = new Map(), msgs = [];
@@ -3786,7 +3888,7 @@ const LIB_GUIDE = `
 <tr><td><code>NOMBRE "texto"</code></td><td>Nombre que se verá en el programa.</td></tr>
 <tr><td><code>DESCRIPCION "texto"</code></td><td>Opcional.</td></tr>
 <tr><td><code>BOCA n x y z</code></td><td>Una por boca: nombre y dirección del eje hacia fuera (no hace falta que sea unitaria).</td></tr>
-<tr><td><code>VARIANTE v DIAMETROS … Z … EMBOCADURA … EXTERIOR e</code></td><td>Una por tamaño. Cada lista lleva un valor por boca, en el orden de las <code>BOCA</code>.</td></tr>
+<tr><td><code>VARIANTE v DIAMETROS … Z … EMBOCADURA … [PASO …] EXTERIOR e</code></td><td>Una por tamaño. Cada lista lleva un valor por boca, en el orden de las <code>BOCA</code>. <code>PASO</code> es opcional.</td></tr>
 <tr><td><code>MODELO v archivo.stl</code></td><td>Opcional: modelo 3D de la variante <code>v</code> (o <code>*</code> para todas).</td></tr>
 </table>
 <h4>Medidas (mm)</h4>
@@ -3795,13 +3897,14 @@ const LIB_GUIDE = `
 <li><b>DIAMETROS</b>: Ø del tubo de cada boca (20, 32 o 40).</li>
 <li><b>Z</b>: distancia del origen al <i>tope</i> de la embocadura. Se descuenta de la medida a ejes para obtener la longitud de corte.</li>
 <li><b>EMBOCADURA</b>: lo que entra el tubo en la boca. <b>EXTERIOR</b>: Ø exterior del cuerpo.</li>
+<li><b>PASO</b> (opcional): Ø del conducto interior de cada boca. Si no se indica: 16 mm (Ø20), 27 mm (Ø32) y 34 mm (Ø40), parecido al interior del tubo.</li>
 </ul>
 <h4>Modelo STL</h4>
 <ul>
 <li>En milímetros, con el <b>mismo origen y los mismos ejes</b> que las <code>BOCA</code>, para que encaje al colocarlo y girarlo.</li>
 <li>Sirve el STL binario o ASCII. Selecciona el <code>.pcf</code> y sus <code>.stl</code> a la vez al pulsar «Cargar accesorio…».</li>
-<li>Si no hay modelo, PipeCAD genera uno: cuerpo macizo, embocaduras huecas y esfera central; cada pieza es un sólido cerrado que los laminadores unen al imprimir. El botón <b>STL</b> lo descarga.</li>
-<li>Para imprimirlo, deja una holgura de 0,2–0,3 mm en el Ø interior de las embocaduras y paredes de al menos 2 mm.</li>
+<li>Si no hay modelo, PipeCAD genera uno <b>imprimible y funcional</b>: un único sólido cerrado con el cuerpo, las embocaduras taladradas al Ø del tubo más la <b>holgura</b> (en <b>Ajustes</b>, 0,25 mm por defecto) y un <b>paso interior</b> que comunica todas las bocas por el centro. El botón <b>STL</b> lo descarga y avisa si alguna pared queda por debajo de 1,2 mm.</li>
+<li>Para imprimirlo: paredes de 2 mm o más, perímetros suficientes (3 o más) y, para piezas que vayan a presión, material adecuado (PETG, ASA…) y prueba de estanqueidad antes de usarlas.</li>
 </ul>
 <h4>Uso</h4>
 <ul>
@@ -3819,7 +3922,7 @@ VARIANTE 32  DIAMETROS 32 32  Z 6 6  EMBOCADURA 22 22  EXTERIOR 41</pre>`;
 $('#lib-file').onchange = async e => { const files = [...e.target.files]; e.target.value = ''; if (files.length) await importLibFiles(files); };
 
 // ---------- ajustes de la interfaz (este navegador)
-const PREFS = { showExample: true, gizmoPct: 100 };
+const PREFS = { showExample: true, gizmoPct: 100, clearance: 0.25 };
 try { Object.assign(PREFS, JSON.parse(store.get('pipecad-prefs') || '{}')); } catch { /* valores por defecto */ }
 function applyPrefs() {
   PREFS.gizmoPct = THREE.MathUtils.clamp(Math.round(PREFS.gizmoPct / 10) * 10, 100, 200);
@@ -3830,11 +3933,15 @@ function applyPrefs() {
     r?.setSize(px, px, false);
   }
   $('#pf-example').checked = PREFS.showExample; $('#pf-gizmo').value = PREFS.gizmoPct; $('#pf-gizmo-out').textContent = `${px} px (${PREFS.gizmoPct} %)`;
+  PREFS.clearance = THREE.MathUtils.clamp(Math.round(PREFS.clearance * 100) / 100, 0, 0.6);
+  $('#pf-clear').value = PREFS.clearance; $('#pf-clear-out').textContent = `${fmt(PREFS.clearance, 2)} mm`;
   store.set('pipecad-prefs', JSON.stringify(PREFS)); requestRender();
 }
 $('#b-prefs').onclick = () => $('#prefs').showModal();
 $('#pf-example').onchange = e => { PREFS.showExample = e.target.checked; applyPrefs(); };
 $('#pf-gizmo').oninput = e => { PREFS.gizmoPct = +e.target.value; applyPrefs(); };
+$('#pf-clear').oninput = e => { PREFS.clearance = +e.target.value; applyPrefs(); };
+$('#pf-clear').onchange = () => { clearCache(); rebuild(); }; // los modelos en pantalla se regeneran con la holgura nueva
 
 // ---------- menú lateral: iconos, contraer/expandir y tooltips
 const ICONS = {
@@ -3978,7 +4085,7 @@ setTool('select');
 status(restored ? 'Proyecto recuperado del autoguardado' : 'Proyecto vacío — pulsa «Ejemplo» para ver un circuito de muestra');
 window.__pipecadReady = true;
 if (!restored && !store.get('pipecad-help-seen')) { store.set('pipecad-help-seen', '1'); $('#help').showModal(); }
-window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, wpg, setWorkPlane, renderNow, toScreen, pickGrab, setRay, handles }; // acceso desde consola
+window.pipecad = { model, analyze, runTests, state, get analysis() { return analysis; }, get camera() { return camera; }, get controls() { return controls; }, animateView, vc, wpg, setWorkPlane, renderNow, printableFittingGeometry, isWatertight, parsePCF, builtinDef, fittingWalls, toScreen, pickGrab, setRay, handles }; // acceso desde consola
 if (new URLSearchParams(location.search).has('test')) { showTab('tests'); runTests(); }
 </script>
 </body>
