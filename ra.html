@@ -222,7 +222,7 @@ const WALL = { 20: 1.5, 32: 2.4, 40: 3.0 };             // pared del tubo PVC pr
 const assembly = new THREE.Group(); stage.add(assembly); // en metros, apoyado en el suelo (y = 0) y centrado
 let current = null;                                     // { model, analysis, json, shapes, size, mass }
 // Opciones del visor (se cambian desde el menú de la vista 3D, el de Android o el de la muñeca en las Quest)
-const OPTS = { gravity: true, fixed: false, dims: false, grid: true, colors: true };
+const OPTS = { gravity: true, fixed: false, dims: false, grid: true, colors: true, env: true };
 const mats = {};
 const PVC_GREY = '#b9bec5';
 const tubeColor = d => (OPTS.colors ? cssVar('--c' + d) : PVC_GREY);
@@ -394,7 +394,7 @@ function buildPhysics() {
     desc.setMass(Math.max(sh.mass ?? 0, 1e-4)).setFriction(0.7).setRestitution(0.05);
     world.createCollider(desc, body);
   }
-  PH.world = world; PH.body = body; PH.acc = 0;
+  PH.world = world; PH.body = body; PH.acc = 0; ENV.colliders = []; ENV.count = 0; ENV.sig = '';
   resetPose(); applyPhysicsOpts();
   $('#b-drop').disabled = $('#b-reset').disabled = false;
 }
@@ -758,32 +758,33 @@ $('#ql-close').onclick = () => { $('#ql').hidden = true; };
 $('#ql').addEventListener('click', e => { if (e.target.id === 'ql') $('#ql').hidden = true; });
 
 // ---------------------------------------------------------------- opciones y menús (R7)
-const OPT_LIST = [['gravity', 'Gravedad'], ['fixed', 'Fijar al suelo'], ['dims', 'Cotas'], ['grid', 'Rejilla'], ['colors', 'Colores por Ø']];
+const OPT_LIST = [['gravity', 'Gravedad'], ['fixed', 'Fijar al suelo'], ['dims', 'Cotas'], ['grid', 'Rejilla'], ['colors', 'Colores por Ø'], ['env', 'Muebles y paredes']];
 function setOpt(k, v) {
   OPTS[k] = v;
   if (k === 'gravity' || k === 'fixed') { if (k === 'fixed' && v) { for (const id of [...GRAB.hands.keys()]) endGrab(id); endPointGrab(); } applyPhysicsOpts(); }
   if (k === 'dims') dims.visible = v;
   if (k === 'grid' && grid) grid.visible = v;
+  if (k === 'env') { clearEnv(); ENV.sig = ''; } // se vuelve a leer en el siguiente fotograma de RA
   if (k === 'colors') for (const d of [20, 32, 40]) mats['tube' + d]?.color.set(tubeColor(d));
   for (const b of document.querySelectorAll(`[data-opt="${k}"]`)) { b.classList.toggle('on', v); b.querySelector('.tick').textContent = v ? '✓' : ''; }
   wristMenu.dirty = true; requestRender();
 }
 // Menú de opciones en HTML (vista 3D y RA en Android): un botón por opción y Reiniciar
-function renderOptions(el) {
-  el.innerHTML = OPT_LIST.map(([k, l]) => `<button data-opt="${k}" class="${OPTS[k] ? 'on' : ''}" aria-pressed="${OPTS[k]}"><span class="tick">${OPTS[k] ? '✓' : ''}</span>${l}</button>`).join('')
+function renderOptions(el, list = OPT_LIST) {
+  el.innerHTML = list.map(([k, l]) => `<button data-opt="${k}" class="${OPTS[k] ? 'on' : ''}" aria-pressed="${OPTS[k]}"><span class="tick">${OPTS[k] ? '✓' : ''}</span>${l}</button>`).join('')
     + '<button data-act="reset"><span class="tick">↺</span>Reiniciar</button>';
   for (const b of el.querySelectorAll('[data-opt]')) b.onclick = () => { setOpt(b.dataset.opt, !OPTS[b.dataset.opt]); b.setAttribute('aria-pressed', OPTS[b.dataset.opt]); };
   el.querySelector('[data-act="reset"]').onclick = () => resetPose();
 }
-renderOptions($('#opts')); renderOptions($('#xr-opts'));
+renderOptions($('#opts'), OPT_LIST.filter(([k]) => k !== 'env')); renderOptions($('#xr-opts'));
 $('#b-opts').onclick = () => { const o = $('#opts'); o.hidden = !o.hidden; $('#b-opts').classList.toggle('on', !o.hidden); $('#b-opts').setAttribute('aria-expanded', !o.hidden); };
 $('#xr-opts-b').onclick = () => { $('#xr-opts').hidden = !$('#xr-opts').hidden; };
 
 // ---- menú en la muñeca (Quest): aparece al mirar la palma de la mano izquierda (o con el botón X del
 // mando izquierdo); se pulsa tocándolo con el índice de la otra mano o apuntando y pellizcando/apretando
-const WM_W = 0.14, WM_H = 0.2, WM_ITEMS = [['reset', 'Reiniciar'], ['replace', 'Recolocar'], ...OPT_LIST, ['exit', 'Salir']];
+const WM_ITEMS = [['reset', 'Reiniciar'], ['replace', 'Recolocar'], ...OPT_LIST, ['exit', 'Salir']], WM_ROWS = Math.ceil(WM_ITEMS.length / 2), WM_W = 0.14, WM_H = 0.045 * WM_ROWS + 0.03;
 const wristMenu = (() => {
-  const c = document.createElement('canvas'); c.width = 280; c.height = 400;
+  const c = document.createElement('canvas'); c.width = 280; c.height = Math.round(280 * WM_H / WM_W);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(WM_W, WM_H), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
   mesh.renderOrder = 30; mesh.visible = false; scene.add(mesh);
@@ -791,12 +792,12 @@ const wristMenu = (() => {
 })();
 // Rejilla del menú: título arriba y 2 columnas × 4 filas; u, v de 0 a 1 desde la esquina superior izquierda
 function menuItemAt(u, v) {
-  const top = 0.12; if (u < 0 || u > 1 || v < top || v > 1) return null;
-  const col = Math.min(1, Math.floor(u * 2)), row = Math.min(3, Math.floor((v - top) / ((1 - top) / 4)));
+  const top = 0.03 / WM_H; if (u < 0 || u > 1 || v < top || v > 1) return null;
+  const col = Math.min(1, Math.floor(u * 2)), row = Math.min(WM_ROWS - 1, Math.floor((v - top) / ((1 - top) / WM_ROWS)));
   return WM_ITEMS[row * 2 + col]?.[0] ?? null;
 }
 function drawWristMenu() {
-  const { canvas: c } = wristMenu, g = c.getContext('2d'), W = c.width, H = c.height, top = H * 0.12, cw = W / 2, ch = (H - top) / 4;
+  const { canvas: c } = wristMenu, g = c.getContext('2d'), W = c.width, H = c.height, top = H * 0.03 / WM_H, cw = W / 2, ch = (H - top) / WM_ROWS;
   g.clearRect(0, 0, W, H);
   g.fillStyle = 'rgba(20,23,28,.88)'; g.beginPath(); g.roundRect(0, 0, W, H, 22); g.fill();
   g.fillStyle = '#fff'; g.font = '600 22px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PipeCAD RA', W / 2, top / 2 + 2);
@@ -963,6 +964,67 @@ function floorFromGaze(floorY) {
   return t > 0 ? o.addScaledVector(d, t).setY(floorY) : null;
 }
 // Altura del suelo: «local-floor» la da (0) y, en las Quest 3, el plano detectado con la etiqueta «floor»
+// ---- entorno real (R9): las Quest 3 dan las mallas de la sala (mesas, sofás, paredes…) con «mesh-detection»;
+// se convierten en colisionadores fijos de la física (en el sistema del escenario), así la estructura se
+// apoya en una mesa o choca con una pared. Sin mallas, se usan los planos detectados (como placas de 2 cm).
+// El suelo detectado no se usa: ya lo pone el escenario. Se relee cada medio segundo y solo se rehace si cambia.
+const ENV = { colliders: [], sig: '', count: 0, lastCheck: 0, announced: false };
+function clearEnv() { if (PH.world) for (const c of ENV.colliders) PH.world.removeCollider(c, false); ENV.colliders = []; ENV.count = 0; }
+// items: [{ label, vertices: Float32Array (mundo), indices: Uint32Array }] o [{ label, hull: Float32Array (mundo) }]
+function setEnvironment(items) {
+  clearEnv();
+  const R = PH.R; if (!R || !PH.world || !OPTS.env) return 0;
+  stage.updateMatrixWorld(true);
+  const inv = stage.matrixWorld.clone().invert(), p = new THREE.Vector3();
+  for (const it of items) {
+    const src = it.vertices || it.hull, v = new Float32Array(src.length);
+    for (let i = 0; i < src.length; i += 3) { p.set(src[i], src[i + 1], src[i + 2]).applyMatrix4(inv); v[i] = p.x; v[i + 1] = p.y; v[i + 2] = p.z; }
+    const desc = it.indices ? R.ColliderDesc.trimesh(v, it.indices) : R.ColliderDesc.convexHull(v);
+    if (!desc) continue;
+    desc.setFriction(0.7).setRestitution(0.05);
+    ENV.colliders.push(PH.world.createCollider(desc));
+  }
+  ENV.count = ENV.colliders.length;
+  if (ENV.count) PH.body?.wakeUp();
+  return ENV.count;
+}
+const stageKey = () => [stage.position.x, stage.position.y, stage.position.z, stage.rotation.y].map(x => x.toFixed(3)).join(',');
+function readEnvironment(frame) {
+  const ref = renderer.xr.getReferenceSpace(), items = [], M = new THREE.Matrix4(), p = new THREE.Vector3();
+  let sig = stageKey();
+  const meshes = frame.detectedMeshes;
+  if (meshes?.size) {
+    const all = [...meshes], objs = all.filter(m => !['floor', 'global mesh'].includes(m.semanticLabel));
+    for (const m of objs.length ? objs : all.filter(x => x.semanticLabel !== 'floor')) { // objetos sueltos; si no hay, la malla de toda la sala
+      const pose = frame.getPose(m.meshSpace, ref); if (!pose || !m.vertices?.length) continue;
+      sig += '|' + m.semanticLabel + m.lastChangedTime;
+      M.fromArray(pose.transform.matrix);
+      const v = new Float32Array(m.vertices.length);
+      for (let i = 0; i < v.length; i += 3) { p.set(m.vertices[i], m.vertices[i + 1], m.vertices[i + 2]).applyMatrix4(M); v[i] = p.x; v[i + 1] = p.y; v[i + 2] = p.z; }
+      items.push({ label: m.semanticLabel, vertices: v, indices: new Uint32Array(m.indices) });
+    }
+  } else if (frame.detectedPlanes?.size) {
+    for (const pl of frame.detectedPlanes) {
+      if (pl.semanticLabel === 'floor' || !pl.polygon?.length) continue;
+      const pose = frame.getPose(pl.planeSpace, ref); if (!pose) continue;
+      M.fromArray(pose.transform.matrix);
+      if (pl.orientation === 'horizontal' && XR.floorY != null && Math.abs(pose.transform.position.y - XR.floorY) < 0.05) continue; // es el suelo
+      sig += '|' + (pl.semanticLabel || pl.orientation) + pl.lastChangedTime;
+      const v = [];
+      for (const q of pl.polygon) for (const y of [0, -0.02]) { p.set(q.x, y, q.z).applyMatrix4(M); v.push(p.x, p.y, p.z); } // placa de 2 cm detrás de la superficie
+      items.push({ label: pl.semanticLabel || pl.orientation, hull: new Float32Array(v) });
+    }
+  }
+  return { items, sig };
+}
+function updateEnvironment(frame) {
+  const now = performance.now(); if (!OPTS.env || now - ENV.lastCheck < 500) return;
+  ENV.lastCheck = now;
+  const { items, sig } = readEnvironment(frame); if (sig === ENV.sig) return;
+  ENV.sig = sig;
+  const n = setEnvironment(items);
+  if (n && !ENV.announced) { ENV.announced = true; xrMessage(`${n} superficie${n > 1 ? 's' : ''} de la sala detectada${n > 1 ? 's' : ''}: la estructura se apoya en los muebles y choca con las paredes`, 5000); }
+}
 function updateFloorFromPlanes(frame) {
   const planes = frame.detectedPlanes; if (!planes?.size) return;
   const refSpace = renderer.xr.getReferenceSpace();
@@ -975,6 +1037,7 @@ function updateFloorFromPlanes(frame) {
 }
 function xrFrame(frame) {
   updateFloorFromPlanes(frame);
+  if (XR.placed) updateEnvironment(frame);
   if (!XR.placing) { xrInputs(); xrTouchFrame(frame, performance.now()); return; }
   updateWristMenu();
   const p = floorFromHit(frame) ?? (XR.floorY != null ? floorFromGaze(XR.floorY) : null);
@@ -1012,7 +1075,7 @@ async function enterAR() {
   ui.hidden = false; // la raíz de la interfaz superpuesta tiene que estar visible al pedir la sesión
   try {
     session = await navigator.xr.requestSession('immersive-ar', {
-      optionalFeatures: ['local-floor', 'hit-test', 'dom-overlay', 'hand-tracking', 'plane-detection'],
+      optionalFeatures: ['local-floor', 'hit-test', 'dom-overlay', 'hand-tracking', 'plane-detection', 'mesh-detection'],
       domOverlay: { root: ui },
     });
   } catch (err) { ui.hidden = true; message('No se pudo iniciar la realidad aumentada: ' + err.message, 'err', 8000); return; }
@@ -1040,6 +1103,7 @@ async function enterAR() {
   makeFootprint(); startPlacing();
 }
 function exitedAR() {
+  clearEnv(); ENV.sig = ''; ENV.announced = false;
   wristMenu.mesh.visible = false; $('#xr-opts').hidden = true;
   XR.session = null; XR.hitSource?.cancel?.(); XR.hitSource = null; XR.placing = XR.placed = false;
   for (const id of [...GRAB.hands.keys()]) endGrab(id);
@@ -1088,7 +1152,7 @@ loadPhysics();
   $('#s-last').hidden = !store.get('pipecad-autosave');
   $('#start').hidden = false;
 })();
-window.pipecadRA = { OPTS, setOpt, dims, wristMenu, menuItemAt, palmNormal, drawWristMenu, QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
+window.pipecadRA = { ENV, setEnvironment, clearEnv, readEnvironment, OPTS, setOpt, dims, wristMenu, menuItemAt, palmNormal, drawWristMenu, QL, buildUSDZ, prepareQuickLook, openQuickLookSheet, TOUCH, beginPointGrab, endPointGrab, updatePointers, pickStructure, rayToStage, GRAB, beginGrab, moveGrab, endGrab, distanceToStructure, bodyPose, PH, drop, resetPose, simulate, buildPhysics, XR, stage, reticle, enterAR, place, startPlacing, floorFromGaze, xrFrame, renderer, get current() { return current; }, openProject, packProject, unpackProject, AR, scene, camera, assembly, renderNow: () => renderer.render(scene, camera) }; // para pruebas desde la consola
 </script>
 </body>
 </html>
