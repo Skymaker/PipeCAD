@@ -1091,15 +1091,30 @@ function splitLongSegment(m, segId, minPiece = 300) {
 /* =====================================================================
    PROYECTO DE EJEMPLO
    ===================================================================== */
+// Estructura de Ø32: base cuadrada de 600 × 600, dos pórticos a 300 mm de altura, tramos inclinados
+// a 45° hasta un travesaño a 150 mm y refuerzos. 31 tubos, 7 codos y 16 Tes, todo en un grupo.
+const EXAMPLE = {
+  nodes: [['n48', -300, -300, 0], ['n49', -300, 300, 0], ['n51', 300, 300, 0], ['n53', 300, -300, 0], ['n56', 300, 0, 0],
+    ['n58', 300, 0, 300], ['n60', -300, 0, 300], ['n62', -300, 0, 0], ['n65', 0, -300, 0], ['n67', 0, -300, 300],
+    ['n69', 0, 0, 300], ['n72', 150, 0, 300], ['n74', 150, 300, 0], ['n77', -150, 0, 300], ['n79', -150, 300, 0],
+    ['n82', 300, -190, 0], ['n84', 0, -190, 300], ['n87', 0, -95, 300], ['n89', -300, -95, 0], ['n92', 150, 150, 150],
+    ['n94', -150, 150, 150], ['n97', 10, 150, 150], ['n99', 10, 300, 0]],
+  segments: [['s50', 'n48', 'n89'], ['s52', 'n49', 'n79'], ['s54', 'n51', 'n56'], ['s55', 'n53', 'n65'], ['s57', 'n56', 'n82'],
+    ['s59', 'n56', 'n58'], ['s61', 'n58', 'n72'], ['s63', 'n62', 'n49'], ['s64', 'n60', 'n62'], ['s66', 'n65', 'n48'],
+    ['s68', 'n65', 'n67'], ['s70', 'n69', 'n77'], ['s71', 'n67', 'n84'], ['s73', 'n72', 'n69'], ['s75', 'n74', 'n51'],
+    ['s76', 'n72', 'n92'], ['s78', 'n77', 'n60'], ['s80', 'n79', 'n99'], ['s81', 'n77', 'n94'], ['s83', 'n82', 'n53'],
+    ['s85', 'n84', 'n87'], ['s86', 'n82', 'n84'], ['s88', 'n87', 'n69'], ['s90', 'n89', 'n62'], ['s91', 'n87', 'n89'],
+    ['s93', 'n92', 'n74'], ['s95', 'n94', 'n79'], ['s96', 'n92', 'n97'], ['s98', 'n97', 'n94'], ['s100', 'n99', 'n74'],
+    ['s101', 'n97', 'n99']],
+};
 function buildExample(m) {
-  m.reset(); m.name = 'Ejemplo';
-  const N = p => m.addNode(p);
-  const n1 = N([0, 0, 0]), n11 = N([1000, 0, 0]), n12 = N([1000, 0, -500]), n2 = N([2000, 0, 0]),
-        n3 = N([3500, 0, 0]), n4 = N([3500, 0, 1200]), n5 = N([3500, 1500, 1200]), n6 = N([3500, 2500, 1200]),
-        n7 = N([2000, 1000, 0]), n8 = N([2600, 1600, 0]), n9 = N([3200, 1600, 0]), n10 = N([4000, 1600, 0]);
-  const S = (a, b, d) => m.addSegment(a, b, d);
-  S(n1, n11, 40); S(n11, n12, 40); S(n11, n2, 40); S(n2, n3, 40); S(n3, n4, 40); S(n4, n5, 40); S(n5, n6, 32);
-  S(n2, n7, 32); S(n7, n8, 32); S(n8, n9, 32); S(n9, n10, 20);
+  m.reset();
+  m.load({
+    format: 'pipecad', version: 1, name: 'Ejemplo', nextId: 103,
+    nodes: EXAMPLE.nodes.map(([id, x, y, z]) => ({ id, pos: [x, y, z] })),
+    segments: EXAMPLE.segments.map(([id, a, b]) => ({ id, a, b, d: 32 })),
+    groups: [{ id: 'g102', name: 'Grupo 1', nodes: EXAMPLE.nodes.map(n => n[0]), segs: EXAMPLE.segments.map(s => s[0]) }],
+  });
 }
 
 /* =====================================================================
@@ -2915,7 +2930,13 @@ function runTests() {
   test('Despiece del ejemplo: marcas y barras', () => {
     const m = new Model(); buildExample(m); const cut = computeCutlist(m, analyze(m));
     const n = DIAMETERS.reduce((x, d) => x + cut.byD[d].pieces.length, 0);
-    return all(n === 11 || `${n} piezas`, cut.marks.size === 11 || 'marcas', cut.byD[40].bars.length >= cut.byD[40].lower || 'barras < mínimo');
+    const fits = cut.fittings.reduce((x, f) => x + f.n, 0);
+    return all(n === 31 || `${n} piezas`, cut.marks.size === 31 || 'marcas', fits === 23 || `${fits} accesorios`,
+      cut.byD[32].bars.length >= cut.byD[32].lower || 'barras < mínimo', cut.byD[32].bars.length <= cut.byD[32].lower + 1 || 'demasiadas barras');
+  });
+  test('Ejemplo: todo el modelo forma un grupo', () => {
+    const m = new Model(); buildExample(m); const g = [...m.groups.values()][0];
+    return all(m.groups.size === 1 || 'grupos', g?.segs.length === 31 || 'tubos del grupo', g?.nodes.length === 23 || 'nodos del grupo');
   });
   const tubeModel = (len, d) => { const m = new Model(); const a = m.addNode([0, 0, 0]), b = m.addNode([len, 0, 0]); const s = m.addSegment(a, b, d); return { m, a, b, s }; };
   test('Te suelta: 3 bocas libres, sin tubos', () => {
@@ -3163,7 +3184,7 @@ $('#b-new').onclick = () => {
   if (model.segments.size && !confirm('¿Empezar un proyecto nuevo? Podrás deshacerlo con Ctrl+Z.')) return;
   model.transact('Nuevo proyecto', () => model.reset()); setSelection([]); fitAll(); status('Proyecto nuevo');
 };
-$('#b-example').onclick = () => { model.transact('Cargar ejemplo', () => buildExample(model)); setSelection([]); setView('iso'); status('Proyecto de ejemplo cargado'); };
+$('#b-example').onclick = () => { model.transact('Cargar ejemplo', () => buildExample(model)); setSelection([]); setDiameter(32); setView('iso'); status('Proyecto de ejemplo cargado'); };
 $('#b-save').onclick = () => { download((model.name || 'proyecto').replace(/[^\w\- ]+/g, '_') + '.json', JSON.stringify(model.toJSON(), null, 1), 'application/json'); status('Proyecto guardado'); };
 $('#b-open').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
