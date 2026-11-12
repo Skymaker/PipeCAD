@@ -62,10 +62,23 @@ td select{min-height:26px;padding:1px 4px;width:100%}
 .msgs .ok{border-color:var(--ok);color:var(--ok)}
 #view{position:relative;background:var(--viewport);min-height:0;overflow:hidden}
 #view canvas{display:block}
-#view-bar{position:absolute;left:10px;top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 8px}
+#view-tl{position:absolute;left:10px;top:10px;right:10px;display:flex;align-items:flex-start;gap:8px;pointer-events:none}
+#view-tl>*{pointer-events:auto}
+#plane-giz{flex:none;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:2px;line-height:0}
+#plane-giz svg{width:84px;height:82px;display:block}
+#plane-giz .pl{cursor:pointer;outline:none}
+#plane-giz .pl polygon{fill:var(--panel-2);stroke:var(--border);stroke-width:1.2;stroke-linejoin:round}
+#plane-giz .pl:hover polygon,#plane-giz .pl:focus-visible polygon{fill:var(--hover);stroke:var(--muted)}
+#plane-giz .pl.on polygon{fill:var(--accent-soft);stroke:var(--accent)}
+#plane-giz text{font:600 10px system-ui,sans-serif;text-anchor:middle;dominant-baseline:central;fill:var(--muted);pointer-events:none}
+#plane-giz .pl.on text{fill:var(--accent)}
+#view-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 8px}
 #view-info{position:absolute;left:10px;bottom:10px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;max-width:calc(100% - 20px)}
-#src-banner{position:absolute;left:10px;right:10px;top:56px;background:var(--panel);border:1px solid var(--warn);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px}
+#src-banner{position:absolute;left:10px;right:10px;top:106px;background:var(--panel);border:1px solid var(--warn);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px}
 #src-banner b{color:var(--warn)}
+#giz-tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;white-space:nowrap;z-index:2}
+.giz-key{display:inline-flex;gap:8px;font-size:12px;color:var(--muted);cursor:help}
+.giz-key i{font-style:normal}
 #busy{position:absolute;right:12px;top:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px}
 #code{display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--border);background:var(--panel)}
 .tabs{display:flex;gap:2px;align-items:center;border-bottom:1px solid var(--border);padding:0 8px}
@@ -126,11 +139,24 @@ footer{padding:4px 12px;background:var(--panel);border-top:1px solid var(--borde
     <section id="form" aria-label="Definición del accesorio"></section>
     <section id="right">
       <div id="view">
+        <div id="view-tl">
+        <div id="plane-giz" role="group" aria-label="Plano de trabajo" title="Plano de trabajo: la rejilla y los giros de las bocas se refieren a él">
+          <svg viewBox="0 0 84 82" aria-hidden="false">
+            <g class="pl" data-plane="XZ" role="button" tabindex="0" aria-label="Plano XZ"><polygon points="42,46 68,61 68,31 42,16"/><text x="55" y="39">XZ</text></g>
+            <g class="pl" data-plane="YZ" role="button" tabindex="0" aria-label="Plano YZ"><polygon points="42,46 16,61 16,31 42,16"/><text x="29" y="39">YZ</text></g>
+            <g class="pl" data-plane="XY" role="button" tabindex="0" aria-label="Plano XY"><polygon points="42,46 68,61 42,76 16,61"/><text x="42" y="61">XY</text></g>
+            <text x="76" y="69">X</text><text x="8" y="69">Y</text><text x="42" y="8">Z</text>
+          </svg>
+        </div>
         <div id="view-bar">
           <label>Variante <select id="s-variant"></select></label>
           <button id="b-render" class="primary" title="Generar el modelo con OpenSCAD">Generar con OpenSCAD</button>
           <label title="Volver a generar al cambiar el formulario"><input type="checkbox" id="c-auto" checked> Automático</label>
+          <label title="Mostrar en la vista los tiradores para editar el accesorio arrastrando"><input type="checkbox" id="c-giz" checked> Gizmos</label>
+          <span class="giz-key" id="giz-key" title="Arrastra un tirador para editar la boca. Alt: ajuste fino · Esc: cancelar el arrastre"><span><i style="color:#2f6fde">⟲</i> Giro</span><span><i style="color:#e8862a">◆</i> Z</span><span><i style="color:#2b9a5b">◆</i> Embocadura</span></span>
         </div>
+        </div>
+        <div id="giz-tip" hidden></div>
         <div id="busy" hidden></div>
         <div id="src-banner" hidden></div>
         <div id="view-info">Pulsa «Generar con OpenSCAD» para ver el modelo.</div>
@@ -245,7 +271,7 @@ const varFor = (ds, z) => ({ od: TYP[Math.max(...ds)].od, rows: ds.map((d, i) =>
 function newFitting() {
   Object.assign(S, { id: '', name: '', desc: '', ports: [{ name: 'A', dir: [1, 0, 0] }, { name: 'B', dir: [-1, 0, 0] }],
     variants: [{ name: '32', ...varFor([32, 32], TYP[32].z) }], manualScad: null });
-  framed = ''; content.clear(); draw(); $('#view-info').textContent = 'Accesorio nuevo: ponle un identificador y define sus bocas y variantes.';
+  framed = ''; disposeGroup(meshG); stale = false; $('#view-info').textContent = 'Accesorio nuevo: ponle un identificador y define sus bocas y variantes.';
   renderForm(); changed(true); dirty = false;
   status('Accesorio nuevo: rellena el identificador, el nombre, las bocas y las variantes');
 }
@@ -525,7 +551,7 @@ function changed(immediate = false) {
   const { def, msgs } = validate();
   lastValid = !!def;
   $('#msgs').innerHTML = msgs.length ? msgs.map(m => `<div class="m ${m.cls}">${esc(m.t)}</div>`).join('') : '<div class="m ok">Definición correcta.</div>';
-  renderAngles();
+  renderAngles(); buildOverlay();
   $('#pcf').textContent = pcfText();
   if (S.manualScad == null) $('#scad').value = scadText();
   $('#manual-banner').hidden = S.manualScad == null;
@@ -630,8 +656,18 @@ const head = new THREE.DirectionalLight(0xffffff, 1.3); head.position.set(0.3, 0
 const controls = new OrbitControls(camera, renderer.domElement); controls.addEventListener('change', () => draw());
 const grid = new THREE.GridHelper(400, 40); grid.rotation.x = Math.PI / 2; grid.material.transparent = true; grid.material.opacity = 0.35; scene.add(grid);
 const content = new THREE.Group(); scene.add(content);
+const meshG = new THREE.Group(), overG = new THREE.Group(); content.add(meshG, overG); // modelo STL · ejes, tubos y gizmos
+const handles = []; let hot = null, drag = null, stale = false; // stale: el modelo ya no corresponde a las medidas (se ve el fantasma)
+const HANDLE_K = 0.009; // tamaño de los tiradores respecto a la distancia a la cámara (≈ constante en pantalla)
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-function draw() { renderer.render(scene, camera); }
+function draw() {
+  for (const h of handles) {
+    const big = h === hot || (drag && drag.kind === h.userData.kind && drag.i === h.userData.i);
+    if (h.userData.arc) h.children[0].material.color.set(big ? 0x00c2ff : GIZ.dir); // las flechas de giro se resaltan con el color
+    else h.scale.setScalar(camera.position.distanceTo(h.position) * HANDLE_K * (big ? 1.4 : 1));
+  }
+  renderer.render(scene, camera);
+}
 function resize() { const w = view.clientWidth, h = view.clientHeight; if (!w || !h) return; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); draw(); }
 new ResizeObserver(resize).observe(view);
 renderer.setClearColor(new THREE.Color(cssVar('--viewport')));
@@ -651,44 +687,246 @@ function countPieces(u8) {
   return new Set(first.map(find)).size;
 }
 let framed = '';
-function showModel(stl, variant) {
-  content.clear();
+function showModel(stl) {
+  disposeGroup(meshG);
   const g = parseSTL(stl);
-  content.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: new THREE.Color(cssVar('--fitting')), roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide })));
-  // ejes de las bocas, su nombre y un trozo de tubo transparente metido hasta el tope
-  const v = S.variants.find(x => x.name === variant);
-  S.ports.forEach((p, i) => {
-    const d = new THREE.Vector3(...unit(p.dir)), r = v?.rows[i], z = r?.z ?? 0, s = r?.s ?? 20, L = z + s + 70;
-    content.add(new THREE.ArrowHelper(d, new THREE.Vector3(), L, 0x2f6fde, 8, 5));
-    if (r) {
-      const tube = new THREE.Mesh(new THREE.CylinderGeometry(r.d / 2, r.d / 2, L - z, 40, 1, true), new THREE.MeshStandardMaterial({ color: 0x4f9fd6, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
-      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d); tube.position.copy(d).multiplyScalar(z + (L - z) / 2); content.add(tube);
-    }
-    const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
-    x.fillStyle = '#2f6fde'; x.font = 'bold 40px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(p.name, 32, 34);
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false })); sp.scale.setScalar(14); sp.position.copy(d).multiplyScalar(L + 10); content.add(sp);
-  });
+  meshG.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: new THREE.Color(cssVar('--fitting')), roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide })));
+  if (!drag) stale = false;
   g.computeBoundingSphere();
   const key = S.id + '|' + S.ports.length;
   if (framed !== key) { // encuadra solo cuando cambia el accesorio, para no perder la vista del usuario
     framed = key; const R = g.boundingSphere.radius + 70;
     controls.target.set(0, 0, 0); camera.position.set(R * 1.7, -R * 2.1, R * 1.5); controls.update();
   }
-  draw();
+  buildOverlay();
   return g;
 }
+
+/* =====================================================================
+   GIZMOS: ejes, tubos y tiradores para editar el accesorio en la vista
+   =====================================================================
+   Por cada boca: dos flechas dobles arqueadas en la punta del eje, que la hacen pivotar sobre el origen
+   (una gira en el plano de trabajo, la otra la inclina respecto a él) · ◆ Z (tope de la embocadura) ·
+   ◆ embocadura (lo que entra el tubo).
+   Se arrastran sobre la vista; el formulario se actualiza a la vez y al soltar se regenera el modelo.
+   El plano de trabajo (XY, XZ o YZ) se elige en el gizmo de la esquina: orienta la rejilla y los giros. */
+const GIZ = { dir: 0x2f6fde, z: 0xe8862a, s: 0x2b9a5b };
+const HANDLE_GEO = { z: new THREE.OctahedronGeometry(1.2), s: new THREE.OctahedronGeometry(1.2) };
+// Planos de trabajo: ejes u y v del plano, su normal n y el giro que lleva la rejilla a él
+const PLANES = {
+  XY: { u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },
+  XZ: { u: [1, 0, 0], v: [0, 0, 1], n: [0, 1, 0], rot: [0, 0, 0] },
+  YZ: { u: [0, 1, 0], v: [0, 0, 1], n: [1, 0, 0], rot: [0, 0, Math.PI / 2] },
+};
+let plane = 'XY';
+const RAD = Math.PI / 180, ARC_DEG = 12, dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+// Dirección ↔ ángulos respecto al plano de trabajo: giro en el plano (desde u hacia v) y elevación (hacia n), en grados.
+// pole: la boca es perpendicular al plano y el giro en él no está definido
+function azEl(dir) {
+  const d = unit(dir), P = PLANES[plane], h = Math.max(-1, Math.min(1, dot3(d, P.n))), pole = Math.abs(h) > 0.9998;
+  return [pole ? 0 : Math.atan2(dot3(d, P.v), dot3(d, P.u)) / RAD, Math.asin(h) / RAD, pole];
+}
+function dirAt(az, el) {
+  const P = PLANES[plane], ca = Math.cos(az * RAD), sa = Math.sin(az * RAD), ce = Math.cos(el * RAD), se = Math.sin(el * RAD);
+  return [0, 1, 2].map(k => ce * (ca * P.u[k] + sa * P.v[k]) + se * P.n[k]);
+}
+// Dirección de la boca al mover una flecha f grados: «az» gira en el plano de trabajo, «el» inclina respecto a él.
+// Con la boca perpendicular al plano, las dos la inclinan: una hacia u y la otra hacia v.
+function pivotFn(kind, az, el, pole) {
+  if (kind === 'az') return pole ? f => dirAt(90, el + f) : f => dirAt(az + f, el);
+  return f => dirAt(az, el + f);
+}
+function setPlane(k) {
+  plane = k; grid.rotation.set(...PLANES[k].rot);
+  $$('#plane-giz .pl').forEach(g => { const on = g.dataset.plane === k; g.classList.toggle('on', on); g.setAttribute('aria-pressed', on); });
+  buildOverlay();
+}
+$$('#plane-giz .pl').forEach(g => {
+  const go = () => { setPlane(g.dataset.plane); status(`Plano de trabajo ${plane}: la rejilla y los giros de las bocas se refieren a él`); };
+  g.onclick = go; g.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+});
+const SHARED_GEO = new Set(Object.values(HANDLE_GEO)), Y_UP = new THREE.Vector3(0, 1, 0), labelTex = new Map();
+function disposeGroup(g) {
+  g.traverse(o => { if (o === g) return; if (o.geometry && !o.isSprite && !SHARED_GEO.has(o.geometry)) o.geometry.dispose(); o.material?.dispose?.(); });
+  g.clear();
+}
+function labelTexture(name) {
+  if (!labelTex.has(name)) {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+    x.fillStyle = '#2f6fde'; x.font = 'bold 40px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(name, 32, 34);
+    labelTex.set(name, new THREE.CanvasTexture(c));
+  }
+  return labelTex.get(name);
+}
+const curVariant = () => S.variants.find(v => v.name === $('#s-variant').value) || S.variants[0];
+const portDir = i => new THREE.Vector3(...unit(S.ports[i].dir));
+function ringAt(radius, dist, d, color) {
+  const pts = []; for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius)); }
+  const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.85 }));
+  ring.quaternion.setFromUnitVectors(Y_UP, d); ring.position.copy(d).multiplyScalar(dist); ring.renderOrder = 9; return ring;
+}
+function buildOverlay() {
+  disposeGroup(overG); handles.length = 0; hot = null;
+  const v = curVariant(), on = $('#c-giz').checked;
+  $('#giz-key').hidden = !on;
+  for (const m of meshG.children) { if (m.material.transparent !== stale) { m.material.transparent = stale; m.material.needsUpdate = true; } m.material.opacity = stale ? 0.3 : 1; }
+  const addHandle = (kind, i, pos) => {
+    const h = new THREE.Mesh(HANDLE_GEO[kind], new THREE.MeshBasicMaterial({ color: GIZ[kind], depthTest: false, transparent: true }));
+    h.position.copy(pos); h.renderOrder = 10; h.userData = { kind, i }; overG.add(h); handles.push(h);
+  };
+  // Flecha doble arqueada: arco de radio L centrado en el origen, con una punta en cada extremo
+  const addArc = (kind, i, f, half, L) => {
+    const N = 16, pts = []; for (let k = 0; k <= N; k++) pts.push(new THREE.Vector3(...f(-half + 2 * half * k / N)).multiplyScalar(L));
+    const mat = new THREE.MeshBasicMaterial({ color: GIZ.dir, depthTest: false, transparent: true }), g = new THREE.Group();
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.9, 8), mat); tube.renderOrder = 10; g.add(tube);
+    for (const [end, prev] of [[0, 1], [N, N - 1]]) {
+      const t = pts[end].clone().sub(pts[prev]).normalize(), cone = new THREE.Mesh(new THREE.ConeGeometry(2.8, 7.5, 16), mat);
+      cone.quaternion.setFromUnitVectors(Y_UP, t); cone.position.copy(pts[end]).addScaledVector(t, 2.5); cone.renderOrder = 10; g.add(cone);
+    }
+    g.userData = { kind, i, arc: true, pts: [0, 2, 4, N - 4, N - 2, N].map(k => pts[k]) }; // puntos para agarrarla (no el cruce con la otra)
+    overG.add(g); handles.push(g);
+  };
+  S.ports.forEach((p, i) => {
+    // eje de la boca, su nombre y un trozo de tubo transparente metido hasta el tope
+    const d = portDir(i), r = v?.rows[i], z = r?.z ?? 0, s = r?.s ?? 20, L = z + s + 70;
+    overG.add(new THREE.ArrowHelper(d, new THREE.Vector3(), L, GIZ.dir, 8, 5));
+    if (r) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(r.d / 2, r.d / 2, L - z, 40, 1, true), new THREE.MeshStandardMaterial({ color: 0x4f9fd6, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
+      tube.quaternion.setFromUnitVectors(Y_UP, d); tube.position.copy(d).multiplyScalar(z + (L - z) / 2); overG.add(tube);
+    }
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(p.name), depthTest: false })); sp.scale.setScalar(14); sp.position.copy(d).multiplyScalar(L + 16); overG.add(sp);
+    if (r && stale && v.od > 0 && z + s > 0) { // fantasma del cuerpo con las medidas actuales, mientras no llega el modelo nuevo
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(v.od / 2, v.od / 2, z + s, 40, 1, false), new THREE.MeshBasicMaterial({ color: GIZ.dir, transparent: true, opacity: 0.14, depthWrite: false }));
+      body.quaternion.setFromUnitVectors(Y_UP, d); body.position.copy(d).multiplyScalar((z + s) / 2); overG.add(body);
+    }
+    if (!on) return;
+    const [az, el, pole] = azEl(p.dir);
+    addArc('az', i, pivotFn('az', az, el, pole), pole ? ARC_DEG : Math.min(80, ARC_DEG / Math.cos(el * RAD)), L);
+    addArc('el', i, pivotFn('el', az, el, pole), ARC_DEG, L);
+    if (!r) return;
+    overG.add(ringAt(r.d / 2, z, d, GIZ.z), ringAt(r.d / 2, z + s, d, GIZ.s));
+    addHandle('z', i, d.clone().multiplyScalar(z));
+    addHandle('s', i, d.clone().multiplyScalar(z + s));
+  });
+  draw();
+}
+
+const canvas = renderer.domElement, ray = new THREE.Raycaster(), tip = $('#giz-tip');
+function setRay(e) {
+  const b = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - b.left) / b.width * 2 - 1, -(e.clientY - b.top) / b.height * 2 + 1), camera);
+}
+// Tirador más cercano al puntero en pantalla (más cómodo que acertar con el rayo, sobre todo con el dedo)
+function pickHandle(e) {
+  const b = canvas.getBoundingClientRect(); let best = null, bd = e.pointerType === 'touch' ? 28 : 14;
+  for (const h of handles) for (const p of h.userData.pts || [h.position]) {
+    const q = p.clone().project(camera); if (q.z > 1) continue;
+    const dd = Math.hypot((q.x + 1) / 2 * b.width + b.left - e.clientX, (1 - q.y) / 2 * b.height + b.top - e.clientY);
+    if (dd < bd) { bd = dd; best = h; }
+  }
+  return best;
+}
+// Parámetro t del punto de la recta o + t·u más cercano al rayo del puntero (null si se ven casi de punta)
+function axisParam(o, u) {
+  const w = ray.ray.direction, r = o.clone().sub(ray.ray.origin), a = u.dot(w), den = 1 - a * a;
+  return den < 1e-4 ? null : (a * r.dot(w) - r.dot(u)) / den;
+}
+const clean = x => Math.round(x * 1e6) / 1e6 + 0;
+function describe(kind, i, v) {
+  const p = S.ports[i], r = v?.rows[i];
+  if (kind === 'z') return `Boca ${p.name} · Z = ${fmt(r.z, 2)} mm`;
+  if (kind === 's') return `Boca ${p.name} · embocadura = ${fmt(r.s, 2)} mm`;
+  const [az, el] = azEl(p.dir); return `Boca ${p.name} · ${fmt(az)}° en el plano ${plane}, ${fmt(el)}° de elevación`;
+}
+const hintOf = kind => kind === 'az' ? ` — arrastra para girarla en el plano ${plane}` : kind === 'el' ? ` — arrastra para inclinarla respecto al plano ${plane}` : ' — arrastra para cambiarlo';
+function showTip(e, text) {
+  const b = view.getBoundingClientRect(); tip.textContent = text; tip.hidden = false;
+  tip.style.left = Math.max(4, Math.min(e.clientX - b.left + 16, b.width - tip.offsetWidth - 6)) + 'px';
+  tip.style.top = Math.max(4, Math.min(e.clientY - b.top + 16, b.height - tip.offsetHeight - 6)) + 'px';
+}
+// Lleva al formulario los valores que cambia el arrastre, sin volver a pintarlo entero
+function syncForm(i, v) {
+  const f = $('#form'), vi = S.variants.indexOf(v);
+  const set = (sel, val) => { const el = $(sel, f); if (el) { el.value = fmtN(val).replace('.', ','); el.classList.remove('bad'); } };
+  S.ports[i].dir.forEach((c, k) => set(`[data-pd="${i}"][data-k="${k}"]`, c));
+  if (vi >= 0) { set(`[data-vz="${vi}"][data-r="${i}"]`, v.rows[i].z); set(`[data-vs="${vi}"][data-r="${i}"]`, v.rows[i].s); }
+  renderAngles();
+}
+view.addEventListener('pointerdown', e => { // en captura: antes de que OrbitControls empiece a orbitar
+  if (drag || e.button !== 0 || e.target !== canvas) return;
+  const h = pickHandle(e); if (!h) return;
+  const { kind, i } = h.userData, v = curVariant(), r = v?.rows[i], d = portDir(i);
+  setRay(e);
+  const g = { kind, i, v, d, id: e.pointerId, moved: false, wasStale: stale, undo: { dir: [...S.ports[i].dir], z: r?.z, s: r?.s } };
+  if (h.userData.arc) { // giro: se acumula el ángulo que pide el movimiento del puntero a lo largo del arco
+    const [az, el, pole] = azEl(S.ports[i].dir);
+    g.f = pivotFn(kind, az, el, pole); g.base = kind === 'az' && !pole ? az : el; g.phi = 0;
+    g.L = (r?.z ?? 0) + (r?.s ?? 20) + 70; g.x = e.clientX; g.y = e.clientY;
+  } else {
+    g.o = new THREE.Vector3(); g.u = d;
+    g.t0 = axisParam(g.o, g.u); g.v0 = r[kind];
+    if (g.t0 == null) { status('Gira un poco la vista: ese tirador se mueve hacia la cámara y así no se puede arrastrar'); return; }
+  }
+  e.stopPropagation(); e.preventDefault();
+  drag = g; canvas.style.cursor = 'grabbing'; showTip(e, describe(kind, i, v)); draw();
+}, true);
+addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  setRay(e);
+  const { kind, i, v } = drag, r = v?.rows[i], step = e.altKey ? 0.1 : 0.5, snap = x => clean(Math.round(x / step) * step);
+  if (drag.f) {
+    const b = canvas.getBoundingClientRect(), a = e.altKey ? 1 : 5;
+    const scr = f => { const q = new THREE.Vector3(...drag.f(f)).multiplyScalar(drag.L).project(camera); return [(q.x + 1) / 2 * b.width, (1 - q.y) / 2 * b.height]; };
+    const p0 = scr(drag.phi), p1 = scr(drag.phi + 1), gx = p1[0] - p0[0], gy = p1[1] - p0[1], g2 = gx * gx + gy * gy; // píxeles por grado
+    if (g2 > 0.25) drag.phi += Math.max(-20, Math.min(20, ((e.clientX - drag.x) * gx + (e.clientY - drag.y) * gy) / g2));
+    drag.x = e.clientX; drag.y = e.clientY;
+    S.ports[i].dir = drag.f(Math.round((drag.base + drag.phi) / a) * a - drag.base).map(clean);
+  } else {
+    const t = axisParam(drag.o, drag.u); if (t == null) return;
+    if (kind === 'z') r.z = Math.max(0, snap(drag.v0 + t - drag.t0));
+    else r.s = Math.max(1, snap(drag.v0 + t - drag.t0));
+  }
+  drag.moved = true; stale = true;
+  syncForm(i, v); buildOverlay(); showTip(e, describe(kind, i, v));
+});
+function endDrag(cancel) {
+  if (!drag) return;
+  const g = drag, { kind, i, v } = g, r = v?.rows[i];
+  if (cancel) { S.ports[i].dir = g.undo.dir; if (r) { r.z = g.undo.z; r.s = g.undo.s; } stale = g.wasStale; }
+  drag = null; tip.hidden = true; canvas.style.cursor = '';
+  syncForm(i, v); buildOverlay();
+  if (cancel) { status('Arrastre cancelado'); return; }
+  if (!g.moved) return;
+  changed(); status(describe(kind, i, v));
+  if (lastValid && $('#c-auto').checked) { clearTimeout(renderTimer); renderTimer = setTimeout(() => renderPreview(), 60); } // sin esperar: el arrastre ya ha terminado
+}
+addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) endDrag(false); });
+addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.id) endDrag(true); });
+addEventListener('keydown', e => { if (drag && e.key === 'Escape') { e.preventDefault(); endDrag(true); } });
+canvas.addEventListener('pointermove', e => {
+  if (drag || e.buttons) return;
+  const h = pickHandle(e);
+  if (h !== hot) { hot = h; canvas.style.cursor = h ? 'grab' : ''; draw(); }
+  if (h) showTip(e, describe(h.userData.kind, h.userData.i, curVariant()) + hintOf(h.userData.kind)); else tip.hidden = true;
+});
+canvas.addEventListener('pointerleave', () => { if (drag) return; tip.hidden = true; if (hot) { hot = null; draw(); } });
+$('#c-giz').onchange = () => buildOverlay();
+
+let previewSeq = 0;
 async function renderPreview() {
   if (!lastValid) return;
-  const variant = $('#s-variant').value || S.variants[0]?.name;
+  const variant = $('#s-variant').value || S.variants[0]?.name, seq = ++previewSeq;
   try {
     const r = await stlFor(variant);
-    const g = showModel(r.stl, variant); g.computeBoundingBox();
+    if (seq !== previewSeq) return; // ya hay una generación más reciente en marcha
+    const g = showModel(r.stl); g.computeBoundingBox();
     const sz = g.boundingBox.getSize(new THREE.Vector3()), info = r.info, pieces = countPieces(r.stl);
     $('#view-info').innerHTML = `Variante <b>${esc(variant)}</b> · ${fmt(g.getAttribute('position').count / 3, 0)} triángulos · ${fmt(r.stl.length / 1024, 0)} KB · ${fmt(sz.x)} × ${fmt(sz.y)} × ${fmt(sz.z)} mm`
       + (pieces === 1 ? ' · <span style="color:var(--ok)">una sola pieza</span>' : ` · <span style="color:var(--err)">✘ ${pieces} piezas separadas: revisa Z, embocaduras y paso</span>`)
       + (info?.warnings.length ? ` · <span style="color:var(--warn)">${info.warnings.length} aviso(s) de OpenSCAD</span>` : '');
     status(`Modelo generado con OpenSCAD${r.ms ? ` en ${fmt(r.ms / 1000, 1)} s` : ''}`);
   } catch (e) {
+    if (seq !== previewSeq) return;
     $('#view-info').innerHTML = `<span style="color:var(--err)">✘ ${esc(e.message)}</span> · mira la pestaña «Registro de OpenSCAD»`;
     status('✘ OpenSCAD no ha podido generar el modelo: ' + e.message);
   }
@@ -708,7 +946,7 @@ $('#b-copy').onclick = async () => {
 $('#scad').addEventListener('input', e => { S.manualScad = e.target.value; dirty = true; $('#manual-banner').hidden = false; clearTimeout(renderTimer); if ($('#c-auto').checked) renderTimer = setTimeout(renderPreview, 1200); });
 $('#b-regen').onclick = () => { S.manualScad = null; changed(true); status('Código OpenSCAD regenerado desde el formulario'); };
 $('#b-render').onclick = () => renderPreview();
-$('#s-variant').onchange = () => renderPreview();
+$('#s-variant').onchange = () => { buildOverlay(); renderPreview(); };
 $('#c-auto').onchange = e => { if (e.target.checked) renderPreview(); };
 $('#b-dl-scad').onclick = () => {
   const code = standaloneScad(currentScad());
@@ -887,7 +1125,7 @@ addEventListener('beforeunload', e => { if (dirty) e.preventDefault(); });
 /* =====================================================================
    ARRANQUE
    ===================================================================== */
-resize();
+resize(); setPlane('XY');
 (async () => {
   await loadSources();
   const params = new URLSearchParams(location.search);
